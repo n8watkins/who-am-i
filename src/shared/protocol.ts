@@ -22,6 +22,19 @@ export type TimerSeconds = (typeof TIMER_OPTIONS)[number];
 export const MATCH_TYPES = ["points", "rounds"] as const;
 
 /** Who guesses first in round 1 of a match started from the lobby. Rematches use the loser rule. */
+/** Where yes/no questions happen: out loud, typed in the app, or both. */
+export const QUESTION_MODES = ["spoken", "app", "both"] as const;
+export type QuestionMode = (typeof QUESTION_MODES)[number];
+
+export const ANSWERS = ["yes", "no", "sort_of", "dont_know"] as const;
+export type Answer = (typeof ANSWERS)[number];
+export const ANSWER_LABELS: Record<Answer, string> = { yes: "Yes", no: "No", sort_of: "Sort of", dont_know: "Don't know" };
+
+/** Longest in-app question, in characters. */
+export const QUESTION_MAX_LENGTH = 140;
+/** Per-player limit on sending in-app questions. */
+export const QUESTION_RATE_LIMIT = { limit: 6, windowMs: 60_000 } as const;
+
 export const FIRST_PLAYER_OPTIONS = ["host", "opponent", "random"] as const;
 export type FirstPlayerOption = (typeof FIRST_PLAYER_OPTIONS)[number];
 export type MatchType = (typeof MATCH_TYPES)[number];
@@ -44,6 +57,7 @@ export const SettingsSchema = z.object({
   matchType: z.enum(MATCH_TYPES),
   firstPlayer: z.enum(FIRST_PLAYER_OPTIONS),
   hints: z.boolean(),
+  questions: z.enum(QUESTION_MODES),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -54,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   matchType: "points",
   firstPlayer: "random",
   hints: true,
+  questions: "both",
 };
 
 // Remove control characters and collapse whitespace so names render predictably.
@@ -63,6 +78,18 @@ export const NicknameSchema = z
   .string()
   .transform((s) => s.replace(CONTROL_CHARS, "").replace(/\s+/g, " ").trim())
   .pipe(z.string().min(1, "Enter a nickname").max(20, "Nicknames are at most 20 characters"));
+
+/** In-app question text: plain text, control characters removed, whitespace collapsed, 1 to 140 characters. */
+export const QuestionTextSchema = z
+  .string()
+  .max(QUESTION_MAX_LENGTH * 4)
+  .transform((s) => s.replace(CONTROL_CHARS, "").replace(/\s+/g, " ").trim())
+  .pipe(
+    z
+      .string()
+      .min(1, "Type a question")
+      .max(QUESTION_MAX_LENGTH, `Questions are at most ${QUESTION_MAX_LENGTH} characters`),
+  );
 
 export const CreateRoomRequestSchema = z.object({
   nickname: NicknameSchema,
@@ -99,6 +126,8 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("turn.skip") }),
   z.object({ ...base, type: z.literal("turn.question") }),
   z.object({ ...base, type: z.literal("turn.hint") }),
+  z.object({ ...base, type: z.literal("turn.ask"), text: QuestionTextSchema }),
+  z.object({ ...base, type: z.literal("turn.answer"), questionId: z.string().min(1).max(64), answer: z.enum(ANSWERS) }),
   z.object({ ...base, type: z.literal("round.next") }),
   z.object({ ...base, type: z.literal("match.rematch") }),
   z.object({ ...base, type: z.literal("match.change_settings") }),
@@ -142,7 +171,9 @@ export interface PlayerView {
 }
 
 /** One entry in a turn's log, shown to both players. */
-export type TurnLogEntry = { id: string; kind: "hint"; index: number; text: string; at: number };
+export type TurnLogEntry =
+  | { id: string; kind: "hint"; index: number; text: string; at: number }
+  | { id: string; kind: "question"; text: string; answer: Answer | null; at: number };
 
 export interface TurnView {
   playerId: string;

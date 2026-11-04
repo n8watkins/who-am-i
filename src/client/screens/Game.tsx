@@ -1,4 +1,17 @@
-import { HINTS_PER_TURN, HOST_OVERRIDE_AFTER_MS, QUESTION_LIMIT, type RoomView, type TurnLogEntry, type TurnResult } from "../../shared/protocol";
+import { useMemo, useState } from "react";
+import {
+  ANSWER_LABELS,
+  ANSWERS,
+  HINTS_PER_TURN,
+  HOST_OVERRIDE_AFTER_MS,
+  QUESTION_LIMIT,
+  QUESTION_MAX_LENGTH,
+  QuestionTextSchema,
+  type RoomView,
+  type TurnLogEntry,
+  type TurnResult,
+} from "../../shared/protocol";
+import { pickSuggestions } from "../../shared/questions";
 import { Scoreboard } from "../components/Scoreboard";
 import { MODE_LABELS } from "../components/SettingsForm";
 import { Banner, Button, Card, Pill } from "../components/ui";
@@ -24,6 +37,10 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const canOverride = myTurn && pendingConfirm && isHost && !opponent.connected && opponentGoneFor >= HOST_OVERRIDE_AFTER_MS;
   const identityName = view.opponentIdentity?.canonicalName ?? "";
   const hintsOn = view.settings.hints !== false;
+  const questionMode = view.settings.questions ?? "both";
+  const appOn = questionMode !== "spoken";
+  const spokenOn = questionMode !== "app";
+  const pendingQuestion = turn?.log.find((e) => e.kind === "question" && e.answer === null);
 
   const turnHeadline = myTurn ? "Your turn to guess" : `${opponent.nickname} is guessing`;
   const myResult = view.turnResults[me.playerId];
@@ -101,10 +118,10 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
           <p className="mt-2 text-muted">
             {myTurn
               ? twentyQ
-                ? `Ask ${opponent.nickname} yes/no questions about who you are. Say your guess out loud, then tap I Guessed It.`
+                ? `Ask ${opponent.nickname} yes/no questions about who you are${appOn && spokenOn ? ", out loud or in the app" : appOn ? " in the app" : ""}. Say your guess out loud, then tap I Guessed It.`
                 : `${opponent.nickname} is describing you. Say your guess out loud, then tap I Guessed It.`
               : twentyQ
-                ? `Answer ${opponent.nickname}'s yes/no questions about ${identityName}.`
+                ? `Answer ${opponent.nickname}'s yes/no questions about ${identityName}${appOn && !spokenOn ? " when they appear here" : ""}.`
                 : `Give ${opponent.nickname} clues about ${identityName} without saying the name.`}
           </p>
         )}
@@ -119,13 +136,23 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
               <span className="whitespace-nowrap text-muted"> / {QUESTION_LIMIT}</span>
               {turn.questionCount >= QUESTION_LIMIT && <span className="ml-2 text-coral">Limit reached</span>}
             </span>
-            <Button variant="secondary" disabled={room.pending} onClick={() => room.send("turn.question")} aria-label="Count one more question">
-              +1
-            </Button>
+            {spokenOn && (
+              <Button variant="secondary" disabled={room.pending} onClick={() => room.send("turn.question")} aria-label="Count one more question">
+                +1
+              </Button>
+            )}
           </div>
         )}
 
         <div className="mt-5">
+          {myTurn && !pendingConfirm && appOn && turn && (
+            <AskPanel key={turn.log.length} room={room} waitingFor={pendingQuestion ? opponent.nickname : null} />
+          )}
+
+          {!myTurn && pendingQuestion && pendingQuestion.kind === "question" && (
+            <AnswerPanel room={room} asker={opponent.nickname} questionId={pendingQuestion.id} text={pendingQuestion.text} />
+          )}
+
           {myTurn && !pendingConfirm && hintsOn && turn && (
             <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-line px-4 py-2.5">
               <span className="text-sm font-bold text-muted">
@@ -209,23 +236,132 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
 }
 
 function TurnLog({ entries, guesserName }: { entries: TurnLogEntry[]; guesserName: string }) {
+  const forWhom = guesserName === "You" ? "you" : guesserName;
   return (
     <Card>
       <h2 className="text-sm font-extrabold uppercase tracking-wide text-muted">This turn</h2>
       <ol className="mt-3 space-y-2" aria-live="polite" data-testid="turn-log">
-        {entries.map((entry) => (
-          <li key={entry.id} className="animate-pop flex gap-3 rounded-2xl bg-amber-soft/70 px-4 py-2.5" data-testid="log-hint">
-            <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-black text-amber" aria-hidden="true">
-              Hint {entry.index}
-            </span>
-            <span className="font-semibold">
-              <span className="sr-only">Hint {entry.index} for {guesserName === "You" ? "you" : guesserName}: </span>
-              {entry.text}
-            </span>
-          </li>
-        ))}
+        {entries.map((entry) =>
+          entry.kind === "hint" ? (
+            <li key={entry.id} className="animate-pop flex gap-3 rounded-2xl bg-amber-soft/70 px-4 py-2.5" data-testid="log-hint">
+              <span className="h-fit shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-black text-amber" aria-hidden="true">
+                Hint {entry.index}
+              </span>
+              <span className="font-semibold">
+                <span className="sr-only">Hint {entry.index} for {forWhom}: </span>
+                {entry.text}
+              </span>
+            </li>
+          ) : (
+            <li key={entry.id} className="animate-pop flex items-start justify-between gap-3 rounded-2xl bg-paper px-4 py-2.5" data-testid="log-question">
+              <span className="min-w-0 break-words font-semibold">
+                <span className="sr-only">{guesserName === "You" ? "You asked" : `${guesserName} asked`}: </span>
+                {entry.text}
+              </span>
+              {entry.answer ? (
+                <Pill tone={entry.answer === "yes" ? "mint" : entry.answer === "no" ? "coral" : "amber"}>
+                  <span className="sr-only">Answer: </span>
+                  {ANSWER_LABELS[entry.answer]}
+                </Pill>
+              ) : (
+                <Pill>Waiting</Pill>
+              )}
+            </li>
+          ),
+        )}
       </ol>
     </Card>
+  );
+}
+
+function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string | null }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const suggestions = useMemo(() => pickSuggestions(), []);
+  const send = async (question: string) => {
+    const parsed = QuestionTextSchema.safeParse(question);
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Type a question");
+      return;
+    }
+    setError(null);
+    if (await room.send("turn.ask", { text: parsed.data })) setText("");
+  };
+  if (waitingFor) {
+    return (
+      <p className="mb-3 rounded-2xl bg-brand-soft/60 px-4 py-3 font-semibold text-brand-dark" role="status">
+        Waiting for {waitingFor} to answer...
+      </p>
+    );
+  }
+  return (
+    <div className="mb-3 space-y-3 rounded-2xl border-2 border-line px-4 py-3">
+      <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Ask in the app</p>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Suggested questions">
+        {suggestions.map((q) => (
+          <button
+            key={q}
+            type="button"
+            disabled={room.pending}
+            onClick={() => send(q)}
+            className="min-h-11 rounded-full border-2 border-brand/25 bg-brand-soft/50 px-3.5 text-sm font-bold text-brand-dark hover:border-brand disabled:opacity-50"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send(text);
+        }}
+      >
+        <label htmlFor="ask-input" className="sr-only">
+          Type your own yes/no question
+        </label>
+        <input
+          id="ask-input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          maxLength={QUESTION_MAX_LENGTH}
+          placeholder="Or type your own yes/no question"
+          autoComplete="off"
+          aria-invalid={error ? true : undefined}
+          aria-describedby="ask-help"
+          className="min-h-11 min-w-0 flex-1 rounded-2xl border-2 border-line bg-white px-4 font-semibold focus:border-brand focus:outline-none"
+        />
+        <Button type="submit" disabled={room.pending || text.trim().length === 0}>
+          Send
+        </Button>
+      </form>
+      <p id="ask-help" className={`text-xs ${error ? "font-semibold text-coral" : "text-muted"}`}>
+        {error ?? `${text.length}/${QUESTION_MAX_LENGTH}`}
+      </p>
+    </div>
+  );
+}
+
+function AnswerPanel({ room, asker, questionId, text }: { room: RoomHandle; asker: string; questionId: string; text: string }) {
+  return (
+    <div className="mb-3 space-y-3 rounded-2xl border-2 border-brand bg-brand-soft/40 px-4 py-4" data-testid="answer-panel">
+      <p className="text-sm font-extrabold uppercase tracking-wide text-brand-dark">{asker} asks</p>
+      <p className="break-words text-xl font-black" data-testid="pending-question">
+        {text}
+      </p>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {ANSWERS.map((answer) => (
+          <Button
+            key={answer}
+            variant={answer === "yes" ? "success" : "secondary"}
+            disabled={room.pending}
+            onClick={() => room.send("turn.answer", { questionId, answer })}
+          >
+            {ANSWER_LABELS[answer]}
+          </Button>
+        ))}
+      </div>
+    </div>
   );
 }
 
