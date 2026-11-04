@@ -5,7 +5,7 @@ export const videoGames = definePack("video-games", [
   ["luigi", "Luigi", "easy", [], ["nintendo", "platformer"]],
   ["princess-peach", "Princess Peach", "easy", ["Peach"], ["nintendo"]],
   ["bowser", "Bowser", "easy", ["King Koopa"], ["nintendo", "villain"]],
-  ["link", "Link", "easy", [], ["nintendo", "adventure"]],
+  ["link", "Link from The Legend of Zelda", "easy", ["Link"], ["nintendo", "adventure"]],
   ["princess-zelda", "Princess Zelda", "easy", ["Zelda"], ["nintendo", "adventure"]],
   ["ganondorf", "Ganondorf", "medium", ["Ganon"], ["nintendo", "villain"]],
   ["pikachu", "Pikachu", "easy", [], ["pokemon"]],

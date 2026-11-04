@@ -1,0 +1,125 @@
+# Who Am I?
+
+A fast, mobile-first, two-player party game.
+Each player gets a secret identity (a famous person, a fictional character or a brand mascot).
+You can see the identity your opponent is guessing, but never your own.
+Take turns asking yes/no questions or giving clues until you work out who you are.
+
+No account, no app install: one player creates a room, the other opens the invite link, and you are playing in under 30 seconds.
+
+## How to play
+
+1. One player taps **Create game**, picks a category, a mode, a turn timer and the match length, and enters a nickname.
+2. The other player opens the invite link (or enters the 6-character room code) on their own phone and joins.
+3. Both tap **I'm ready**, and the host taps **Start game**.
+4. Each screen shows your opponent's character and "Your identity: Hidden".
+5. On your turn, ask yes/no questions (**20 Questions**) or listen to your opponent's clues (**Describe It**).
+   When you think you know, say it out loud and tap **I Guessed It**.
+6. Your opponent confirms the guess.
+   A correct guess scores 1 point, a skip scores 0, and a timed-out turn counts as a skip.
+7. When both players have had their turn, the round summary reveals both identities.
+8. The match ends at **first to 5 points** or **best after 10 rounds**.
+   **Rematch** keeps the room and settings with a fresh shuffle.
+
+Categories: Actors, Movie Characters, Historical Figures, Video Games, Brand Mascots, Anime & Cartoons, and Mixed (weighted from all of them).
+Identities never repeat within a match until a pack runs out, at which point the game says "Pack exhausted, reshuffling".
+
+## Local development
+
+Requirements: Node.js 22 or newer.
+
+```sh
+npm install
+npm run dev
+```
+
+`npm run dev` creates a `.dev.vars` file with a random local `SESSION_SECRET` (if it does not exist yet), builds the client and starts `wrangler dev` on http://localhost:8787.
+`.dev.vars` is gitignored; see `.dev.vars.example`.
+
+For hot reload of the UI, keep `wrangler dev` running and start Vite in a second terminal with `npm run dev:ui` (it proxies `/api` to Wrangler).
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run lint` | ESLint (TypeScript, React hooks, and a rule that keeps client code from importing Worker modules) |
+| `npm run typecheck` | `tsc` for the client, the Worker and the Node tooling |
+| `npm test` | Vitest unit and integration tests, running inside the Workers runtime via `@cloudflare/vitest-plugin` |
+| `npm run e2e` | Builds the client, checks the bundle for identity content, and runs Playwright against `wrangler dev` |
+| `npm run build` | Builds the client, checks the bundle, and bundles the Worker with a Wrangler dry run |
+| `SCREENSHOTS=1 npx playwright test screenshots` | Regenerates `docs/screenshots` at 1280x800 and 390x844 (after `vite build`) |
+
+## Tests
+
+- **Unit tests** (`test/engine.test.ts`, `test/view.test.ts`, `test/content.test.ts`) cover the state machine transitions, idempotency (duplicate confirm and skip clicks score once), version checks, the two-player cap, distinct and non-repeating draws, reshuffling, timer timeouts and pauses, the host override, and the per-player view filter.
+- **Worker and Durable Object tests** (`test/worker.test.ts`) exercise the real HTTP API, signed sessions, WebSockets, rate limiting and alarms in `workerd`.
+- **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, ready up, guess, confirm, skip, reveal, five rounds to a winner, then rematch.
+  While doing so they record every HTTP response body and WebSocket frame each browser receives, plus the page HTML and localStorage, and assert that a player's own identity (name and id) never appears before the round summary.
+  Other E2E tests cover refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
+
+## Secrecy model
+
+Keeping your own identity secret is the core of the game, so it is enforced on the server, not the client.
+
+- Identity content lives only in `src/worker/content` and is never imported by the client.
+  ESLint forbids client imports from the Worker, and `scripts/check-bundle.mjs` fails the build if any identity name or id appears in the built client.
+- The room's assignment map (player to identity) is private state in the Durable Object.
+- Every payload sent to a browser is built by `viewFor(room, playerId)` in `src/worker/view.ts`.
+  It contains the public room state plus only the identity your opponent is guessing.
+  Your own identity is included only in the summary of a round that has already ended.
+- Each WebSocket is tagged with its player, and every broadcast is rendered separately per socket.
+- Command responses and errors carry the same filtered view.
+- Clients send commands, never identities or scores; the server ignores anything else.
+
+### Sessions
+
+Players are anonymous.
+On create or join the Worker issues a token signed with HMAC-SHA256 (`SESSION_SECRET`), scoped to the room id, room code and player id.
+The browser stores it in localStorage per room, so a refresh restores the same seat; it never contains identity data.
+The WebSocket carries the token as a subprotocol, because browsers cannot set headers on WebSockets.
+
+### Abuse resistance
+
+- Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
+- Join attempts, room lookups and room creation are rate limited per client IP by a small Durable Object.
+- Rooms hold at most two players and close after an hour without activity.
+
+## Architecture
+
+```
+Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  RoomDurableObject (one per room code)
+        ^                                                                             |
+        +----------------------- WebSocket (per-player filtered views) ---------------+
+```
+
+- **One Worker** serves the Vite-built React SPA as static assets and the JSON API under `/api`.
+- **One Durable Object per room** (`src/worker/room.ts`) is the authoritative game server.
+  It loads the room from Durable Object storage, applies commands through a pure state machine (`src/worker/engine.ts`), persists before acknowledging, and pushes a filtered view to every connected socket using the WebSocket Hibernation API.
+- **State machine:** `lobby -> assigning -> guessing_a -> guessing_b -> round_summary -> assigning ... -> match_summary`.
+- **Commands** are validated with Zod, carry a client-generated command id (retries are answered, never re-applied) and the state version the client saw (stale versions get `409` with the canonical state).
+  If both players act at once, the first valid transition wins.
+- **Timer:** a single Durable Object alarm handles the turn deadline and room expiry.
+  The clock pauses while a guess awaits confirmation or a player is disconnected, and each turn has a unique id so a timeout ends it exactly once.
+- **Disconnects:** the opponent sees a banner and the timer pauses; if the confirming player is gone for 30 seconds, the host may confirm their own guess.
+  Leaving frees the seat and returns the room to the lobby.
+- **No external database:** room state lives in Durable Object storage and is deleted when the room expires.
+
+```
+src/
+  shared/    protocol types, Zod schemas, pack metadata (safe for the client)
+  worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
+  client/    React screens (landing, setup, join, lobby, game, round summary, match summary)
+test/        Vitest tests (Workers runtime)
+e2e/         Playwright tests
+```
+
+## Content
+
+Each pack is a typed data file in `src/worker/content` using the `Identity` shape (`id`, `canonicalName`, `aliases`, `categoryId`, `tags`, `difficulty`, `active`, optional `imageUrl`).
+Ids are `<pack>.<slug>` and must stay stable once published.
+Names only, no images.
+A unit test rejects duplicate ids and names that overlap across packs.
+
+## License
+
+MIT

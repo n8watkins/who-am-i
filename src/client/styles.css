@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, sans-serif;
+  --color-ink: #1d1a2e;
+  --color-muted: #5b5772;
+  --color-paper: #fff8ef;
+  --color-card: #ffffff;
+  --color-line: #e7dfd3;
+  --color-brand: #4c35b5;
+  --color-brand-dark: #3a2790;
+  --color-brand-soft: #ece8ff;
+  --color-coral: #e5532f;
+  --color-coral-soft: #ffe7df;
+  --color-mint: #0f7b5f;
+  --color-mint-soft: #dcf5ec;
+  --color-amber: #8a5a00;
+  --color-amber-soft: #fff1cc;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    min-height: 100dvh;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility animate-pop {
+  animation: pop-in 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
