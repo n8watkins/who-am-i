@@ -57,13 +57,12 @@ describe("lobby and seats", () => {
     expect(third).toMatchObject({ ok: false, error: "room_full" });
   });
 
-  it("refuses to start until both players are ready, and only for the host", () => {
+  it("refuses to start without a second player, and only for the host", () => {
     const { room, a, b, ctx } = setupRoom({ start: false });
-    expect(applyCommand(room, a, cmd(room, "match.start"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
-    let r = mustApply(room, a, cmd(room, "player.ready", { ready: true }), ctx);
-    r = mustApply(r, b, cmd(r, "player.ready", { ready: true }), ctx);
-    expect(applyCommand(r, b, cmd(r, "match.start"), ctx)).toMatchObject({ ok: false, error: "forbidden" });
-    r = mustApply(r, a, cmd(r, "match.start"), ctx);
+    const alone = mustApply(room, b, cmd(room, "player.leave"), ctx);
+    expect(applyCommand(alone, a, cmd(alone, "match.start"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    expect(applyCommand(room, b, cmd(room, "match.start"), ctx)).toMatchObject({ ok: false, error: "forbidden" });
+    const r = mustApply(room, a, cmd(room, "match.start"), ctx);
     expect(r.status).toBe("guessing_first");
     expect(r.roundIndex).toBe(1);
   });

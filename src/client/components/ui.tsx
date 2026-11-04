@@ -203,7 +203,7 @@ export function HowToPlay() {
       <ol className="space-y-3">
         {[
           ["Get a secret identity.", "Each player is assigned a famous person, character or mascot. You can see your opponent's, but never your own."],
-          ["Take turns guessing.", "On your turn, ask yes/no questions (20 Questions) or listen to clues (Describe It) until you know who you are."],
+          ["Take turns guessing.", "On your turn, ask yes/no questions (Ask) or listen to your opponent describe you (Clues) until you know who you are."],
           ["Say your guess out loud.", "Tap I Guessed It. Your opponent confirms if you got it right. A correct guess scores 1 point; a skip scores 0."],
           ["Win the match.", "First to 5 points, or the best score after 10 rounds, depending on the room's settings."],
         ].map(([title, body], i) => (

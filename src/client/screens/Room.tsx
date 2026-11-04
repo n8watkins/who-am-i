@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NicknameSchema, type RoomPreview } from "../../shared/protocol";
-import { MODE_LABELS, matchLabel, timerLabel } from "../components/SettingsForm";
+import { PackArt } from "../components/PackArt";
+import { settingsSummary } from "../components/SettingsForm";
 import { Banner, Button, Card, Dialog, Shell, Spinner, TextField } from "../components/ui";
 import { api, ApiRequestError, clearSession, loadNickname, loadSession, saveNickname, saveSession, type StoredSession } from "../lib/api";
 import { navigate } from "../lib/router";
@@ -119,29 +120,13 @@ function JoinRoom({ code, onJoined }: { code: string; onJoined: (s: StoredSessio
           </h1>
         </div>
         <Card>
-          <dl className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <dt className="font-bold text-muted">Category</dt>
-              <dd className="text-base font-extrabold">{preview.pack.name}</dd>
-            </div>
-            <div>
-              <dt className="font-bold text-muted">Mode</dt>
-              <dd className="text-base font-extrabold">{MODE_LABELS[preview.settings.mode].name}</dd>
-            </div>
-            <div>
-              <dt className="font-bold text-muted">Timer</dt>
-              <dd className="text-base font-extrabold">{timerLabel(preview.settings)}</dd>
-            </div>
-            <div>
-              <dt className="font-bold text-muted">Match</dt>
-              <dd className="text-base font-extrabold">{matchLabel(preview.settings)}</dd>
-            </div>
-          </dl>
-          <p className="mt-4 border-t border-line pt-4 text-sm text-muted">
-            Opponent: <strong className="text-ink">{preview.hostNickname ?? "waiting"}</strong>
-          </p>
-        </Card>
-        <Card>
+          <div className="mb-4 flex items-center gap-3">
+            <PackArt pack={preview.pack.id} className="size-12 p-1" />
+            <p className="min-w-0 text-sm font-bold">
+              <span className="block">{preview.pack.name}</span>
+              <span className="block font-semibold text-muted">{settingsSummary(preview.settings)}</span>
+            </p>
+          </div>
           <TextField
             label="Your nickname"
             value={nickname}
@@ -251,7 +236,7 @@ function RoomScreen({ code, session, onSessionInvalid }: { code: string; session
 
   return (
     <Shell
-      wide={status !== "lobby"}
+      wide
       aside={
         <Button variant="ghost" onClick={() => setLeaveOpen(true)} aria-label="Leave room">
           Leave

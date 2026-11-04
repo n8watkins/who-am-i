@@ -477,7 +477,6 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     if (room.status !== "lobby") return invalid("The match has already started.");
     if (room.hostPlayerId !== playerId) return fail("forbidden", "Only the host can start the match.");
     if (room.players.length < MAX_PLAYERS) return invalid("Waiting for a second player.");
-    if (!room.players.every((p) => p.ready)) return invalid("Both players must be ready.");
     touch(room, ctx);
     emit(room, ctx, "match.started", { playerId });
     startMatch(room, chooseFirstFromSettings(room, ctx), ctx);

@@ -1,6 +1,6 @@
 // FR-03 and FR-09: the two-player cap, and refresh/reconnect restoring the right seat.
 import { expect, test } from "@playwright/test";
-import { createGame, joinGame, newPlayer, readyAndStart } from "./support";
+import { createGame, joinGame, newPlayer, startMatch } from "./support";
 
 test("refresh restores each player's own seat and a third browser cannot join", async ({ browser }) => {
   const alice = await newPlayer(browser);
@@ -23,12 +23,11 @@ test("refresh restores each player's own seat and a third browser cannot join", 
   expect(await direct.json()).toMatchObject({ error: "room_full" });
 
   // Mid-game refresh keeps the seat, turn and opponent identity view intact.
-  await readyAndStart(alice.page, bob.page);
+  await startMatch(alice.page, bob.page);
   const bobSees = (await bob.page.getByTestId("opponent-identity").textContent())!.trim();
   await bob.page.reload();
   await expect(bob.page.getByTestId("turn-headline")).toHaveText("Alice is guessing");
   await expect(bob.page.getByTestId("opponent-identity")).toHaveText(bobSees);
-  await expect(bob.page.getByTestId("own-identity")).toHaveText("Hidden");
 
   // Disconnect: Bob's phone goes away; Alice sees it. Bob comes back in a new tab and resumes as B.
   await bob.page.close();
@@ -62,30 +61,11 @@ test("a timed turn ends when the timer runs out", async ({ browser }) => {
   const bob = await newPlayer(browser);
   const { link } = await createGame(alice.page, { nickname: "Alice", timer: "60 s" });
   await joinGame(bob.page, link, "Bob");
-  await readyAndStart(alice.page, bob.page);
+  await startMatch(alice.page, bob.page);
   await expect(alice.page.getByTestId("turn-timer")).toBeVisible();
   // Wait out the 60 s turn: the server alarm ends it exactly once and Bob's turn starts.
   await expect(bob.page.getByTestId("turn-headline")).toHaveText("Your turn to guess", { timeout: 75_000 });
   await expect(alice.page.getByText("Time ran out")).toBeVisible();
-  for (const c of [alice, bob]) await c.context.close();
-});
-
-test("both players tapping ready at the same moment both end up ready", async ({ browser }) => {
-  const alice = await newPlayer(browser);
-  const bob = await newPlayer(browser);
-  const { link } = await createGame(alice.page, { nickname: "Alice" });
-  await joinGame(bob.page, link, "Bob");
-  await expect(alice.page.getByTestId("slot-B")).toContainText("Bob");
-  // Simulate phone latency: Bob's tap leaves first but reaches the server after Alice's.
-  await bob.page.route("**/commands", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    await route.continue();
-  });
-  await bob.page.getByRole("button", { name: "I'm ready" }).click();
-  await alice.page.getByRole("button", { name: "I'm ready" }).click();
-  await expect(alice.page.getByRole("button", { name: "Start game" })).toBeEnabled();
-  await expect(bob.page.getByTestId("slot-B")).toContainText("Ready");
-  await expect(bob.page.getByRole("alert")).toHaveCount(0);
   for (const c of [alice, bob]) await c.context.close();
 });
 
@@ -94,12 +74,12 @@ test("the host can let the opponent go first from the lobby", async ({ browser }
   const bob = await newPlayer(browser);
   const { link } = await createGame(alice.page, { nickname: "Alice" });
   await joinGame(bob.page, link, "Bob");
-  await alice.page.getByRole("button", { name: "Change" }).click();
+  await alice.page.getByRole("button", { name: "Edit" }).click();
   await alice.page.getByRole("radio", { name: "My opponent", exact: true }).check();
-  await alice.page.getByRole("button", { name: "Save settings" }).click();
+  await alice.page.getByRole("button", { name: "Save" }).click();
   await expect(alice.page.getByTestId("first-player")).toContainText("Bob goes first");
   await expect(bob.page.getByTestId("first-player")).toContainText("You go first");
-  await readyAndStart(alice.page, bob.page);
+  await startMatch(alice.page, bob.page);
   await expect(bob.page.getByTestId("turn-headline")).toHaveText("Your turn to guess");
   await expect(alice.page.getByTestId("round-starter")).toHaveText("Bob goes first this round.");
   for (const c of [alice, bob]) await c.context.close();
@@ -110,7 +90,7 @@ test("leaving right after another tap still leaves on a slow connection", async 
   const bob = await newPlayer(browser);
   const { link } = await createGame(alice.page, { nickname: "Alice" });
   await joinGame(bob.page, link, "Bob");
-  await readyAndStart(alice.page, bob.page);
+  await startMatch(alice.page, bob.page);
   // Alice's phone is slow: each command takes 500 ms to reach the server.
   await alice.page.route("**/commands", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 500));

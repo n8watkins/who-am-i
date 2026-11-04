@@ -64,17 +64,14 @@ for (const device of ["desktop", "mobile"] as const) {
     await joinGame(B, link, "Bob");
 
     // The host's turn-order picker in the lobby.
-    await A.getByRole("button", { name: "Change" }).click();
+    await A.getByRole("button", { name: "Edit" }).click();
     await A.getByRole("radio", { name: "Me", exact: true }).check();
     await shot(A, "05-lobby-host-turn-order-picker");
-    await A.getByRole("button", { name: "Save settings" }).click();
-    await A.getByRole("button", { name: "I'm ready" }).click();
-    await expect(B.getByTestId("slot-A")).toContainText("Ready");
+    await A.getByRole("button", { name: "Save" }).click();
     await expect(B.getByTestId("first-player")).toContainText("Alice goes first");
     await shot(A, "06-lobby-host");
     await shot(B, "07-lobby-guest");
 
-    await B.getByRole("button", { name: "I'm ready" }).click();
     await A.getByRole("button", { name: "Start game" }).click();
     await expect(A.getByTestId("opponent-identity")).not.toBeEmpty();
     await expect(B.getByTestId("opponent-identity")).not.toBeEmpty();

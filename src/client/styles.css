@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Nunito Variable", "Segoe UI", system-ui, sans-serif;
   --color-ink: #1d1a2e;
   --color-muted: #5b5772;
   --color-paper: #fff8ef;

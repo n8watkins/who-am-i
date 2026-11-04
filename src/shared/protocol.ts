@@ -45,8 +45,6 @@ export const POINTS_TO_WIN = 5;
 export const ROUNDS_PER_MATCH = 10;
 /** How long the confirming player must be disconnected before the host may override. */
 export const HOST_OVERRIDE_AFTER_MS = 30_000;
-/** Soft cap shown by the optional 20 Questions counter. */
-export const QUESTION_LIMIT = 20;
 /** Hints a guesser may reveal per turn (every identity has exactly this many). */
 export const HINTS_PER_TURN = 3;
 

@@ -24,7 +24,7 @@ export function Scoreboard({ view, compact = false }: { view: RoomView; compact?
               </div>
             </div>
             <div className="text-right">
-              <span className="text-3xl font-black tabular-nums" aria-label={`${p.nickname} has ${p.score} ${p.score === 1 ? "point" : "points"}`}>
+              <span className="text-3xl font-black tabular-nums" data-testid={`points-${p.seat}`} aria-label={`${p.nickname} has ${p.score} ${p.score === 1 ? "point" : "points"}`}>
                 {p.score}
               </span>
             </div>

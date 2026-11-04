@@ -120,10 +120,12 @@ export async function createGame(
   await expect(page.getByRole("heading", { name: "New game" })).toBeVisible();
   await page.getByLabel("Your nickname").fill(opts.nickname);
   if (opts.pack) await page.getByTestId(`pack-${opts.pack}`).click();
+  await page.getByRole("button", { name: "More options" }).click();
   if (opts.timer) await page.getByRole("radio", { name: opts.timer, exact: true }).check();
-  if (opts.rounds) await page.getByRole("radio", { name: /Best after/ }).check();
+  if (opts.rounds) await page.getByRole("radio", { name: /Best of/ }).check();
   // Tests default to the host going first so turn order is deterministic.
   await page.getByRole("radio", { name: opts.first ?? "Me", exact: true }).check();
+  await page.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "Create game" }).click();
   await expect(page.getByTestId("room-code")).toBeVisible();
   const code = (await page.getByTestId("room-code").textContent())!.trim();
@@ -138,9 +140,7 @@ export async function joinGame(page: Page, link: string, nickname: string) {
   await expect(page.getByTestId("room-code")).toBeVisible();
 }
 
-export async function readyAndStart(host: Page, guest: Page) {
-  await host.getByRole("button", { name: "I'm ready" }).click();
-  await guest.getByRole("button", { name: "I'm ready" }).click();
+export async function startMatch(host: Page, guest: Page) {
   const start = host.getByRole("button", { name: "Start game" });
   await expect(start).toBeEnabled();
   await start.click();
@@ -149,7 +149,7 @@ export async function readyAndStart(host: Page, guest: Page) {
 }
 
 export async function scoreOf(page: Page, seat: "A" | "B"): Promise<string> {
-  return (await page.getByTestId(`score-${seat}`).locator(".text-3xl").textContent())!.trim();
+  return (await page.getByTestId(`points-${seat}`).textContent())!.trim();
 }
 
 /** Both players' identities for a round, read from the viewer's reveal message. */

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { qrPath } from "../src/client/lib/qr";
-import { assertNoLeakBeforeReveal, createGame, newPlayer, readyAndStart } from "./support";
+import { assertNoLeakBeforeReveal, createGame, newPlayer, startMatch } from "./support";
 
 test("a friend joins with just the PIN and a nickname, in under 10 seconds", async ({ browser, baseURL }) => {
   const host = await newPlayer(browser);
@@ -26,7 +26,7 @@ test("a friend joins with just the PIN and a nickname, in under 10 seconds", asy
 
   // Joining by PIN keeps the secrecy guarantee.
   const windowStart = guest.capture.mark();
-  await readyAndStart(host.page, guest.page);
+  await startMatch(host.page, guest.page);
   await guest.capture.snapshot("in game");
   await host.page.getByRole("button", { name: "Skip" }).click();
   await guest.page.getByRole("button", { name: "Skip" }).click();
