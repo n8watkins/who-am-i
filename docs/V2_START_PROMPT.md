@@ -32,7 +32,7 @@ Secrets:
 After each merge:
 - Apply new database migrations first with npx wrangler d1 migrations apply DB --remote, then deploy with npx wrangler deploy.
 - Wait until the live site serves the new build (the asset names in its HTML match dist/client/assets), because the first seconds after a deploy can still serve the old client and fail the checks for no real reason.
-- Save the full output of the check to a file, then rerun the live acceptance and secrecy check: E2E_BASE_URL=https://who-am-i-game.nathancwatkins23.workers.dev npx playwright test acceptance (plus the new mode specs once they exist).
+- Save the full output of the check to a file, then rerun the live acceptance and secrecy check: E2E_BASE_URL=https://whoami.n8builds.dev npx playwright test acceptance (plus the new mode specs once they exist).
 - Report the PR link, the deploy result and the check result in a few lines.
 
 UI changes:
