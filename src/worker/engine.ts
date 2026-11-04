@@ -30,6 +30,7 @@ import { getIdentity, MIXED_WEIGHTS, packIdentities, type Identity, type SourceP
 export const MAX_PLAYERS = 2;
 const RECENT_COMMANDS_KEPT = 100;
 const EVENTS_KEPT = 200;
+const REMOVED_PLAYERS_KEPT = 20;
 
 export interface PlayerRecord {
   id: string;
@@ -140,6 +141,8 @@ export interface RoomState {
   rematchVotes: string[];
   /** The lobby's 4-digit PIN, kept in step with the PIN directory by the room. */
   pin?: { value: string; expiresAt: number } | null;
+  /** Players the host removed, so a late reconnect is told why instead of being offered a seat. */
+  removedPlayerIds?: string[];
   /** Recent in-app question send times per player, for rate limiting. */
   questionSends?: Record<string, number[]>;
   opponentLeft: boolean;
@@ -720,6 +723,7 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     if (cmd.playerId === playerId || !playerById(room, cmd.playerId)) return invalid("That player cannot be removed.");
     room.players = room.players.filter((p) => p.id !== cmd.playerId);
     for (const p of room.players) p.ready = false;
+    room.removedPlayerIds = [...(room.removedPlayerIds ?? []), cmd.playerId].slice(-REMOVED_PLAYERS_KEPT);
     touch(room, ctx);
     emit(room, ctx, "player.left", { playerId: cmd.playerId });
     return undefined;

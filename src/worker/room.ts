@@ -108,7 +108,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   async getView(roomId: string, playerId: string): Promise<ViewResult> {
     const room = this.authorized(roomId, playerId);
-    if (!room) return unauthorized();
+    if (!room) return this.denied(roomId, playerId);
     await this.expireIfDue();
     return { ok: true, view: viewFor(this.room!, playerId, Date.now()) };
   }
@@ -129,7 +129,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async command(roomId: string, playerId: string, command: Command): Promise<CommandResult> {
-    if (!this.authorized(roomId, playerId)) return unauthorized();
+    if (!this.authorized(roomId, playerId)) return this.denied(roomId, playerId);
     // A turn whose deadline passed ends before any command is considered (first valid transition wins).
     await this.expireIfDue();
     const ctx = engineContext();
@@ -383,6 +383,15 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
     if (code) await this.enqueuePinWork(() => this.pinDirectory().release(code));
+  }
+
+  /** A removed player may have missed the socket close, so they are told here too. */
+  private denied(roomId: string, playerId: string): RpcFailure {
+    const room = this.room;
+    if (room?.roomId === roomId && room.removedPlayerIds?.includes(playerId)) {
+      return { ok: false, error: "removed", message: "The host removed you from this game." };
+    }
+    return unauthorized();
   }
 
   private authorized(roomId: string, playerId: string): RoomState | null {

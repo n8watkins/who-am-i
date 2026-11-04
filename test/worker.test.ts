@@ -444,7 +444,17 @@ describe("player.remove", () => {
     expect(res.body.view.players.map((p) => p.nickname)).toEqual(["Alice"]);
     expect(res.body.view.notices).not.toContain("opponent_left");
     expect(await closed).toBe(4002);
-    expect((await api(`/api/rooms/${code}/state`, { token: guest.token })).status).toBe(401);
+    expect((await api(`/api/rooms/${code}/state`, { token: guest.token })).status).toBe(403);
+  });
+
+  it("tells a removed player why, even if they missed the socket close", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const guest = (await joinRoom(code)).body;
+    await send(code, host.token, await latestView(code, host.token), "player.remove", { playerId: guest.playerId });
+    const res = await api<ApiError>(`/api/rooms/${code}/state`, { token: guest.token });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("removed");
   });
 
   it("is host-only, lobby-only and cannot target the host", async () => {
