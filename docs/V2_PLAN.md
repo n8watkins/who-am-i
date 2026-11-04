@@ -72,6 +72,33 @@ Implementation notes from M2b: a player's log and counts carry between their mov
 
 Delivery order is now M2 (desktop-first UX), M2b (turn formats, difficulty, handicap), M2c (Pass and play), then M3 onward as planned.
 
+## 2b. Owner decisions on 2026-11-04 (round 3)
+
+These override section 2a and anything below that disagrees.
+
+- **Friends first**: players want to play friends, not the AI, so the AI is a host, content source and referee rather than an opponent.
+  Solo and Daily move to later, and in Slow Duel the friend answers by default, with AI answers as an optional setting.
+- **Sign-in moves up**: GitHub first through a dialog, guest play stays, and Google follows.
+  Repeat tracking, points, ratings and skins all depend on it.
+- **Catalog**: grow presets to about 1,000 (400 easy, 400 medium, 200 hard).
+  A written standard defines each level by target solve rate (Easy above 75%, Medium 45 to 75%, Hard below 45%), and real solve data moves identities between levels.
+  AI proposes identities into a checked catalog, and generates live only when a player's pool runs out; the same automatic checks apply.
+- **No repeats**: each account records what it was given, a draw avoids what either player has seen, and the oldest are reused only when a pool runs out.
+- **Ratings phase**: each game has **points**, which only go up, and an Elo **rating**, shown among friends.
+  A forfeit gives points but no rating, only if you played your side, and at most once per challenge.
+  Identities get ratings too, players are matched to about a 60% solve chance, and Auto becomes the default difficulty once a player has a rating.
+- **More games**: Timeline, Know Your Friend, Voice Clues (Clues by voice note), then rooms for 3 or more, then Bluff Facts and Sketch Relay.
+  Road Trip is dropped.
+- **Party pass**: one buyer, invited friends play free, and skins stay with the buyer.
+- **Avatars and voice**: lobby avatars you can move around and bump into each other, and optional live voice; every game must work silently.
+- **Measured difficulty**: difficulty comes from how people actually do, not from AI or human estimates.
+  Every finished round records, per identity, whether it was solved, the questions asked, the hints used and the player's difficulty level, with no player identity attached.
+  Those numbers decide each identity's level once it has enough plays; before that, the authored label is only a starting guess.
+
+Delivery order, set by the owner on 2026-11-04: GitHub sign-in with the database, then lobby avatars, then Timeline.
+Identity tracking, the larger catalog, Pass and play and the big screen follow, then friends, points and ratings, more games, and skins, voice and the party pass.
+Solo, Daily and matchmaking with strangers come after that, if usage justifies them.
+
 ## 3. Game modes
 
 v2 ships four modes.
