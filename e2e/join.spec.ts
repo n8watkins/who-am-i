@@ -28,8 +28,8 @@ test("a friend joins with just the PIN and a nickname, in under 10 seconds", asy
   const windowStart = guest.capture.mark();
   await startMatch(host.page, guest.page);
   await guest.capture.snapshot("in game");
-  await host.page.getByRole("button", { name: "Skip" }).click();
-  await guest.page.getByRole("button", { name: "Skip" }).click();
+  await host.page.getByRole("button", { name: "Give up" }).click();
+  await guest.page.getByRole("button", { name: "Give up" }).click();
   await expect(guest.page.getByRole("heading", { name: "The big reveal" })).toBeVisible();
   expect(await assertNoLeakBeforeReveal(guest.capture, 1, windowStart)).toBeGreaterThan(0);
 

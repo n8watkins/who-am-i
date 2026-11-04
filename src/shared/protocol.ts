@@ -35,6 +35,14 @@ export const QUESTION_MAX_LENGTH = 140;
 /** Per-player limit on sending in-app questions. */
 export const QUESTION_RATE_LIMIT = { limit: 6, windowMs: 60_000 } as const;
 
+/** Trade turns: one question, one guess, then the other player's move. Keep going: a turn lasts until you solve it or give up. */
+export const TURN_FORMATS = ["trade", "keep_going"] as const;
+export type TurnFormat = (typeof TURN_FORMATS)[number];
+
+/** How hard the identities are. Tiers overlap on the server because hard identities are scarce. */
+export const DIFFICULTIES = ["easy", "medium", "hard"] as const;
+export type Difficulty = (typeof DIFFICULTIES)[number];
+
 export const FIRST_PLAYER_OPTIONS = ["host", "opponent", "random"] as const;
 export type FirstPlayerOption = (typeof FIRST_PLAYER_OPTIONS)[number];
 export type MatchType = (typeof MATCH_TYPES)[number];
@@ -56,6 +64,8 @@ export const SettingsSchema = z.object({
   firstPlayer: z.enum(FIRST_PLAYER_OPTIONS),
   hints: z.boolean(),
   questions: z.enum(QUESTION_MODES),
+  turnFormat: z.enum(TURN_FORMATS).default("keep_going"),
+  difficulty: z.enum(DIFFICULTIES).default("medium"),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -67,6 +77,8 @@ export const DEFAULT_SETTINGS: Settings = {
   firstPlayer: "random",
   hints: true,
   questions: "both",
+  turnFormat: "trade",
+  difficulty: "medium",
 };
 
 // Remove control characters and collapse whitespace so names render predictably.
@@ -135,6 +147,8 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("match.change_settings") }),
   z.object({ ...base, type: z.literal("player.leave") }),
   z.object({ ...base, type: z.literal("player.remove"), playerId: z.string().min(1).max(64) }),
+  z.object({ ...base, type: z.literal("player.difficulty"), difficulty: z.enum(DIFFICULTIES).nullable() }),
+  z.object({ ...base, type: z.literal("turn.pass") }),
 ]);
 export type Command = z.infer<typeof CommandSchema>;
 export type CommandType = Command["type"];
@@ -147,7 +161,7 @@ export type RoomStatus =
   | "guessing_second"
   | "round_summary"
   | "match_summary";
-export type TurnResult = "correct" | "skipped" | "timed_out";
+export type TurnResult = "correct" | "skipped" | "timed_out" | "beaten";
 export type TurnPhase = "asking" | "pending_confirm";
 
 /** What a client may see of an identity. Sent only for identities the viewer is allowed to see. */
@@ -171,6 +185,8 @@ export interface PlayerView {
   skips: number;
   /** Hints revealed for this player in the current match. */
   hintsUsed: number;
+  /** This player's own difficulty, or null to follow the room's. */
+  difficulty: Difficulty | null;
 }
 
 /** One entry in a turn's log, shown to both players. */
@@ -188,6 +204,8 @@ export interface TurnView {
   questionCount: number;
   hintsUsed: number;
   log: TurnLogEntry[];
+  /** Trade turns: this move's one question has been asked. */
+  moveAsked: boolean;
 }
 
 export interface RoundSummaryEntry {

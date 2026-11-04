@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CommandSchema, DEFAULT_SETTINGS, POINTS_TO_WIN, QUESTION_RATE_LIMIT, QuestionTextSchema, ROUNDS_PER_MATCH } from "../src/shared/protocol";
+import { CommandSchema, DEFAULT_SETTINGS, PACK_IDS, POINTS_TO_WIN, QUESTION_RATE_LIMIT, QuestionTextSchema, ROUNDS_PER_MATCH } from "../src/shared/protocol";
 import { getIdentity, packIdentities } from "../src/worker/content";
 import {
   applyCommand,
   createRoom,
+  DIFFICULTY_POOLS,
   drawPair,
   expireTurn,
   identitiesClash,
@@ -583,5 +584,137 @@ describe("in-app questions", () => {
     expect(QuestionTextSchema.parse("<b>Am I bold?</b>")).toBe("<b>Am I bold?</b>");
     const parsed = CommandSchema.safeParse({ type: "turn.ask", commandId: "abcdefgh", expectedVersion: 1, text: "x".repeat(200) });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("Trade turns", () => {
+  const trade = (seed?: number) => setupRoom({ settings: { turnFormat: "trade" }, seed });
+  const ask = (room: RoomState, player: string, ctx: ReturnType<typeof testContext>, text = "Am I real?") =>
+    mustApply(room, player, cmd(room, "turn.ask", { text }), ctx);
+  const answer = (room: RoomState, player: string, ctx: ReturnType<typeof testContext>) => {
+    const pending = room.turn!.log.find((e) => e.kind === "question" && e.answer === null)!;
+    return mustApply(room, player, cmd(room, "turn.answer", { questionId: pending.id, answer: "yes" }), ctx);
+  };
+
+  it("allows one question per move, then a guess or a pass", () => {
+    const { room, a, b, ctx } = trade();
+    let r = ask(room, a, ctx);
+    expect(applyCommand(r, a, cmd(r, "turn.pass"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    expect(applyCommand(r, a, cmd(r, "turn.correct.request"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    r = answer(r, b, ctx);
+    expect(applyCommand(r, a, cmd(r, "turn.ask", { text: "Again?" }), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    expect(applyCommand(r, a, cmd(r, "turn.question"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    r = mustApply(r, a, cmd(r, "turn.pass"), ctx);
+    expect(r.turn!.playerId).toBe(b);
+    expect(r.turn!.log).toEqual([]);
+  });
+
+  it("ends the move on a wrong guess, without ending the round", () => {
+    const { room, a, b, ctx } = trade();
+    let r = mustApply(room, a, cmd(room, "turn.correct.request"), ctx);
+    r = mustApply(r, b, cmd(r, "turn.correct.reject"), ctx);
+    expect(r.turn).toMatchObject({ playerId: b, phase: "asking" });
+    expect(r.round!.results).toEqual({});
+  });
+
+  it("keeps each player's questions and hints across moves", () => {
+    const { room, a, b, ctx } = trade();
+    let r = ask(room, a, ctx, "Am I old?");
+    r = answer(r, b, ctx);
+    r = mustApply(r, a, cmd(r, "turn.hint"), ctx);
+    r = mustApply(r, a, cmd(r, "turn.pass"), ctx);
+    r = mustApply(r, b, cmd(r, "turn.pass"), ctx);
+    expect(r.turn!.playerId).toBe(a);
+    expect(r.turn!.questionCount).toBe(1);
+    expect(r.turn!.hintsUsed).toBe(1);
+    expect(r.turn!.log.map((e) => e.kind)).toEqual(["question", "hint"]);
+    expect(r.turn!.moveAsked).toBe(false);
+  });
+
+  it("ends the round on the first correct guess, and the other player was beaten", () => {
+    const { room, a, b, ctx } = trade();
+    let r = mustApply(room, a, cmd(room, "turn.pass"), ctx);
+    r = mustApply(r, b, cmd(r, "turn.correct.request"), ctx);
+    r = mustApply(r, a, cmd(r, "turn.correct.confirm"), ctx);
+    expect(r.status).toBe("round_summary");
+    const results = Object.fromEntries(r.lastRoundSummary!.entries.map((e) => [e.playerId, e.result]));
+    expect(results).toEqual({ [a]: "beaten", [b]: "correct" });
+    expect(r.players.find((p) => p.id === b)!.score).toBe(1);
+  });
+
+  it("lets the other player finish alone after one gives up, and ends with no point if both do", () => {
+    const { room, a, b, ctx } = trade();
+    let r = mustApply(room, a, cmd(room, "turn.skip"), ctx);
+    expect(r.turn!.playerId).toBe(b);
+    r = mustApply(r, b, cmd(r, "turn.pass"), ctx);
+    expect(r.turn!.playerId).toBe(b);
+    r = mustApply(r, b, cmd(r, "turn.skip"), ctx);
+    expect(r.status).toBe("round_summary");
+    expect(r.lastRoundSummary!.entries.map((e) => e.result)).toEqual(["skipped", "skipped"]);
+    expect(r.players.every((p) => p.score === 0)).toBe(true);
+  });
+
+  it("treats running out of time as a passed move", () => {
+    const { room, a, b, ctx } = setupRoom({ settings: { turnFormat: "trade", timerSeconds: 60 } });
+    ctx.now += 61_000;
+    const expired = expireTurn(room, ctx)!;
+    expect(expired.turn!.playerId).toBe(b);
+    expect(expired.round!.results[a]).toBeUndefined();
+    expect(expired.turn!.deadline).toBe(ctx.now + 60_000);
+  });
+
+  it("never applies to Clues rooms", () => {
+    const { room, a, b, ctx } = setupRoom({ settings: { turnFormat: "trade", mode: "describe_it" } });
+    expect(applyCommand(room, a, cmd(room, "turn.pass"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    const r = mustApply(room, a, cmd(room, "turn.skip"), ctx);
+    expect(r.turn!.playerId).toBe(b);
+    expect(r.status).toBe("guessing_second");
+  });
+});
+
+describe("difficulty", () => {
+  const levels = ["easy", "medium", "hard"] as const;
+
+  it("draws only from the level's pool, in every pack, and always finds a pair", () => {
+    for (const packId of PACK_IDS) {
+      for (const difficulty of levels) {
+        const { room } = setupRoom({ settings: { packId, difficulty }, start: false });
+        for (let i = 0; i < 40; i++) {
+          const { pair } = drawPair(room, Math.random);
+          for (const identity of pair) expect(DIFFICULTY_POOLS[difficulty]).toContain(identity.difficulty);
+        }
+      }
+    }
+  });
+
+  it("gets through a full 10 round match at every level in every pack", () => {
+    for (const packId of PACK_IDS) {
+      for (const difficulty of levels) {
+        let { room, a, b, ctx } = setupRoom({ settings: { packId, difficulty, matchType: "rounds" } });
+        for (let round = 1; round <= 10; round++) {
+          room = playRound(room, a, b, ctx, "skip", "skip");
+          room = mustApply(room, a, cmd(room, "round.next"), ctx);
+        }
+        expect(room.status).toBe("match_summary");
+      }
+    }
+  });
+
+  it("gives each player their own level as a handicap", () => {
+    const { room, a, b, ctx } = setupRoom({ settings: { packId: "mixed", difficulty: "medium" }, start: false });
+    let r = mustApply(room, a, cmd(room, "player.difficulty", { difficulty: "hard" }), ctx);
+    r = mustApply(r, b, cmd(r, "player.difficulty", { difficulty: "easy" }), ctx);
+    for (let i = 0; i < 30; i++) {
+      const { pair } = drawPair(r, Math.random, [a, b]);
+      expect(DIFFICULTY_POOLS.hard).toContain(pair[0].difficulty);
+      expect(pair[1].difficulty).toBe("easy");
+    }
+    r = mustApply(r, b, cmd(r, "player.difficulty", { difficulty: null }), ctx);
+    expect(viewFor(r, a, ctx.now).players.map((p) => p.difficulty)).toEqual(["hard", null]);
+  });
+
+  it("only changes between matches", () => {
+    const { room, a, ctx } = setupRoom();
+    expect(applyCommand(room, a, cmd(room, "player.difficulty", { difficulty: "easy" }), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
   });
 });

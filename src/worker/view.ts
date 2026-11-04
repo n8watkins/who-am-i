@@ -45,6 +45,7 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
       correct: p.correct,
       skips: p.skips,
       hintsUsed: p.hintsUsed ?? 0,
+      difficulty: p.difficulty ?? null,
     })),
     roundIndex: room.roundIndex,
     firstPlayerId: room.round?.order[0] ?? null,
@@ -57,6 +58,7 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
           questionCount: room.turn.questionCount,
           hintsUsed: room.turn.hintsUsed ?? 0,
           log: (room.turn.log ?? []).map((entry) => ({ ...entry })),
+          moveAsked: room.turn.moveAsked ?? false,
         }
       : null,
     turnResults: room.round ? { ...room.round.results } : {},

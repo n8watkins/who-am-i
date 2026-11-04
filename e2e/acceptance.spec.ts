@@ -93,7 +93,7 @@ test("two players complete an Actors match without seeing their own identities, 
       await alice.capture.snapshot(`round ${round} Bob turn`);
       await bob.capture.snapshot(`round ${round} Bob turn`);
       // B takes their turn and skips.
-      await B.getByRole("button", { name: "Skip" }).click();
+      await B.getByRole("button", { name: "Give up" }).click();
     };
     if (aliceFirst) {
       await aliceTurn();
@@ -161,8 +161,8 @@ test("two players complete an Actors match without seeing their own identities, 
   expect(await scoreOf(B, "B")).toBe("0");
   await alice.capture.snapshot("rematch round 1");
   await bob.capture.snapshot("rematch round 1");
-  await B.getByRole("button", { name: "Skip" }).click();
-  await A.getByRole("button", { name: "Skip" }).click();
+  await B.getByRole("button", { name: "Give up" }).click();
+  await A.getByRole("button", { name: "Give up" }).click();
   await expect(A.getByRole("heading", { name: "The big reveal" })).toBeVisible();
   await expect(B.getByRole("heading", { name: "The big reveal" })).toBeVisible();
   totalChecked.alice += await assertNoLeakBeforeReveal(alice.capture, 1, rematchStart.alice);

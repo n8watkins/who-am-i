@@ -97,7 +97,7 @@ test("leaving right after another tap still leaves on a slow connection", async 
     await route.continue();
   });
   // She skips and immediately leaves, before the skip's response has arrived.
-  await alice.page.getByRole("button", { name: "Skip" }).click();
+  await alice.page.getByRole("button", { name: "Give up" }).click();
   await alice.page.getByRole("button", { name: "Leave room" }).first().click();
   await alice.page.getByRole("dialog").getByRole("button", { name: "Leave room" }).click();
   await expect(bob.page.getByText("Your opponent left.")).toBeVisible();

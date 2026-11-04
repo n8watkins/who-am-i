@@ -1,6 +1,6 @@
-import type { PackId } from "../../shared/protocol";
+import type { Difficulty, PackId } from "../../shared/protocol";
 
-export type Difficulty = "easy" | "medium" | "hard";
+export type { Difficulty };
 
 /** A guessable identity. Server-only: never import this module from client code. */
 export interface Identity {

@@ -35,7 +35,7 @@ async function api<T>(path: string, init: RequestInit & { token?: string; ip?: s
 async function createRoom(settings: Partial<Settings> = {}) {
   const res = await api<SessionResponse>("/api/rooms", {
     method: "POST",
-    body: JSON.stringify({ nickname: "Alice", settings: { ...DEFAULT_SETTINGS, firstPlayer: "host", ...settings } }),
+    body: JSON.stringify({ nickname: "Alice", settings: { ...DEFAULT_SETTINGS, firstPlayer: "host", turnFormat: "keep_going", ...settings } }),
   });
   expect(res.status).toBe(201);
   return res.body;

@@ -18,7 +18,7 @@ async function playRound(A: Page, B: Page) {
   };
   const bobTurn = async () => {
     await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
-    await B.getByRole("button", { name: "Skip" }).click();
+    await B.getByRole("button", { name: "Give up" }).click();
   };
   if (aliceFirst) {
     await aliceTurn();
@@ -105,7 +105,7 @@ for (const device of ["desktop", "mobile"] as const) {
     await B.getByRole("button", { name: "Yes, correct" }).click();
     await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
     await shot(B, "15-game-bob-guessing");
-    await B.getByRole("button", { name: "Skip" }).click();
+    await B.getByRole("button", { name: "Give up" }).click();
     await expect(A.getByRole("heading", { name: "The big reveal" })).toBeVisible();
     await shot(A, "16-round-summary-alice");
     await shot(B, "17-round-summary-bob");

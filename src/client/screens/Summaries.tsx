@@ -94,7 +94,7 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
               </span>
               <span className="shrink-0 text-sm font-semibold text-muted">
                 <span className="mr-2 text-xl font-black tabular-nums text-ink">{p.score}</span>
-                {plural(p.skips, "skip")}, {plural(p.hintsUsed, "hint")}
+                gave up {p.skips}, {plural(p.hintsUsed, "hint")}
               </span>
             </li>
           ))}

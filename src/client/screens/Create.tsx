@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DEFAULT_SETTINGS, NicknameSchema, type Settings } from "../../shared/protocol";
-import { MoreOptions, optionsSummary, PackPicker, StylePicker } from "../components/SettingsForm";
+import { DifficultyPicker, MoreOptions, optionsSummary, PackPicker, StylePicker } from "../components/SettingsForm";
 import { Banner, Button, Card, Dialog, Shell, TextField } from "../components/ui";
 import { api, ApiRequestError, loadNickname, saveNickname, saveSession } from "../lib/api";
 import { navigate } from "../lib/router";
@@ -54,6 +54,7 @@ export function Create() {
               autoFocus
             />
             <StylePicker value={settings} onChange={setSettings} />
+            <DifficultyPicker value={settings} onChange={setSettings} />
             <div>
               <p className="text-sm font-semibold text-muted" data-testid="options-summary">{optionsSummary(settings)}</p>
               <Button variant="ghost" className="-ml-5 !min-h-9 !py-1" onClick={() => setMoreOpen(true)}>
