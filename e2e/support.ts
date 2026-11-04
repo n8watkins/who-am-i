@@ -166,15 +166,16 @@ function revealedPair(capture: Capture, roundIndex: number, windowStart: number)
 /**
  * Asserts each of the player's own hints for `roundIndex` reached their browser only after they
  * requested it (`requestMarks[k]` is the capture mark taken right before requesting hint k+1),
- * and unrequested hints never arrived before the reveal. Hint texts that also belong to the
- * opponent's identity are skipped, because the player legitimately sees the opponent's hints.
+ * and unrequested hints never arrived before the reveal. Hint texts that also appear inside one
+ * of the opponent's hints are skipped, because the player legitimately sees the opponent's hints:
+ * "An American actor" is contained in "An American actor and director".
  */
 export async function assertHintsOnlyAfterRequest(capture: Capture, roundIndex: number, windowStart: number, requestMarks: number[]): Promise<number> {
   await capture.settle();
   const { reveal, own, other } = revealedPair(capture, roundIndex, windowStart);
   let checked = 0;
   own.hints.forEach((hint, k) => {
-    if (other.hints.includes(hint)) return;
+    if (other.hints.some((theirs) => theirs.includes(hint))) return;
     const until = requestMarks[k] ?? reveal.seq;
     for (const item of capture.between(windowStart, until)) {
       checked++;
