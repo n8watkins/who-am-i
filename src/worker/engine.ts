@@ -85,7 +85,7 @@ export interface RoundRecord {
 
 export interface RoundSummaryRecord {
   roundIndex: number;
-  entries: { playerId: string; identityId: string; result: TurnResult; hintsUsed: number }[];
+  entries: { playerId: string; identityId: string; result: TurnResult; hintsUsed: number; questions?: number; level?: Difficulty }[];
   matchOver: boolean;
 }
 
@@ -420,6 +420,7 @@ export function expireTurn(current: RoomState, ctx: EngineContext): RoomState | 
     endMove(room, ctx);
     return room;
   }
+  saveTrack(room, turn);
   room.round!.results[turn.playerId] = "timed_out";
   playerById(room, turn.playerId)!.skips += 1;
   room.turn = null;
@@ -789,6 +790,7 @@ export function firstGuesserOf(room: RoomState, roundIndex: number): string {
 
 function scoreCorrect(room: RoomState, turn: TurnRecord, ctx: EngineContext): void {
   const guesser = playerById(room, turn.playerId)!;
+  saveTrack(room, turn);
   guesser.score += 1;
   guesser.correct += 1;
   room.round!.results[guesser.id] = "correct";
@@ -892,6 +894,8 @@ function completeRound(room: RoomState, ctx: EngineContext): void {
       identityId: round.assignments[p.id]!,
       result: round.results[p.id] ?? (Object.values(round.results).includes("correct") ? "beaten" : "skipped"),
       hintsUsed: round.hintsUsed?.[p.id] ?? 0,
+      questions: round.tracks?.[p.id]?.questionCount ?? 0,
+      level: p.difficulty ?? room.settings.difficulty ?? "medium",
     })),
     matchOver,
   };

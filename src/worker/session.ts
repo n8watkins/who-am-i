@@ -65,6 +65,36 @@ export async function signSession(
   return `${signed}.${toBase64Url(signature)}`;
 }
 
+const ACCOUNT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** A signed-in account's cookie value: `a1` keeps it from ever passing as a room token. */
+export async function signAccount(secret: string | undefined, userId: string, now = Date.now()): Promise<string> {
+  const key = await hmacKey(secret);
+  const payload = toBase64Url(encoder.encode(JSON.stringify({ userId, exp: now + ACCOUNT_TTL_MS })));
+  const signed = `a1.${payload}`;
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(signed)));
+  return `${signed}.${toBase64Url(signature)}`;
+}
+
+/** Returns the account's user id, or null for a missing, altered or expired value. */
+export async function verifyAccount(secret: string | undefined, value: string | null | undefined, now = Date.now()): Promise<string | null> {
+  const key = await hmacKey(secret);
+  if (!value || value.length > 1024) return null;
+  const parts = value.split(".");
+  if (parts.length !== 3 || parts[0] !== "a1") return null;
+  const payload = fromBase64Url(parts[1]!);
+  const signature = fromBase64Url(parts[2]!);
+  if (!payload || !signature) return null;
+  const valid = await crypto.subtle.verify("HMAC", key, signature, encoder.encode(`a1.${parts[1]}`));
+  if (!valid) return null;
+  try {
+    const claims = JSON.parse(new TextDecoder().decode(payload)) as { userId?: unknown; exp?: unknown };
+    return typeof claims.userId === "string" && typeof claims.exp === "number" && claims.exp >= now ? claims.userId : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function verifySession(
   secret: string | undefined,
   token: string | null | undefined,

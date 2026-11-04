@@ -317,8 +317,27 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private async commit(next: RoomState, departedCloseCode = CLOSE_LEFT_ROOM): Promise<void> {
+    const roundJustEnded = this.room?.status !== "round_summary" && next.status === "round_summary";
     await this.store(next, departedCloseCode);
+    if (roundJustEnded) this.ctx.waitUntil(this.recordPlays(next));
     await this.updatePin();
+  }
+
+  /** Measures how hard each identity really was. Holds no player or room data, and never blocks the game. */
+  private async recordPlays(room: RoomState): Promise<void> {
+    const summary = room.lastRoundSummary;
+    if (!summary) return;
+    const statement = this.env.DB.prepare(
+      "INSERT INTO identity_plays (identity_id, result, questions, hints, level, mode, turn_format, played_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    const { mode, turnFormat } = room.settings;
+    try {
+      await this.env.DB.batch(
+        summary.entries.map((e) => statement.bind(e.identityId, e.result, e.questions ?? 0, e.hintsUsed, e.level ?? "medium", mode, turnFormat ?? "keep_going", Date.now())),
+      );
+    } catch (err) {
+      console.error("Recording plays failed", err instanceof Error ? err.message : "unknown");
+    }
   }
 
   private broadcast(departedCloseCode: number): void {
