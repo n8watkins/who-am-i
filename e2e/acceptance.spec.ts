@@ -123,6 +123,7 @@ test("two players complete an Actors match without seeing their own identities, 
   await A.getByRole("button", { name: "Skip" }).click();
   await B.getByRole("button", { name: "Skip" }).click();
   await expect(A.getByRole("heading", { name: "The big reveal" })).toBeVisible();
+  await expect(B.getByRole("heading", { name: "The big reveal" })).toBeVisible();
   totalChecked.alice += await assertNoLeakBeforeReveal(alice.capture, 1, rematchStart.alice);
   totalChecked.bob += await assertNoLeakBeforeReveal(bob.capture, 1, rematchStart.bob);
 
