@@ -122,4 +122,4 @@ A unit test rejects duplicate ids and names that overlap across packs.
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).
