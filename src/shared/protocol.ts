@@ -309,6 +309,7 @@ export type ErrorCode =
   | "version_conflict"
   | "invalid_transition"
   | "forbidden"
+  | "removed"
   | "internal";
 
 export interface ApiError {

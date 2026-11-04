@@ -1,4 +1,4 @@
-import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   MAX_LIVE_PINS,
@@ -119,7 +119,10 @@ describe("PinDirectoryDurableObject", () => {
   it("clears old rows on its alarm and stops when empty", async () => {
     const stub = directory();
     await stub.issue("AAAAAA", "room-1", 1);
-    await runDurableObjectAlarm(stub);
+    // Issued at time 1, the cleanup alarm is already due, so the runtime may
+    // start it on its own and race runDurableObjectAlarm. Run the handler
+    // directly instead.
+    await runInDurableObject(stub, (dir: PinDirectoryDurableObject) => dir.alarm());
     await runInDurableObject(stub, async (_dir: PinDirectoryDurableObject, state) => {
       expect(state.storage.sql.exec("SELECT pin FROM pins").toArray()).toEqual([]);
       expect(await state.storage.getAlarm()).toBeNull();

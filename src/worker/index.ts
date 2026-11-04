@@ -34,6 +34,7 @@ const STATUS_BY_ERROR: Record<ErrorCode, number> = {
   bad_request: 400,
   unauthorized: 401,
   forbidden: 403,
+  removed: 403,
   not_found: 404,
   room_full: 409,
   version_conflict: 409,
