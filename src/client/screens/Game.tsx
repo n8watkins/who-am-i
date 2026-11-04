@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ANSWER_LABELS,
   ANSWERS,
@@ -144,75 +144,79 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
           </div>
         )}
 
-        <div className="mt-5">
-          {myTurn && !pendingConfirm && appOn && turn && (
-            <AskPanel key={turn.log.length} room={room} waitingFor={pendingQuestion ? opponent.nickname : null} />
-          )}
+        {myTurn && !pendingConfirm && appOn && turn && (
+          <AskPanel key={turn.log.length} room={room} waitingFor={pendingQuestion ? opponent.nickname : null} />
+        )}
 
-          {!myTurn && pendingQuestion && pendingQuestion.kind === "question" && (
-            <AnswerPanel room={room} asker={opponent.nickname} questionId={pendingQuestion.id} text={pendingQuestion.text} />
-          )}
+        {!myTurn && !pendingConfirm && !pendingQuestion && (
+          <p className="mt-4 rounded-2xl bg-paper px-4 py-3 text-sm font-semibold text-muted">
+            When {opponent.nickname} guesses, you will be asked to confirm it here.
+          </p>
+        )}
 
-          {myTurn && !pendingConfirm && hintsOn && turn && (
-            <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-line px-4 py-2.5">
-              <span className="text-sm font-bold text-muted">
-                {turn.hintsUsed >= HINTS_PER_TURN ? "No hints left this turn" : `${HINTS_PER_TURN - turn.hintsUsed} of ${HINTS_PER_TURN} hints left`}
-              </span>
-              <Button variant="secondary" disabled={room.pending || turn.hintsUsed >= HINTS_PER_TURN} onClick={() => room.send("turn.hint")}>
-                Get a hint
-              </Button>
-            </div>
-          )}
+        {/* The turn's primary actions: a sticky bottom bar on phones, inline on larger screens. */}
+        {turn && (myTurn || pendingConfirm || pendingQuestion) && (
+          <ActionBar>
+            {!myTurn && pendingQuestion && pendingQuestion.kind === "question" && !pendingConfirm && (
+              <AnswerPanel room={room} asker={opponent.nickname} questionId={pendingQuestion.id} text={pendingQuestion.text} />
+            )}
 
-          {myTurn && !pendingConfirm && (
-            <div className="grid grid-cols-2 gap-3">
-              <Button variant="secondary" size="lg" disabled={room.pending} onClick={() => room.send("turn.skip")}>
-                Skip
-              </Button>
-              <Button size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.request")}>
-                I Guessed It
-              </Button>
-            </div>
-          )}
+            {myTurn && !pendingConfirm && (
+              <div className="space-y-2.5">
+                {hintsOn && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold text-muted">
+                      {turn.hintsUsed >= HINTS_PER_TURN ? "No hints left this turn" : `${HINTS_PER_TURN - turn.hintsUsed} of ${HINTS_PER_TURN} hints left`}
+                    </span>
+                    <Button variant="secondary" disabled={room.pending || turn.hintsUsed >= HINTS_PER_TURN} onClick={() => room.send("turn.hint")}>
+                      Get a hint
+                    </Button>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="secondary" size="lg" disabled={room.pending} onClick={() => room.send("turn.skip")}>
+                    Skip
+                  </Button>
+                  <Button size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.request")} className="whitespace-nowrap">
+                    I Guessed It
+                  </Button>
+                </div>
+              </div>
+            )}
 
-          {myTurn && pendingConfirm && (
-            <div className="space-y-3">
-              <Banner tone="info" role="status">
-                Waiting for {opponent.nickname} to confirm your guess...
-              </Banner>
-              {canOverride && (
-                <Button block disabled={room.pending} onClick={() => room.send("turn.correct.override")}>
-                  Confirm without {opponent.nickname} (host)
-                </Button>
-              )}
-              <Button variant="secondary" block disabled={room.pending} onClick={() => room.send("turn.skip")}>
-                Skip instead
-              </Button>
-            </div>
-          )}
-
-          {!myTurn && pendingConfirm && (
-            <div className="space-y-3">
-              <p className="text-lg font-bold">
-                {opponent.nickname} thinks they got it. Did they say <span className="text-brand">{identityName}</span>?
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <Button variant="secondary" size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.reject")}>
-                  Not quite
-                </Button>
-                <Button variant="success" size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.confirm")}>
-                  Yes, correct
+            {myTurn && pendingConfirm && (
+              <div className="space-y-2.5">
+                <Banner tone="info" role="status">
+                  Waiting for {opponent.nickname} to confirm your guess...
+                </Banner>
+                {canOverride && (
+                  <Button block disabled={room.pending} onClick={() => room.send("turn.correct.override")}>
+                    Confirm without {opponent.nickname} (host)
+                  </Button>
+                )}
+                <Button variant="secondary" block disabled={room.pending} onClick={() => room.send("turn.skip")}>
+                  Skip instead
                 </Button>
               </div>
-            </div>
-          )}
+            )}
 
-          {!myTurn && !pendingConfirm && (
-            <p className="rounded-2xl bg-paper px-4 py-3 text-sm font-semibold text-muted">
-              When {opponent.nickname} guesses, you will be asked to confirm it here.
-            </p>
-          )}
-        </div>
+            {!myTurn && pendingConfirm && (
+              <div className="space-y-2.5">
+                <p className="text-lg font-bold">
+                  {opponent.nickname} thinks they got it. Did they say <span className="text-brand">{identityName}</span>?
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="secondary" size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.reject")}>
+                    Not quite
+                  </Button>
+                  <Button variant="success" size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.confirm")}>
+                    Yes, correct
+                  </Button>
+                </div>
+              </div>
+            )}
+          </ActionBar>
+        )}
       </Card>
 
       {turn && turn.log.length > 0 && <TurnLog entries={turn.log} guesserName={myTurn ? "You" : opponent.nickname} />}
@@ -231,6 +235,39 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
           {view.settings.timerSeconds > 0 && <li>Each turn lasts {view.settings.timerSeconds} seconds. When time runs out, the turn ends.</li>}
         </ul>
       </details>
+    </div>
+  );
+}
+
+/**
+ * Holds the turn's primary actions. Below the `sm` breakpoint it is fixed to the bottom of the
+ * screen (above the iOS home indicator), and the page reserves its height so it never covers
+ * the log. On larger screens it renders inline. No animation, so reduced motion is respected.
+ */
+function ActionBar({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const update = () => root.style.setProperty("--action-bar-h", `${el.offsetHeight}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--action-bar-h");
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      role="region"
+      aria-label="Turn actions"
+      data-testid="action-bar"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(29,26,46,0.10)] backdrop-blur sm:static sm:z-auto sm:mt-5 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none"
+    >
+      <div className="mx-auto max-w-lg sm:max-w-none">{children}</div>
     </div>
   );
 }
@@ -274,10 +311,14 @@ function TurnLog({ entries, guesserName }: { entries: TurnLogEntry[]; guesserNam
   );
 }
 
+const VISIBLE_SUGGESTIONS = 4;
+
 function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string | null }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const suggestions = useMemo(() => pickSuggestions(), []);
+  const visible = showAll ? suggestions : suggestions.slice(0, VISIBLE_SUGGESTIONS);
   const send = async (question: string) => {
     const parsed = QuestionTextSchema.safeParse(question);
     if (!parsed.success) {
@@ -289,26 +330,34 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
   };
   if (waitingFor) {
     return (
-      <p className="mb-3 rounded-2xl bg-brand-soft/60 px-4 py-3 font-semibold text-brand-dark" role="status">
+      <p className="mt-4 rounded-2xl bg-brand-soft/60 px-4 py-3 font-semibold text-brand-dark" role="status">
         Waiting for {waitingFor} to answer...
       </p>
     );
   }
   return (
-    <div className="mb-3 space-y-3 rounded-2xl border-2 border-line px-4 py-3">
+    <div className="mt-4 space-y-2.5">
       <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Ask in the app</p>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Suggested questions">
-        {suggestions.map((q) => (
+        {visible.map((q) => (
           <button
             key={q}
             type="button"
             disabled={room.pending}
             onClick={() => send(q)}
-            className="min-h-11 rounded-full border-2 border-brand/25 bg-brand-soft/50 px-3.5 text-sm font-bold text-brand-dark hover:border-brand disabled:opacity-50"
+            className="min-h-11 rounded-full border-2 border-brand/25 bg-brand-soft/50 px-3 text-sm font-bold text-brand-dark hover:border-brand disabled:opacity-50"
           >
             {q}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          aria-expanded={showAll}
+          className="min-h-11 rounded-full px-3 text-sm font-bold text-brand underline-offset-2 hover:underline"
+        >
+          {showAll ? "Fewer" : "More"}
+        </button>
       </div>
       <form
         className="flex gap-2"
@@ -325,26 +374,29 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
           value={text}
           onChange={(e) => setText(e.target.value)}
           maxLength={QUESTION_MAX_LENGTH}
-          placeholder="Or type your own yes/no question"
+          placeholder="Type a question"
           autoComplete="off"
+          enterKeyHint="send"
           aria-invalid={error ? true : undefined}
           aria-describedby="ask-help"
-          className="min-h-11 min-w-0 flex-1 rounded-2xl border-2 border-line bg-white px-4 font-semibold focus:border-brand focus:outline-none"
+          className="min-h-11 min-w-0 flex-1 rounded-2xl border-2 border-line bg-white px-3.5 font-semibold focus:border-brand focus:outline-none"
         />
         <Button type="submit" disabled={room.pending || text.trim().length === 0}>
           Send
         </Button>
       </form>
-      <p id="ask-help" className={`text-xs ${error ? "font-semibold text-coral" : "text-muted"}`}>
-        {error ?? `${text.length}/${QUESTION_MAX_LENGTH}`}
-      </p>
+      {(error || text.length > 0) && (
+        <p id="ask-help" className={`text-xs ${error ? "font-semibold text-coral" : "text-muted"}`}>
+          {error ?? `${text.length}/${QUESTION_MAX_LENGTH}`}
+        </p>
+      )}
     </div>
   );
 }
 
 function AnswerPanel({ room, asker, questionId, text }: { room: RoomHandle; asker: string; questionId: string; text: string }) {
   return (
-    <div className="mb-3 space-y-3 rounded-2xl border-2 border-brand bg-brand-soft/40 px-4 py-4" data-testid="answer-panel">
+    <div className="space-y-2.5" data-testid="answer-panel">
       <p className="text-sm font-extrabold uppercase tracking-wide text-brand-dark">{asker} asks</p>
       <p className="break-words text-xl font-black" data-testid="pending-question">
         {text}

@@ -34,6 +34,12 @@ for (const device of ["desktop", "mobile"] as const) {
   test(`screens on ${device}`, async ({ browser }) => {
     const mobile = device === "mobile";
     const shot = (page: Page, name: string) => page.screenshot({ path: `${OUT}/${device}-${name}.png`, fullPage: true, animations: "disabled" });
+    // What a phone actually shows without scrolling (390x844), where the sticky action bar matters.
+    const fold = async (page: Page, name: string) => {
+      if (!mobile) return;
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: `${OUT}/mobile-fold-${name}.png`, animations: "disabled" });
+    };
     const alice = await newPlayer(browser, { mobile });
     const bob = await newPlayer(browser, { mobile });
     const A = alice.page;
@@ -74,12 +80,15 @@ for (const device of ["desktop", "mobile"] as const) {
     await expect(B.getByTestId("opponent-identity")).not.toBeEmpty();
     await shot(A, "08-game-alice-guessing");
     await shot(B, "09-game-bob-answering");
+    await fold(A, "08-alice-guessing-panel-open");
 
     // In-app question: Alice asks, Bob answers on his phone, both logs update.
     await A.getByRole("button", { name: "Am I a real person?" }).click();
     await expect(B.getByTestId("pending-question")).toBeVisible();
     await shot(A, "10-question-alice-waiting");
     await shot(B, "11-question-bob-answer-buttons");
+    await fold(A, "10-alice-pending-question");
+    await fold(B, "11-bob-answer-buttons");
     await B.getByRole("button", { name: "Yes", exact: true }).click();
     await expect(A.getByTestId("log-question")).toContainText("Yes");
 
@@ -88,10 +97,14 @@ for (const device of ["desktop", "mobile"] as const) {
     await expect(B.getByTestId("log-hint")).toHaveCount(1);
     await shot(A, "12-hint-and-log-alice");
     await shot(B, "13-hint-and-log-bob");
+    await fold(A, "12-alice-log-filled");
+    await A.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    if (mobile) await A.screenshot({ path: `${OUT}/mobile-fold-12b-alice-log-filled-scrolled.png`, animations: "disabled" });
 
     await A.getByRole("button", { name: "I Guessed It" }).click();
     await expect(B.getByRole("button", { name: "Yes, correct" })).toBeVisible();
     await shot(B, "14-game-bob-confirm");
+    await fold(B, "14-bob-confirm");
     await B.getByRole("button", { name: "Yes, correct" }).click();
     await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
     await shot(B, "15-game-bob-guessing");
