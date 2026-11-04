@@ -12,7 +12,11 @@ export interface Identity {
   difficulty: Difficulty;
   active: boolean;
   imageUrl?: string;
+  /** Exactly three hints, from vague to strong. Never contain the name or an alias. */
+  hints: Hints;
 }
+
+export type Hints = readonly [string, string, string];
 
 export type SourcePackId = Exclude<PackId, "mixed">;
 
@@ -23,14 +27,19 @@ export type IdentityRow = readonly [string, string, Difficulty, (readonly string
  * Builds a pack's identities. The id is `${packId}.${slug}`; slugs are stable once
  * published and must not be changed when a display name is corrected.
  */
-export function definePack(packId: SourcePackId, rows: readonly IdentityRow[]): Identity[] {
-  return rows.map(([slug, canonicalName, difficulty, aliases = [], tags = []]) => ({
-    id: `${packId}.${slug}`,
-    canonicalName,
-    aliases: [...aliases],
-    categoryId: packId,
-    tags: [...tags],
-    difficulty,
-    active: true,
-  }));
+export function definePack(packId: SourcePackId, rows: readonly IdentityRow[], hints: Readonly<Record<string, Hints>>): Identity[] {
+  return rows.map(([slug, canonicalName, difficulty, aliases = [], tags = []]) => {
+    const identityHints = hints[slug];
+    if (!identityHints) throw new Error(`Missing hints for ${packId}.${slug}`);
+    return {
+      id: `${packId}.${slug}`,
+      canonicalName,
+      aliases: [...aliases],
+      categoryId: packId,
+      tags: [...tags],
+      difficulty,
+      active: true,
+      hints: identityHints,
+    };
+  });
 }

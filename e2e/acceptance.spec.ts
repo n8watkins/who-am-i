@@ -3,7 +3,7 @@
 // prove neither player's own identity reaches them before the round summary.
 import { expect, test } from "@playwright/test";
 import { packIdentities } from "../src/worker/content";
-import { assertNoLeakBeforeReveal, createGame, joinGame, newPlayer, readyAndStart, scoreOf } from "./support";
+import { assertHintsOnlyAfterRequest, assertNoLeakBeforeReveal, createGame, joinGame, newPlayer, readyAndStart, scoreOf } from "./support";
 
 const ACTOR_NAMES = new Set(packIdentities("actors").map((i) => i.canonicalName));
 
@@ -29,6 +29,7 @@ test("two players complete an Actors match without seeing their own identities, 
 
   const seenIdentities = new Set<string>();
   const totalChecked = { alice: 0, bob: 0 };
+  const hintMarks: number[] = [];
   const POINTS_TO_WIN = 5;
 
   for (let round = 1; round <= POINTS_TO_WIN; round++) {
@@ -60,6 +61,16 @@ test("two players complete an Actors match without seeing their own identities, 
       // Snapshot the rendered page and localStorage mid-round for the leak check.
       await alice.capture.snapshot(`round ${round} Alice turn`);
       await bob.capture.snapshot(`round ${round} Alice turn`);
+      // Round 1: Alice asks for two hints. Each appears on both phones only after she asks.
+      if (round === 1) {
+        for (let k = 1; k <= 2; k++) {
+          hintMarks.push(alice.capture.mark());
+          await A.getByRole("button", { name: "Get a hint" }).click();
+          await expect(A.getByTestId("log-hint")).toHaveCount(k);
+          await expect(B.getByTestId("log-hint")).toHaveCount(k);
+        }
+        await expect(A.getByText("1 of 3 hints left")).toBeVisible();
+      }
       // B counts a question (20 Questions), A guesses correctly, B confirms (double-clicked on purpose).
       await B.getByRole("button", { name: "Count one more question" }).click();
       await expect(A.getByTestId("question-count")).toHaveText("1");
@@ -100,6 +111,13 @@ test("two players complete an Actors match without seeing their own identities, 
     // Neither player's own identity reached their browser before this reveal.
     totalChecked.alice += await assertNoLeakBeforeReveal(alice.capture, round, 0);
     totalChecked.bob += await assertNoLeakBeforeReveal(bob.capture, round, 0);
+    if (round === 1) {
+      await expect(A.getByTestId("hints-self")).toHaveText("2 hints used");
+      await expect(B.getByTestId("hints-opponent")).toHaveText("2 hints used");
+      // Hints 1 and 2 only after Alice asked; hint 3 (never asked) not at all. Bob's own hints never.
+      expect(await assertHintsOnlyAfterRequest(alice.capture, 1, 0, hintMarks)).toBeGreaterThan(0);
+      expect(await assertHintsOnlyAfterRequest(bob.capture, 1, 0, [])).toBeGreaterThan(0);
+    }
 
     if (round < POINTS_TO_WIN) {
       await A.getByRole("button", { name: "Next round" }).click();

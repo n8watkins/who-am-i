@@ -474,3 +474,54 @@ describe("turn order", () => {
     expect(viewFor(room, a, ctx.now).firstPlayerId).toBe(b);
   });
 });
+
+describe("hints", () => {
+  it("reveals the guesser's own hints one at a time, up to 3 per turn", () => {
+    let { room, a, b, ctx } = setupRoom();
+    const identity = getIdentity(room.round!.assignments[a]!);
+    expect(applyCommand(room, b, cmd(room, "turn.hint"), ctx)).toMatchObject({ ok: false, error: "forbidden" });
+    for (let i = 0; i < 3; i++) {
+      // Nothing about the next hint is in either player's view before it is requested.
+      for (const viewer of [a, b]) {
+        const json = JSON.stringify(viewFor(room, viewer, ctx.now));
+        for (const hint of identity.hints.slice(i)) expect(json).not.toContain(hint);
+      }
+      room = mustApply(room, a, cmd(room, "turn.hint"), ctx);
+      expect(room.turn!.log.at(-1)).toMatchObject({ kind: "hint", index: i + 1, text: identity.hints[i] });
+      expect(viewFor(room, b, ctx.now).turn!.log.map((e) => e.text)).toEqual(identity.hints.slice(0, i + 1));
+    }
+    expect(applyCommand(room, a, cmd(room, "turn.hint"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    expect(room.players.find((p) => p.id === a)!.hintsUsed).toBe(3);
+  });
+
+  it("never puts the identity's name or id in a hint", () => {
+    let { room, a, ctx } = setupRoom();
+    const identity = getIdentity(room.round!.assignments[a]!);
+    for (let i = 0; i < 3; i++) room = mustApply(room, a, cmd(room, "turn.hint"), ctx);
+    const json = JSON.stringify(viewFor(room, a, ctx.now));
+    expect(json).not.toContain(identity.id);
+    expect(json).not.toContain(identity.canonicalName);
+  });
+
+  it("is rejected when hints are off and while a guess awaits confirmation", () => {
+    const off = setupRoom({ settings: { hints: false } });
+    expect(applyCommand(off.room, off.a, cmd(off.room, "turn.hint"), off.ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    let { room, a, ctx } = setupRoom();
+    room = mustApply(room, a, cmd(room, "turn.correct.request"), ctx);
+    expect(applyCommand(room, a, cmd(room, "turn.hint"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+  });
+
+  it("does not change scoring, and summaries count hints per player", () => {
+    let { room, a, b, ctx } = setupRoom();
+    room = mustApply(room, a, cmd(room, "turn.hint"), ctx);
+    room = mustApply(room, a, cmd(room, "turn.hint"), ctx);
+    room = mustApply(room, a, cmd(room, "turn.correct.request"), ctx);
+    room = mustApply(room, b, cmd(room, "turn.correct.confirm"), ctx);
+    expect(room.turn!.log).toEqual([]);
+    room = mustApply(room, b, cmd(room, "turn.hint"), ctx);
+    room = mustApply(room, b, cmd(room, "turn.skip"), ctx);
+    const summary = viewFor(room, a, ctx.now).roundSummary!;
+    expect(Object.fromEntries(summary.entries.map((e) => [e.playerId, e.hintsUsed]))).toEqual({ [a]: 2, [b]: 1 });
+    expect(room.players.find((p) => p.id === a)!.score).toBe(1);
+  });
+});

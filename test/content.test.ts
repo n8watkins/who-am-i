@@ -57,3 +57,51 @@ describe("content packs", () => {
     expect(normalizeName("Timothée Chalamet")).toBe("timothee chalamet");
   });
 });
+
+describe("hints", () => {
+  const MAX_HINT_LENGTH = 90;
+  const contains = (text: string, name: string) => {
+    const needle = normalizeName(name);
+    return needle.length > 0 && ` ${normalizeName(text)} `.includes(` ${needle} `);
+  };
+
+  it("has exactly 3 hints of bounded length for every identity", () => {
+    for (const identity of ALL_PACK_IDENTITIES) {
+      expect(identity.hints, identity.id).toHaveLength(3);
+      for (const hint of identity.hints) {
+        expect(hint.trim(), identity.id).toBe(hint);
+        expect(hint.length, `${identity.id}: ${hint}`).toBeGreaterThanOrEqual(8);
+        expect(hint.length, `${identity.id}: ${hint}`).toBeLessThanOrEqual(MAX_HINT_LENGTH);
+        expect(hint, identity.id).not.toContain("—");
+      }
+      expect(new Set(identity.hints).size, identity.id).toBe(3);
+    }
+  });
+
+  it("never contains the identity's own name or any alias (case-insensitive, whole words)", () => {
+    const problems: string[] = [];
+    for (const identity of ALL_PACK_IDENTITIES) {
+      for (const hint of identity.hints) {
+        for (const name of [identity.canonicalName, ...identity.aliases]) {
+          if (contains(hint, name)) problems.push(`${identity.id}: "${hint}" contains "${name}"`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("never names any other identity, so a hint cannot reveal the opponent's identity", () => {
+    const problems: string[] = [];
+    for (const identity of ALL_PACK_IDENTITIES) {
+      for (const hint of identity.hints) {
+        for (const other of ALL_PACK_IDENTITIES) {
+          if (other.id === identity.id) continue;
+          for (const name of [other.canonicalName, ...other.aliases]) {
+            if (contains(hint, name)) problems.push(`${identity.id}: "${hint}" names ${other.id} ("${name}")`);
+          }
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+});

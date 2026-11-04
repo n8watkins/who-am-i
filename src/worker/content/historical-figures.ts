@@ -1,4 +1,212 @@
-import { definePack } from "./types";
+import { definePack, type Hints } from "./types";
+
+const HINTS: Record<string, Hints> = {
+  "albert-einstein": [
+    "A scientist",
+    "A German-born physicist with famously wild hair",
+    "Came up with the theory of relativity and E = mc²",
+  ],
+  "cleopatra": [
+    "A ruler from the ancient world",
+    "The last active ruler of Ptolemaic Egypt",
+    "An Egyptian queen linked with Mark Antony",
+  ],
+  "abraham-lincoln": [
+    "An American political leader",
+    "Born in a log cabin in Kentucky",
+    "The 16th US president, who gave the Gettysburg Address",
+  ],
+  "george-washington": [
+    "An American political leader",
+    "Commanded the Continental Army",
+    "The first president of the United States",
+  ],
+  "napoleon-bonaparte": [
+    "A European military leader",
+    "Crowned himself emperor",
+    "French emperor defeated at Waterloo",
+  ],
+  "leonardo-da-vinci": [
+    "A Renaissance figure",
+    "An Italian painter, inventor and scientist",
+    "Painted the Mona Lisa and The Last Supper",
+  ],
+  "william-shakespeare": [
+    "A writer from the past",
+    "An English playwright and poet",
+    "Wrote Romeo and Juliet and Hamlet",
+  ],
+  "marie-curie": [
+    "A scientist",
+    "A Polish-French pioneer of radioactivity",
+    "The first person to win two Nobel Prizes",
+  ],
+  "isaac-newton": [
+    "A scientist",
+    "An English mathematician and physicist",
+    "Described gravity, supposedly after an apple fell",
+  ],
+  "mahatma-gandhi": [
+    "A political leader",
+    "Led a nonviolent movement for independence",
+    "Led India's independence movement and the Salt March",
+  ],
+  "martin-luther-king-jr": [
+    "An American leader",
+    "A Baptist minister and civil rights leader",
+    "Gave the \"I Have a Dream\" speech",
+  ],
+  "nelson-mandela": [
+    "A political leader",
+    "Spent 27 years in prison",
+    "The first Black president of South Africa",
+  ],
+  "elizabeth-i": [
+    "A ruler from the past",
+    "Known as the Virgin Queen",
+    "English queen whose navy defeated the Spanish Armada",
+  ],
+  "julius-caesar": [
+    "A ruler from the ancient world",
+    "A Roman general who crossed the Rubicon",
+    "Assassinated on the Ides of March",
+  ],
+  "joan-of-arc": [
+    "A historical heroine",
+    "A French peasant girl who led an army",
+    "The Maid of Orléans, later made a saint",
+  ],
+  "galileo-galilei": [
+    "A scientist",
+    "An Italian astronomer who improved the telescope",
+    "Put on trial for saying the Earth orbits the Sun",
+  ],
+  "charles-darwin": [
+    "A scientist",
+    "An English naturalist who sailed on HMS Beagle",
+    "Developed the theory of evolution by natural selection",
+  ],
+  "amelia-earhart": [
+    "An American pioneer",
+    "A record-setting aviator",
+    "First woman to fly solo across the Atlantic, later lost over the Pacific",
+  ],
+  "neil-armstrong": [
+    "An American explorer",
+    "A NASA astronaut and former test pilot",
+    "The first person to walk on the Moon",
+  ],
+  "rosa-parks": [
+    "An American civil rights figure",
+    "Her arrest sparked the Montgomery bus boycott",
+    "Refused to give up her bus seat in 1955",
+  ],
+  "florence-nightingale": [
+    "A historical figure in medicine",
+    "Founder of modern nursing",
+    "Known as The Lady with the Lamp in the Crimean War",
+  ],
+  "mozart": [
+    "A composer",
+    "An Austrian child prodigy",
+    "Composed The Magic Flute and Eine kleine Nachtmusik",
+  ],
+  "beethoven": [
+    "A composer",
+    "A German composer who kept working after going deaf",
+    "Composed the Fifth Symphony and Ode to Joy",
+  ],
+  "vincent-van-gogh": [
+    "An artist",
+    "A Dutch post-impressionist painter",
+    "Painted The Starry Night and Sunflowers",
+  ],
+  "pablo-picasso": [
+    "An artist",
+    "A Spanish painter and sculptor",
+    "Co-founded Cubism and painted Guernica",
+  ],
+  "frida-kahlo": [
+    "An artist",
+    "A Mexican painter famous for self-portraits",
+    "Known for her unibrow, flower crowns and the Blue House",
+  ],
+  "thomas-edison": [
+    "An inventor",
+    "An American with over a thousand patents",
+    "Invented the phonograph and a practical light bulb",
+  ],
+  "nikola-tesla": [
+    "An inventor",
+    "A Serbian-American engineer",
+    "Pioneer of alternating current, now the name of a car brand",
+  ],
+  "benjamin-franklin": [
+    "An American founding figure",
+    "A printer, writer and inventor",
+    "Flew a kite in a thunderstorm and is on the $100 bill",
+  ],
+  "alexander-the-great": [
+    "A ruler from the ancient world",
+    "A Macedonian ruler taught by Aristotle",
+    "Built a vast empire before age 33",
+  ],
+  "genghis-khan": [
+    "A ruler from the past",
+    "Founder of a huge empire on the steppe",
+    "Founder of the Mongol Empire",
+  ],
+  "tutankhamun": [
+    "A ruler from the ancient world",
+    "An Egyptian pharaoh who died young",
+    "Boy pharaoh whose golden tomb was found in 1922",
+  ],
+  "queen-victoria": [
+    "A ruler from the past",
+    "Gave her name to a whole era",
+    "British queen who reigned for 63 years in the 1800s",
+  ],
+  "winston-churchill": [
+    "A political leader",
+    "A British statesman known for his speeches and cigars",
+    "UK prime minister during World War II",
+  ],
+  "harriet-tubman": [
+    "An American heroine",
+    "Escaped slavery and then went back to help others",
+    "Famous conductor on the Underground Railroad",
+  ],
+  "ada-lovelace": [
+    "A pioneer of science",
+    "An English mathematician and daughter of Lord Byron",
+    "Often called the first computer programmer",
+  ],
+  "marco-polo": [
+    "An explorer",
+    "A Venetian merchant and traveler",
+    "Journeyed along the Silk Road to Kublai Khan's court",
+  ],
+  "confucius": [
+    "A thinker from the ancient world",
+    "A Chinese philosopher and teacher",
+    "His sayings were collected in the Analects",
+  ],
+  "socrates": [
+    "A thinker from the ancient world",
+    "A Greek philosopher who wrote nothing down",
+    "Teacher of Plato, sentenced to drink hemlock",
+  ],
+  "frederick-douglass": [
+    "An American leader",
+    "Escaped slavery and became a famous speaker",
+    "Abolitionist who wrote a celebrated autobiography",
+  ],
+  "helen-keller": [
+    "An American author and activist",
+    "Lost her sight and hearing as a baby",
+    "Learned to communicate with the help of Anne Sullivan",
+  ],
+};
 
 export const historicalFigures = definePack("historical-figures", [
   ["albert-einstein", "Albert Einstein", "easy", ["Einstein"], ["science", "physics"]],
@@ -42,4 +250,4 @@ export const historicalFigures = definePack("historical-figures", [
   ["socrates", "Socrates", "medium", [], ["philosophy", "ancient"]],
   ["frederick-douglass", "Frederick Douglass", "hard", [], ["civil rights", "writing"]],
   ["helen-keller", "Helen Keller", "medium", [], ["writing", "activism"]],
-]);
+], HINTS);

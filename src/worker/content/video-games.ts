@@ -1,4 +1,207 @@
-import { definePack } from "./types";
+import { definePack, type Hints } from "./types";
+
+const HINTS: Record<string, Hints> = {
+  "mario": [
+    "A video game character",
+    "A plumber from the Mushroom Kingdom",
+    "Nintendo's mascot in a red cap with an M on it",
+  ],
+  "luigi": [
+    "A video game character",
+    "The taller, more timid of two plumber brothers",
+    "Wears green and starred in a haunted mansion series",
+  ],
+  "princess-peach": [
+    "A video game character",
+    "Royalty who often gets kidnapped",
+    "Ruler of the Mushroom Kingdom in a pink dress",
+  ],
+  "bowser": [
+    "A video game villain",
+    "A giant fire-breathing turtle",
+    "Ruler of the Koopas who keeps kidnapping a princess",
+  ],
+  "link": [
+    "A video game character",
+    "A silent hero in a green tunic and cap",
+    "Wields the Master Sword to save Hyrule",
+  ],
+  "princess-zelda": [
+    "A video game character",
+    "A princess with wisdom and magic",
+    "The princess of Hyrule whose name is in her series' title",
+  ],
+  "ganondorf": [
+    "A video game villain",
+    "A sorcerer who seeks the Triforce",
+    "The Gerudo villain of Hyrule's legends",
+  ],
+  "pikachu": [
+    "A video game creature",
+    "A small yellow electric mouse",
+    "The most famous Pokémon, it says its own name",
+  ],
+  "jigglypuff": [
+    "A video game creature",
+    "A round pink balloon Pokémon",
+    "Sings a lullaby that puts everyone to sleep",
+  ],
+  "sonic": [
+    "A video game character",
+    "A blue animal who loves chili dogs",
+    "Sega's speedy hedgehog who collects gold rings",
+  ],
+  "tails": [
+    "A video game character",
+    "A young fox who can fly",
+    "A two-tailed fox who flies by spinning them like a propeller",
+  ],
+  "dr-eggman": [
+    "A video game villain",
+    "A mad scientist with a huge mustache",
+    "Builds robots to fight Sega's blue hedgehog",
+  ],
+  "pac-man": [
+    "A video game character",
+    "A yellow circle from a 1980 arcade game",
+    "Eats dots and runs from four ghosts in a maze",
+  ],
+  "donkey-kong": [
+    "A video game character",
+    "A gorilla who wears a red necktie",
+    "A Nintendo ape who threw barrels in a 1981 arcade game",
+  ],
+  "kirby": [
+    "A video game character",
+    "A round pink hero from Dream Land",
+    "Inhales enemies to copy their powers",
+  ],
+  "yoshi": [
+    "A video game character",
+    "A friendly green dinosaur",
+    "Rides with a famous plumber and eats enemies with his long tongue",
+  ],
+  "wario": [
+    "A video game character",
+    "A greedy rival in yellow and purple",
+    "The mischievous anti-hero with a W on his cap",
+  ],
+  "master-chief": [
+    "A video game character",
+    "A super-soldier in green armor who never shows his face",
+    "The Spartan hero of the Halo series",
+  ],
+  "lara-croft": [
+    "A video game character",
+    "A British adventurer and archaeologist",
+    "The Tomb Raider",
+  ],
+  "samus-aran": [
+    "A video game character",
+    "A bounty hunter in a power suit",
+    "Heroine of the Metroid series",
+  ],
+  "mega-man": [
+    "A video game character",
+    "A blue robot boy with an arm cannon",
+    "Fights Dr. Wily's Robot Masters and copies their weapons",
+  ],
+  "minecraft-steve": [
+    "A video game character",
+    "A blocky default player character",
+    "Mines and crafts in a world made of cubes",
+  ],
+  "creeper": [
+    "A video game creature",
+    "A green mob that sneaks up silently",
+    "Hisses and explodes in the blocky sandbox game",
+  ],
+  "kratos": [
+    "A video game character",
+    "A Spartan warrior with chalk-white skin and a red tattoo",
+    "The angry hero of God of War",
+  ],
+  "solid-snake": [
+    "A video game character",
+    "A legendary stealth soldier",
+    "Hides in a cardboard box in Metal Gear",
+  ],
+  "cloud-strife": [
+    "A video game character",
+    "A mercenary with spiky blond hair and a giant sword",
+    "The hero of Final Fantasy VII",
+  ],
+  "crash-bandicoot": [
+    "A video game character",
+    "An orange marsupial from the 1990s",
+    "Spins into crates on PlayStation platformers",
+  ],
+  "spyro": [
+    "A video game character",
+    "A small purple creature from the 1990s",
+    "A young dragon who breathes fire and glides",
+  ],
+  "street-fighter-ryu": [
+    "A video game character",
+    "A wandering martial artist in a white gi",
+    "Shouts \"Hadouken!\" when throwing a fireball",
+  ],
+  "chun-li": [
+    "A video game character",
+    "A fighter famous for her lightning-fast kicks",
+    "The first female fighter in Street Fighter",
+  ],
+  "geralt": [
+    "A video game character",
+    "A white-haired monster hunter",
+    "A sword-wielding mutant hero from Rivia",
+  ],
+  "ezio": [
+    "A video game character",
+    "A hooded Italian nobleman",
+    "Assassin's Creed hero from Renaissance Florence",
+  ],
+  "tom-nook": [
+    "A video game character",
+    "A raccoon dog who sells you a house",
+    "The shopkeeper who lends you bells for loans in Animal Crossing",
+  ],
+  "fox-mccloud": [
+    "A video game character",
+    "A pilot who leads a team of animal mercenaries",
+    "Flies an Arwing in Star Fox",
+  ],
+  "knuckles": [
+    "A video game character",
+    "A red animal with spiked fists",
+    "The echidna who guards the Master Emerald",
+  ],
+  "nathan-drake": [
+    "A video game character",
+    "A charming treasure hunter",
+    "Hero of the Uncharted series",
+  ],
+  "sora": [
+    "A video game character",
+    "A spiky-haired boy with a giant key",
+    "Fights alongside famous Disney characters in Kingdom Hearts",
+  ],
+  "sackboy": [
+    "A video game character",
+    "A small knitted burlap doll",
+    "Star of LittleBigPlanet",
+  ],
+  "among-us-crewmate": [
+    "A video game character",
+    "A bean-shaped astronaut in a spacesuit",
+    "The suspicious little spaceman from Among Us",
+  ],
+  "isabelle": [
+    "A video game character",
+    "A cheerful yellow dog who works as an assistant",
+    "Helps run the town hall in Animal Crossing",
+  ],
+};
 
 export const videoGames = definePack("video-games", [
   ["mario", "Mario", "easy", ["Super Mario"], ["nintendo", "platformer"]],
@@ -41,4 +244,4 @@ export const videoGames = definePack("video-games", [
   ["sackboy", "Sackboy", "medium", [], ["platformer"]],
   ["among-us-crewmate", "Among Us Crewmate", "easy", ["Crewmate", "Impostor"], ["party"]],
   ["isabelle", "Isabelle from Animal Crossing", "medium", ["Isabelle"], ["nintendo", "life sim"]],
-]);
+], HINTS);

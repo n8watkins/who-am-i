@@ -1,4 +1,212 @@
-import { definePack } from "./types";
+import { definePack, type Hints } from "./types";
+
+const HINTS: Record<string, Hints> = {
+  "darth-vader": [
+    "A villain from a space saga",
+    "Wears black armor and breathes heavily",
+    "Tells his son \"I am your father\"",
+  ],
+  "luke-skywalker": [
+    "A hero from a space saga",
+    "A farm boy who learns the ways of the Force",
+    "A young Jedi who destroys the Death Star",
+  ],
+  "princess-leia": [
+    "A heroine from a space saga",
+    "A rebel leader and senator",
+    "Famous for her side-bun hairstyle and a hologram plea for help",
+  ],
+  "yoda": [
+    "A wise character from a space saga",
+    "Small, green and over 900 years old",
+    "A Jedi Master who speaks with his words in reverse order",
+  ],
+  "chewbacca": [
+    "A loyal sidekick from a space saga",
+    "Tall, hairy and communicates in growls",
+    "A Wookiee who co-pilots the Millennium Falcon",
+  ],
+  "harry-potter": [
+    "A hero from a fantasy series",
+    "An orphan raised by his unkind aunt and uncle",
+    "A boy wizard with round glasses and a lightning-bolt scar",
+  ],
+  "hermione-granger": [
+    "A heroine from a fantasy series",
+    "The cleverest student in her year",
+    "A witch at Hogwarts who is brilliant at spells",
+  ],
+  "gandalf": [
+    "A wise character from a fantasy epic",
+    "A wizard with a long beard and a pointed hat",
+    "Shouts \"You shall not pass!\" on a bridge",
+  ],
+  "frodo-baggins": [
+    "A hero from a fantasy epic",
+    "A hobbit from the Shire",
+    "Carries the One Ring to Mount Doom",
+  ],
+  "gollum": [
+    "A creature from a fantasy epic",
+    "Pale, skinny and talks to himself",
+    "Obsessed with the ring he calls \"my precious\"",
+  ],
+  "legolas": [
+    "A hero from a fantasy epic",
+    "An elf with long blond hair",
+    "An elven archer in the Fellowship of the Ring",
+  ],
+  "james-bond": [
+    "A British movie hero",
+    "A suave secret agent with a license to kill",
+    "Likes his martini shaken, not stirred",
+  ],
+  "indiana-jones": [
+    "An adventure movie hero",
+    "An archaeology professor who hates snakes",
+    "Wears a fedora and carries a bullwhip",
+  ],
+  "jack-sparrow": [
+    "A movie adventurer",
+    "A charming rogue who sails the Caribbean",
+    "Captain of the Black Pearl in Pirates of the Caribbean",
+  ],
+  "batman": [
+    "A comic book hero",
+    "A billionaire who fights crime at night",
+    "Protects Gotham City in a cape and cowl",
+  ],
+  "the-joker": [
+    "A comic book villain",
+    "A criminal clown with green hair",
+    "The arch-enemy of Gotham's caped crusader",
+  ],
+  "wonder-woman": [
+    "A comic book hero",
+    "An Amazon princess from Themyscira",
+    "Carries a golden Lasso of Truth",
+  ],
+  "iron-man": [
+    "A comic book hero",
+    "A genius inventor and billionaire",
+    "Wears a red and gold armored suit",
+  ],
+  "spider-man": [
+    "A comic book hero",
+    "A teenager from Queens with a secret identity",
+    "Got his powers from a radioactive spider bite",
+  ],
+  "black-panther": [
+    "A comic book hero",
+    "The ruler of a hidden African nation",
+    "Protector of Wakanda in a vibranium suit",
+  ],
+  "the-terminator": [
+    "A sci-fi movie character",
+    "A cyborg sent back in time",
+    "Promises \"I'll be back\"",
+  ],
+  "rocky-balboa": [
+    "A sports movie hero",
+    "An underdog boxer from Philadelphia",
+    "Runs up the steps of the Philadelphia Museum of Art",
+  ],
+  "forrest-gump": [
+    "A movie character",
+    "A kind man from Alabama who witnesses history",
+    "Says life is like a box of chocolates",
+  ],
+  "et": [
+    "A sci-fi movie character",
+    "A friendly visitor stranded on Earth",
+    "Wants to phone home and rides in a bike basket",
+  ],
+  "shrek": [
+    "An animated movie hero",
+    "A grumpy creature who lives in a swamp",
+    "A green ogre with a talking donkey sidekick",
+  ],
+  "dorothy-gale": [
+    "A classic movie heroine",
+    "A farm girl from Kansas swept away by a tornado",
+    "Wears ruby slippers and follows the yellow brick road",
+  ],
+  "willy-wonka": [
+    "A movie character from a children's book",
+    "An eccentric candy maker",
+    "Gives five golden tickets to tour his chocolate factory",
+  ],
+  "mary-poppins": [
+    "A musical movie character",
+    "A magical nanny in London",
+    "Flies with her umbrella and sings about a spoonful of sugar",
+  ],
+  "elsa": [
+    "An animated movie character",
+    "A queen with icy powers",
+    "Sings \"Let It Go\" in Frozen",
+  ],
+  "simba": [
+    "An animated movie character",
+    "A lion cub who runs away from home",
+    "Raised by a meerkat and a warthog, he returns to rule the Pride Lands",
+  ],
+  "buzz-lightyear": [
+    "An animated movie character",
+    "A toy who believes he is a real space ranger",
+    "Shouts \"To infinity and beyond!\"",
+  ],
+  "woody": [
+    "An animated movie character",
+    "A pull-string cowboy toy",
+    "Andy's favorite toy who leads the toys in Toy Story",
+  ],
+  "marty-mcfly": [
+    "A movie character from the 1980s",
+    "A teenager who rides a skateboard",
+    "Travels through time in a DeLorean",
+  ],
+  "ellen-ripley": [
+    "A sci-fi movie heroine",
+    "A warrant officer on a doomed spaceship",
+    "Fights the xenomorph in the Alien films",
+  ],
+  "neo": [
+    "A sci-fi movie hero",
+    "A hacker who learns his world is a simulation",
+    "Takes the red pill in The Matrix",
+  ],
+  "katniss-everdeen": [
+    "A heroine from a book and film series",
+    "An expert archer from District 12",
+    "Volunteers as tribute in The Hunger Games",
+  ],
+  "king-kong": [
+    "A classic movie monster",
+    "A giant ape from Skull Island",
+    "Climbs the Empire State Building",
+  ],
+  "godzilla": [
+    "A classic movie monster",
+    "A giant reptile from Japanese films",
+    "Breathes atomic fire and stomps on Tokyo",
+  ],
+  "jack-skellington": [
+    "An animated movie character",
+    "A tall, thin skeleton",
+    "The skeleton who rules Halloween Town and tries to take over Christmas",
+  ],
+  "paddington-bear": [
+    "A character from books and films",
+    "A polite bear from darkest Peru",
+    "Loves marmalade sandwiches and wears a duffle coat",
+  ],
+  "ferris-bueller": [
+    "A movie character from the 1980s",
+    "A high schooler who fakes being sick",
+    "Takes a famous day off in Chicago",
+  ],
+};
 
 export const movieCharacters = definePack("movie-characters", [
   ["darth-vader", "Darth Vader", "easy", ["Anakin Skywalker", "Vader"], ["sci-fi", "villain"]],
@@ -42,4 +250,4 @@ export const movieCharacters = definePack("movie-characters", [
   ["jack-skellington", "Jack Skellington", "medium", [], ["animated", "holiday"]],
   ["paddington-bear", "Paddington Bear", "easy", ["Paddington"], ["family"]],
   ["ferris-bueller", "Ferris Bueller", "hard", [], ["comedy", "classic"]],
-]);
+], HINTS);

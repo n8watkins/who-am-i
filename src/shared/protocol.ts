@@ -34,6 +34,8 @@ export const ROUNDS_PER_MATCH = 10;
 export const HOST_OVERRIDE_AFTER_MS = 30_000;
 /** Soft cap shown by the optional 20 Questions counter. */
 export const QUESTION_LIMIT = 20;
+/** Hints a guesser may reveal per turn (every identity has exactly this many). */
+export const HINTS_PER_TURN = 3;
 
 export const SettingsSchema = z.object({
   packId: z.enum(PACK_IDS),
@@ -41,6 +43,7 @@ export const SettingsSchema = z.object({
   timerSeconds: z.union([z.literal(0), z.literal(60), z.literal(90)]),
   matchType: z.enum(MATCH_TYPES),
   firstPlayer: z.enum(FIRST_PLAYER_OPTIONS),
+  hints: z.boolean(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -50,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   timerSeconds: 0,
   matchType: "points",
   firstPlayer: "random",
+  hints: true,
 };
 
 // Remove control characters and collapse whitespace so names render predictably.
@@ -94,6 +98,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("turn.correct.override") }),
   z.object({ ...base, type: z.literal("turn.skip") }),
   z.object({ ...base, type: z.literal("turn.question") }),
+  z.object({ ...base, type: z.literal("turn.hint") }),
   z.object({ ...base, type: z.literal("round.next") }),
   z.object({ ...base, type: z.literal("match.rematch") }),
   z.object({ ...base, type: z.literal("match.change_settings") }),
@@ -132,7 +137,12 @@ export interface PlayerView {
   score: number;
   correct: number;
   skips: number;
+  /** Hints revealed for this player in the current match. */
+  hintsUsed: number;
 }
+
+/** One entry in a turn's log, shown to both players. */
+export type TurnLogEntry = { id: string; kind: "hint"; index: number; text: string; at: number };
 
 export interface TurnView {
   playerId: string;
@@ -142,12 +152,15 @@ export interface TurnView {
   /** Remaining ms while paused, or null. */
   pausedRemainingMs: number | null;
   questionCount: number;
+  hintsUsed: number;
+  log: TurnLogEntry[];
 }
 
 export interface RoundSummaryEntry {
   playerId: string;
   identity: PublicIdentity;
   result: TurnResult;
+  hintsUsed: number;
 }
 
 export interface RoundSummaryView {

@@ -1,4 +1,207 @@
-import { definePack } from "./types";
+import { definePack, type Hints } from "./types";
+
+const HINTS: Record<string, Hints> = {
+  "mickey-mouse": [
+    "A cartoon character",
+    "A cheerful rodent with big round ears",
+    "Disney's original star, first seen in Steamboat Willie",
+  ],
+  "minnie-mouse": [
+    "A cartoon character",
+    "Wears a polka-dot bow and dress",
+    "Disney's leading lady mouse",
+  ],
+  "donald-duck": [
+    "A cartoon character",
+    "A hot-tempered bird in a sailor shirt",
+    "Disney duck with famously hard-to-understand speech",
+  ],
+  "goofy": [
+    "A cartoon character",
+    "A tall, clumsy dog with a big laugh",
+    "Disney dog famous for his \"Ah-hyuck!\" laugh and falling-down holler",
+  ],
+  "bugs-bunny": [
+    "A cartoon character",
+    "A wisecracking gray rabbit",
+    "Munches a carrot and asks \"What's up, Doc?\"",
+  ],
+  "daffy-duck": [
+    "A cartoon character",
+    "A black bird with a lisp",
+    "The Looney Tunes duck who says \"You're despicable!\"",
+  ],
+  "tweety": [
+    "A cartoon character",
+    "A tiny yellow canary",
+    "Says \"I tawt I taw a puddy tat!\"",
+  ],
+  "wile-e-coyote": [
+    "A cartoon character",
+    "Orders gadgets from the Acme company",
+    "Endlessly chases a fast desert bird and always fails",
+  ],
+  "road-runner": [
+    "A cartoon character",
+    "A very fast desert bird",
+    "Says \"Meep meep!\" while escaping a coyote",
+  ],
+  "spongebob": [
+    "A cartoon character",
+    "Lives in a pineapple under the sea",
+    "A yellow sea sponge who flips Krabby Patties",
+  ],
+  "patrick-star": [
+    "A cartoon character",
+    "A dim but loyal pink starfish in Bikini Bottom",
+    "A sea sponge's best friend",
+  ],
+  "homer-simpson": [
+    "A cartoon character",
+    "A dad who works at a nuclear power plant",
+    "Says \"D'oh!\" and loves donuts in Springfield",
+  ],
+  "bart-simpson": [
+    "A cartoon character",
+    "A spiky-haired prankster on a skateboard",
+    "Springfield's 10-year-old who says \"Eat my shorts!\"",
+  ],
+  "scooby-doo": [
+    "A cartoon character",
+    "A cowardly Great Dane who solves mysteries",
+    "Rides in the Mystery Machine and loves snacks",
+  ],
+  "fred-flintstone": [
+    "A cartoon character",
+    "A Stone Age family man",
+    "Yells \"Yabba dabba doo!\" in Bedrock",
+  ],
+  "popeye": [
+    "A cartoon character",
+    "A sailor with a pipe and huge forearms",
+    "Gets super strong after eating spinach",
+  ],
+  "snoopy": [
+    "A cartoon character",
+    "A beagle who sleeps on top of his doghouse",
+    "Imagines fighting the Red Baron in the Peanuts strip",
+  ],
+  "charlie-brown": [
+    "A cartoon character",
+    "A boy in a zigzag shirt",
+    "Never manages to kick the football in Peanuts",
+  ],
+  "garfield": [
+    "A cartoon character",
+    "A lazy orange cat",
+    "Loves lasagna and hates Mondays",
+  ],
+  "winnie-the-pooh": [
+    "A cartoon character",
+    "A bear of very little brain",
+    "Loves honey and lives in the Hundred Acre Wood",
+  ],
+  "tigger": [
+    "A cartoon character",
+    "A bouncy striped animal",
+    "The tiger from the Hundred Acre Wood who bounces on his tail",
+  ],
+  "goku": [
+    "An anime character",
+    "A martial artist with spiky black hair",
+    "A Saiyan hero of Dragon Ball who powers up with golden hair",
+  ],
+  "naruto": [
+    "An anime character",
+    "An orange-clad ninja who wants to be Hokage",
+    "Has a nine-tailed fox sealed inside him",
+  ],
+  "sailor-moon": [
+    "An anime character",
+    "A schoolgirl with long blonde pigtails",
+    "Fights evil by moonlight as a magical girl",
+  ],
+  "luffy": [
+    "An anime character",
+    "A pirate whose body stretches like rubber",
+    "Wears a straw hat and wants to find the One Piece",
+  ],
+  "totoro": [
+    "An anime character",
+    "A big, gray, fluffy forest spirit",
+    "Studio Ghibli's mascot who waits at a bus stop in the rain",
+  ],
+  "doraemon": [
+    "An anime character",
+    "A blue robot cat from the future",
+    "Pulls gadgets out of his four-dimensional pocket",
+  ],
+  "hello-kitty": [
+    "A cartoon character",
+    "A white cat with a red bow and no mouth",
+    "Sanrio's most famous character",
+  ],
+  "peppa-pig": [
+    "A cartoon character",
+    "A cheerful pink piglet",
+    "A British preschool star who loves jumping in muddy puddles",
+  ],
+  "bluey": [
+    "A cartoon character",
+    "An energetic puppy from Brisbane",
+    "An Australian Blue Heeler puppy who loves imaginative games",
+  ],
+  "dora": [
+    "A cartoon character",
+    "A bilingual girl with a talking backpack",
+    "Explores with her monkey friend Boots and asks viewers for help",
+  ],
+  "pink-panther": [
+    "A cartoon character",
+    "A cool, silent cat who walks on two legs",
+    "Struts to a famous jazz theme by Henry Mancini",
+  ],
+  "rick-sanchez": [
+    "A cartoon character",
+    "A cynical genius scientist in a lab coat",
+    "Drags his grandson on adventures across dimensions",
+  ],
+  "optimus-prime": [
+    "A cartoon character",
+    "Leader of a team of alien robots",
+    "Autobot leader who transforms into a truck",
+  ],
+  "ash-ketchum": [
+    "An anime character",
+    "A boy from Pallet Town on a long journey",
+    "A trainer who wants to be a Pokémon Master",
+  ],
+  "aang": [
+    "A cartoon character",
+    "A bald monk with blue arrow tattoos",
+    "The last Airbender, who must master all four elements",
+  ],
+  "tanjiro": [
+    "An anime character",
+    "A kind boy with a checkered green haori",
+    "Hunts demons to save his sister in Demon Slayer",
+  ],
+  "astro-boy": [
+    "An anime character",
+    "A robot boy with rocket boots",
+    "Osamu Tezuka's classic robot hero",
+  ],
+  "he-man": [
+    "A cartoon character",
+    "Defends Castle Grayskull",
+    "Shouts \"I have the power!\" as the most powerful man in the universe",
+  ],
+  "powerpuff-blossom": [
+    "A cartoon character",
+    "A superhero girl with a big red bow",
+    "The redheaded leader of the Powerpuff Girls",
+  ],
+};
 
 export const animeCartoons = definePack("anime-cartoons", [
   ["mickey-mouse", "Mickey Mouse", "easy", ["Mickey"], ["disney"]],
@@ -41,4 +244,4 @@ export const animeCartoons = definePack("anime-cartoons", [
   ["astro-boy", "Astro Boy", "hard", ["Atom"], ["anime", "classic"]],
   ["he-man", "He-Man", "medium", [], ["classic"]],
   ["powerpuff-blossom", "Blossom from The Powerpuff Girls", "medium", ["Blossom"], ["cartoon network"]],
-]);
+], HINTS);

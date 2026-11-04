@@ -1,4 +1,222 @@
-import { definePack } from "./types";
+import { definePack, type Hints } from "./types";
+
+const HINTS: Record<string, Hints> = {
+  "tom-hanks": [
+    "An American actor",
+    "Won back-to-back Best Actor Oscars in the 1990s",
+    "Starred in Cast Away, Big and Apollo 13",
+  ],
+  "meryl-streep": [
+    "An American actress",
+    "Holds the record for the most Oscar nominations for acting",
+    "Starred in The Devil Wears Prada and Mamma Mia!",
+  ],
+  "leonardo-dicaprio": [
+    "An American actor",
+    "Finally won an Oscar for The Revenant",
+    "Starred in Titanic and Inception",
+  ],
+  "denzel-washington": [
+    "An American actor",
+    "Has won two Academy Awards",
+    "Starred in Training Day, Glory and The Equalizer",
+  ],
+  "julia-roberts": [
+    "An American actress",
+    "Famous for her big smile and romantic comedies",
+    "Starred in Pretty Woman and won an Oscar for Erin Brockovich",
+  ],
+  "scarlett-johansson": [
+    "An American actress",
+    "Played a superhero spy in the Marvel films",
+    "Played Black Widow and starred in Lost in Translation",
+  ],
+  "dwayne-johnson": [
+    "An American actor",
+    "Was a pro wrestling champion before Hollywood",
+    "Starred in Jumanji and voiced Maui in Moana",
+  ],
+  "keanu-reeves": [
+    "A Canadian actor",
+    "Known for action films and being famously kind",
+    "Starred in The Matrix and John Wick",
+  ],
+  "jennifer-lawrence": [
+    "An American actress",
+    "Won an Oscar for Silver Linings Playbook",
+    "Played the heroine of The Hunger Games films",
+  ],
+  "angelina-jolie": [
+    "An American actress",
+    "Also a filmmaker and UN refugee envoy",
+    "Played Maleficent and starred in Mr. & Mrs. Smith",
+  ],
+  "robert-downey-jr": [
+    "An American actor",
+    "Made a famous career comeback in the 2000s",
+    "Played a genius billionaire in a red and gold armored suit",
+  ],
+  "emma-watson": [
+    "A British actress",
+    "Became famous as a child in a series of fantasy films",
+    "Starred in Little Women and played Belle in Beauty and the Beast",
+  ],
+  "daniel-radcliffe": [
+    "A British actor",
+    "Became famous as a child in a series of fantasy films",
+    "Played the boy wizard with a lightning-bolt scar",
+  ],
+  "tom-cruise": [
+    "An American actor",
+    "Famous for doing his own dangerous stunts",
+    "Starred in Top Gun and the Mission: Impossible films",
+  ],
+  "nicole-kidman": [
+    "An Australian actress",
+    "Won an Oscar for playing Virginia Woolf",
+    "Starred in Moulin Rouge! and Big Little Lies",
+  ],
+  "sandra-bullock": [
+    "An American actress",
+    "Won an Oscar for The Blind Side",
+    "Starred in Speed, Miss Congeniality and Gravity",
+  ],
+  "harrison-ford": [
+    "An American actor",
+    "Worked as a carpenter before his big break",
+    "Played Han Solo and a whip-cracking archaeologist",
+  ],
+  "samuel-l-jackson": [
+    "An American actor",
+    "One of the highest-grossing actors of all time",
+    "Played Nick Fury and starred in Pulp Fiction",
+  ],
+  "viola-davis": [
+    "An American actress",
+    "Has won an Oscar, an Emmy, a Grammy and a top Broadway award",
+    "Starred in Fences and How to Get Away with Murder",
+  ],
+  "hugh-jackman": [
+    "An Australian actor",
+    "Equally at home in musicals and action films",
+    "Played Wolverine and starred in The Greatest Showman",
+  ],
+  "ryan-reynolds": [
+    "A Canadian actor",
+    "Known for fast, sarcastic comedy",
+    "Played the wisecracking antihero Deadpool",
+  ],
+  "zendaya": [
+    "An American actress and singer",
+    "Started out on a Disney Channel sitcom",
+    "Starred in Euphoria and Dune, and played MJ in Marvel films",
+  ],
+  "timothee-chalamet": [
+    "An American actor",
+    "Rose to fame in Call Me by Your Name",
+    "Played Paul Atreides in Dune",
+  ],
+  "margot-robbie": [
+    "An Australian actress",
+    "Played Harley Quinn in DC films",
+    "Starred as the title doll in the 2023 hit Barbie",
+  ],
+  "chris-hemsworth": [
+    "An Australian actor",
+    "One of three acting brothers",
+    "Played the god of thunder in the Marvel films",
+  ],
+  "jackie-chan": [
+    "A Chinese actor",
+    "Famous for comedic martial arts and doing his own stunts",
+    "Starred in Rush Hour and Police Story",
+  ],
+  "audrey-hepburn": [
+    "A classic Hollywood actress",
+    "Also a UNICEF ambassador",
+    "Starred in Breakfast at Tiffany's and Roman Holiday",
+  ],
+  "marilyn-monroe": [
+    "A classic Hollywood actress",
+    "A 1950s icon with platinum blonde hair",
+    "Famous for the white dress scene in The Seven Year Itch",
+  ],
+  "charlie-chaplin": [
+    "A British actor and filmmaker",
+    "A star of the silent film era",
+    "Created the Little Tramp with a bowler hat and cane",
+  ],
+  "cate-blanchett": [
+    "An Australian actress",
+    "Has won two Oscars",
+    "Played Galadriel in The Lord of the Rings",
+  ],
+  "anne-hathaway": [
+    "An American actress",
+    "Won an Oscar for Les Misérables",
+    "Starred in The Princess Diaries and The Devil Wears Prada",
+  ],
+  "natalie-portman": [
+    "An Israeli-American actress",
+    "Started acting as a child in Léon: The Professional",
+    "Played Padmé in Star Wars and won an Oscar for Black Swan",
+  ],
+  "matt-damon": [
+    "An American actor",
+    "Won an Oscar for co-writing Good Will Hunting",
+    "Played Jason Bourne and starred in The Martian",
+  ],
+  "george-clooney": [
+    "An American actor and director",
+    "First became famous on the TV drama ER",
+    "Starred in Ocean's Eleven",
+  ],
+  "halle-berry": [
+    "An American actress",
+    "First Black woman to win the Best Actress Oscar",
+    "Played Storm in X-Men and starred in Monster's Ball",
+  ],
+  "michelle-yeoh": [
+    "A Malaysian actress",
+    "A martial arts film star since the 1980s",
+    "Won an Oscar for Everything Everywhere All at Once",
+  ],
+  "idris-elba": [
+    "A British actor",
+    "Also works as a DJ",
+    "Starred in Luther and The Wire",
+  ],
+  "emma-stone": [
+    "An American actress",
+    "Has won two Best Actress Oscars",
+    "Starred in La La Land and Poor Things",
+  ],
+  "tom-holland": [
+    "A British actor",
+    "Trained in dance and gymnastics",
+    "Played the teenage web-slinger in the Marvel films",
+  ],
+  "jim-carrey": [
+    "A Canadian-American actor",
+    "Famous for rubber-faced physical comedy",
+    "Starred in The Mask, Ace Ventura and The Truman Show",
+  ],
+  "robin-williams": [
+    "An American actor and comedian",
+    "Known for lightning-fast improvisation",
+    "Voiced the Genie in Aladdin and starred in Mrs. Doubtfire",
+  ],
+  "judi-dench": [
+    "A British actress",
+    "A legend of the London stage",
+    "Played the British spy chief M on film",
+  ],
+  "pedro-pascal": [
+    "A Chilean-American actor",
+    "Plays gruff protectors of young companions",
+    "Starred in The Mandalorian and The Last of Us",
+  ],
+};
 
 export const actors = definePack("actors", [
   ["tom-hanks", "Tom Hanks", "easy", [], ["film", "drama"]],
@@ -44,4 +262,4 @@ export const actors = definePack("actors", [
   ["robin-williams", "Robin Williams", "easy", [], ["film", "comedy"]],
   ["judi-dench", "Judi Dench", "hard", [], ["film", "theatre"]],
   ["pedro-pascal", "Pedro Pascal", "medium", [], ["tv", "film"]],
-]);
+], HINTS);

@@ -26,8 +26,11 @@ export function RoundSummary({ room, view }: { room: RoomHandle; view: RoomView 
               <p className="mt-1 text-3xl font-black leading-tight" data-testid={isMe ? "reveal-self" : "reveal-opponent"}>
                 {entry.identity.canonicalName}
               </p>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <ResultPill result={entry.result} />
+                <span className="text-sm font-semibold text-muted" data-testid={isMe ? "hints-self" : "hints-opponent"}>
+                  {entry.hintsUsed === 0 ? "No hints" : entry.hintsUsed === 1 ? "1 hint used" : `${entry.hintsUsed} hints used`}
+                </span>
               </div>
             </Card>
           );
@@ -80,6 +83,7 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
               <th scope="col" className="py-2 text-right font-bold">Points</th>
               <th scope="col" className="py-2 text-right font-bold">Correct</th>
               <th scope="col" className="py-2 text-right font-bold">Skips</th>
+              <th scope="col" className="py-2 text-right font-bold">Hints</th>
             </tr>
           </thead>
           <tbody>
@@ -93,6 +97,7 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
                 <td className="py-3 text-right text-xl font-black tabular-nums">{p.score}</td>
                 <td className="py-3 text-right tabular-nums">{p.correct}</td>
                 <td className="py-3 text-right tabular-nums">{p.skips}</td>
+                <td className="py-3 text-right tabular-nums">{p.hintsUsed}</td>
               </tr>
             ))}
           </tbody>
