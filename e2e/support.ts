@@ -76,7 +76,13 @@ export function ownIdentityFromReveal(text: string): { id: string; canonicalName
  * Returns how many items were checked.
  */
 export async function assertNoLeakBeforeReveal(capture: Capture, roundIndex: number, windowStart: number): Promise<number> {
-  await capture.settle();
+  // The reveal frame can land a moment after the DOM shows the summary on the other page.
+  await expect
+    .poll(async () => {
+      await capture.settle();
+      return !!capture.revealOf(roundIndex, windowStart);
+    })
+    .toBe(true);
   const reveal = capture.revealOf(roundIndex, windowStart);
   expect(reveal, `round ${roundIndex} reveal was captured`).toBeTruthy();
   const own = ownIdentityFromReveal(reveal!.text);
