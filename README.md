@@ -103,6 +103,9 @@ The WebSocket carries the token as a subprotocol, because browsers cannot set he
 
 - Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
 - Join attempts, room lookups and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client) by a small Durable Object.
+- Accounts are optional and use GitHub sign-in, which stays hidden until `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set.
+  The session is an HttpOnly signed cookie, only public profile data is read, and the GitHub access token is never stored.
+- Each finished round records how each identity went (solved, questions, hints, level) in D1 with no player or room data, so difficulty can be measured instead of guessed.
 - PINs are short-lived aliases for an open lobby, held in one `PinDirectoryDurableObject`.
   They are chosen at random, last 15 minutes unless the host's lobby stays open, end when the room fills or the game starts, wait out a 10-minute cooldown before reuse, and lookups are limited to 10 per 10 minutes and 30 per hour.
   Unknown and expired PINs get the same response, and a lookup returns only the room preview, never a player id or token.

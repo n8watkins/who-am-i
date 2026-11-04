@@ -18,6 +18,14 @@
       { "name": "PINS", "class_name": "PinDirectoryDurableObject" }
     ]
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "who-am-i",
+      "database_id": "23259c6d-8f58-47cc-8e70-c2e52a29d632",
+      "migrations_dir": "migrations"
+    }
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RoomDurableObject", "RateLimiterDurableObject"] },
     { "tag": "v2", "new_sqlite_classes": ["PinDirectoryDurableObject"] }

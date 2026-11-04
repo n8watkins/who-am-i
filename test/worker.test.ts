@@ -7,6 +7,7 @@ import {
   type ApiError,
   type CommandResponse,
   type JoinLookupResponse,
+  type MeResponse,
   type RoomView,
   type ServerMessage,
   type SessionResponse,
@@ -457,5 +458,123 @@ describe("player.remove", () => {
     const started = await startedRoom();
     const midGame = await send(started.code, started.host.token, started.view, "player.remove", { playerId: started.guest.playerId });
     expect(midGame.status).toBe(409);
+  });
+});
+
+describe("GitHub sign-in", () => {
+  const AUTH = env as unknown as Record<string, string | undefined>;
+  const configure = () => {
+    AUTH.GITHUB_CLIENT_ID = "client-id";
+    AUTH.GITHUB_CLIENT_SECRET = "client-secret";
+  };
+  const reset = () => {
+    delete AUTH.GITHUB_CLIENT_ID;
+    delete AUTH.GITHUB_CLIENT_SECRET;
+    vi.unstubAllGlobals();
+  };
+  const get = (path: string, headers: Record<string, string> = {}) =>
+    SELF.fetch(`${BASE}${path}`, { redirect: "manual", headers: { "CF-Connecting-IP": freshIp(), ...headers } });
+  const cookiesFrom = (res: Response) => res.headers.getSetCookie().map((c) => c.split(";")[0]!);
+  const pendingFrom = async (next = "/new") => {
+    const start = await get(`/api/auth/github/start?next=${encodeURIComponent(next)}`);
+    return { state: new URL(start.headers.get("Location")!).searchParams.get("state")!, cookie: cookiesFrom(start)[0]! };
+  };
+  const fakeGitHub = (id = 77) =>
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) =>
+      String(input).endsWith("/access_token")
+        ? Response.json({ access_token: "token" })
+        : Response.json({ id, login: "octo", name: "Octo Cat", avatar_url: "https://example.test/a.png" }),
+    );
+
+  it("hides sign-in until it is configured", async () => {
+    const res = await api<MeResponse>("/api/me");
+    expect(res.body).toEqual({ ok: true, signInAvailable: false, user: null });
+    expect((await get("/api/auth/github/start")).headers.get("Location")).toBe("/?signin=failed");
+  });
+
+  it("signs in, reports the account, and signs out", async () => {
+    configure();
+    fakeGitHub();
+    try {
+      const { state, cookie } = await pendingFrom();
+      const done = await get(`/api/auth/github/callback?code=c&state=${state}`, { Cookie: cookie });
+      expect(done.status).toBe(302);
+      expect(done.headers.get("Location")).toBe("/new");
+      const account = cookiesFrom(done).find((c) => c.startsWith("whoami_account="))!;
+      expect(done.headers.getSetCookie().join()).toContain("HttpOnly");
+      const me = await api<MeResponse>("/api/me", { headers: { Cookie: account } });
+      expect(me.body.user).toEqual({ login: "octo", name: "Octo Cat", avatarUrl: "https://example.test/a.png" });
+      const out = await SELF.fetch(`${BASE}/api/auth/logout`, { method: "POST", headers: { Cookie: account } });
+      expect(out.headers.getSetCookie()[0]).toContain("Max-Age=0");
+    } finally {
+      reset();
+    }
+  });
+
+  it("updates the same account on a second sign-in and stores no token", async () => {
+    configure();
+    fakeGitHub(78);
+    try {
+      for (let i = 0; i < 2; i++) {
+        const { state, cookie } = await pendingFrom();
+        await get(`/api/auth/github/callback?code=c&state=${state}`, { Cookie: cookie });
+      }
+      const rows = await env.DB.prepare("SELECT * FROM users WHERE github_id = 78").all();
+      expect(rows.results).toHaveLength(1);
+      expect(JSON.stringify(rows.results)).not.toContain("token");
+    } finally {
+      reset();
+    }
+  });
+
+  it("rejects a mismatched state and a forged account cookie", async () => {
+    configure();
+    try {
+      const { cookie } = await pendingFrom();
+      const bad = await get("/api/auth/github/callback?code=c&state=wrong", { Cookie: cookie });
+      expect(bad.headers.get("Location")).toBe("/?signin=failed");
+      const me = await api<MeResponse>("/api/me", { headers: { Cookie: "whoami_account=a1.e30.AAAA" } });
+      expect(me.body.user).toBeNull();
+    } finally {
+      reset();
+    }
+  });
+
+  it("never redirects to another site after sign-in", async () => {
+    configure();
+    fakeGitHub(79);
+    try {
+      for (const next of ["https://evil.test", "//evil.test", "/\\evil.test"]) {
+        const { state, cookie } = await pendingFrom(next);
+        const done = await get(`/api/auth/github/callback?code=c&state=${state}`, { Cookie: cookie });
+        expect(done.headers.get("Location")).toBe("/");
+      }
+    } finally {
+      reset();
+    }
+  });
+
+  it("does not accept a room token as an account", async () => {
+    const host = await createRoom();
+    const me = await api<MeResponse>("/api/me", { headers: { Cookie: `whoami_account=${host.token}` } });
+    expect(me.body.user).toBeNull();
+  });
+});
+
+describe("measured difficulty", () => {
+  it("records each identity's real result with no player or room data", async () => {
+    const { code, host, guest, view } = await startedRoom();
+    const before = (await env.DB.prepare("SELECT COUNT(*) AS n FROM identity_plays").first<{ n: number }>())!.n;
+    let v = (await send(code, host.token, view, "turn.correct.request")).body.view;
+    v = (await send(code, guest.token, v, "turn.correct.confirm")).body.view;
+    await send(code, guest.token, v, "turn.skip");
+    await vi.waitFor(async () => {
+      const rows = await env.DB.prepare("SELECT * FROM identity_plays ORDER BY id DESC LIMIT 2").all<Record<string, unknown>>();
+      const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM identity_plays").first<{ n: number }>())!.n;
+      expect(count).toBe(before + 2);
+      expect(rows.results.map((r) => r.result).sort()).toEqual(["correct", "skipped"]);
+      const text = JSON.stringify(rows.results);
+      for (const secret of [host.playerId, guest.playerId, code]) expect(text).not.toContain(secret);
+    });
   });
 });
