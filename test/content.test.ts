@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+
+const EM_DASH = String.fromCharCode(0x2014);
 import { PACK_META } from "../src/shared/packs";
 import { PACK_IDS } from "../src/shared/protocol";
 import { ALL_PACK_IDENTITIES, packIdentities, SOURCE_PACKS } from "../src/worker/content";
@@ -47,7 +49,7 @@ describe("content packs", () => {
   it("uses names that do not contain the em dash and are non-empty", () => {
     for (const identity of ALL_PACK_IDENTITIES) {
       expect(identity.canonicalName.trim()).toBe(identity.canonicalName);
-      expect(identity.canonicalName).not.toContain("—");
+      expect(identity.canonicalName).not.toContain(EM_DASH);
       expect(["easy", "medium", "hard"]).toContain(identity.difficulty);
     }
   });
@@ -72,7 +74,7 @@ describe("hints", () => {
         expect(hint.trim(), identity.id).toBe(hint);
         expect(hint.length, `${identity.id}: ${hint}`).toBeGreaterThanOrEqual(8);
         expect(hint.length, `${identity.id}: ${hint}`).toBeLessThanOrEqual(MAX_HINT_LENGTH);
-        expect(hint, identity.id).not.toContain("—");
+        expect(hint, identity.id).not.toContain(EM_DASH);
       }
       expect(new Set(identity.hints).size, identity.id).toBe(3);
     }
