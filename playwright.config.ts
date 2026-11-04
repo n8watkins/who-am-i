@@ -32,7 +32,7 @@ export default defineConfig({
         {
     // The client is built by `npm run e2e` before this starts. A fresh state dir per run keeps
     // rate-limit windows and rooms from earlier runs out of the way.
-    command: `rm -rf .wrangler/e2e-state && node_modules/.bin/wrangler d1 migrations apply DB --local --persist-to .wrangler/e2e-state && exec node_modules/.bin/wrangler dev --port ${PORT} --ip 127.0.0.1 --local-upstream 127.0.0.1:${PORT} --persist-to .wrangler/e2e-state --var SESSION_SECRET:e2e-only-secret-not-for-production --var GITHUB_CLIENT_ID:e2e-client --var GITHUB_CLIENT_SECRET:e2e-only-secret --var GITHUB_OAUTH_URL:http://127.0.0.1:8789 --var GITHUB_API_URL:http://127.0.0.1:8789`,
+    command: `rm -rf .wrangler/e2e-state && node_modules/.bin/wrangler d1 migrations apply DB --local --persist-to .wrangler/e2e-state && exec node_modules/.bin/wrangler dev --port ${PORT} --ip 127.0.0.1 --persist-to .wrangler/e2e-state --var SESSION_SECRET:e2e-only-secret-not-for-production --var GITHUB_CLIENT_ID:e2e-client --var GITHUB_CLIENT_SECRET:e2e-only-secret --var GITHUB_OAUTH_URL:http://127.0.0.1:8789 --var GITHUB_API_URL:http://127.0.0.1:8789`,
     url: `http://127.0.0.1:${PORT}/api/packs`,
     reuseExistingServer: false,
     timeout: 60_000,
