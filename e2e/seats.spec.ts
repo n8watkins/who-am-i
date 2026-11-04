@@ -69,3 +69,22 @@ test("a timed turn ends when the timer runs out", async ({ browser }) => {
   await expect(alice.page.getByText("Time ran out")).toBeVisible();
   for (const c of [alice, bob]) await c.context.close();
 });
+
+test("both players tapping ready at the same moment both end up ready", async ({ browser }) => {
+  const alice = await newPlayer(browser);
+  const bob = await newPlayer(browser);
+  const { link } = await createGame(alice.page, { nickname: "Alice" });
+  await joinGame(bob.page, link, "Bob");
+  await expect(alice.page.getByTestId("slot-B")).toContainText("Bob");
+  // Simulate phone latency: Bob's tap leaves first but reaches the server after Alice's.
+  await bob.page.route("**/commands", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.continue();
+  });
+  await bob.page.getByRole("button", { name: "I'm ready" }).click();
+  await alice.page.getByRole("button", { name: "I'm ready" }).click();
+  await expect(alice.page.getByRole("button", { name: "Start game" })).toBeEnabled();
+  await expect(bob.page.getByTestId("slot-B")).toContainText("Ready");
+  await expect(bob.page.getByRole("alert")).toHaveCount(0);
+  for (const c of [alice, bob]) await c.context.close();
+});

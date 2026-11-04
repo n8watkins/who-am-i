@@ -18,6 +18,24 @@ type CommandExtra<T extends CommandType> = Omit<Extract<Command, { type: T }>, "
 
 const PING_INTERVAL_MS = 25_000;
 
+/** Commands whose meaning does not depend on the exact state the player saw (the server re-validates them). */
+const ABSOLUTE_COMMANDS = new Set<CommandType>(["player.ready", "settings.update", "match.start"]);
+
+/** The parts of the state a turn command depends on. Presence or counter changes do not alter it. */
+function gamePosition(view: RoomView): string {
+  return JSON.stringify([view.status, view.roundIndex, view.turn?.playerId, view.turn?.phase, view.turnResults]);
+}
+
+/**
+ * After a version conflict, retry once if the conflict came from an unrelated change (for example
+ * the opponent reconnecting) or the command is absolute. A guess that was already confirmed or a
+ * turn that already ended changes the game position, so it is never retried.
+ */
+function shouldRetry(type: CommandType, seen: RoomView, latest: RoomView | undefined): boolean {
+  if (!latest) return false;
+  return ABSOLUTE_COMMANDS.has(type) || gamePosition(seen) === gamePosition(latest);
+}
+
 export interface RoomHandle {
   view: RoomView | null;
   connection: Connection;
@@ -149,9 +167,15 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         try {
           response = await api.command(code, session.token, command);
         } catch (err) {
-          // A dropped request is retried once with the same command id; the server never applies it twice.
-          if (err instanceof ApiRequestError && err.status === 0) response = await api.command(code, session.token, command);
-          else throw err;
+          if (!(err instanceof ApiRequestError)) throw err;
+          if (err.status === 0) {
+            // A dropped request is retried once with the same command id; the server never applies it twice.
+            response = await api.command(code, session.token, command);
+          } else if (err.body.error === "version_conflict" && shouldRetry(type, current, err.body.view)) {
+            response = await api.command(code, session.token, { ...command, expectedVersion: err.body.view!.version });
+          } else {
+            throw err;
+          }
         }
         accept(response.view);
         return true;
