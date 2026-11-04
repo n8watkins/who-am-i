@@ -7,7 +7,7 @@ Take turns asking yes/no questions or giving clues until you work out who you ar
 
 No account, no app install: one player creates a room, the other opens the invite link, and you are playing in under 30 seconds.
 
-**Play it:** https://who-am-i-game.nathancwatkins23.workers.dev
+**Play it:** https://whoami.n8builds.dev
 
 ## How to play
 
@@ -63,7 +63,7 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 | `npm test` | Vitest unit and integration tests, running inside the Workers runtime via `@cloudflare/vitest-plugin` |
 | `npm run e2e` | Builds the client, checks the bundle for identity content, and runs Playwright against `wrangler dev` |
 | `npm run build` | Builds the client, checks the bundle, and bundles the Worker with a Wrangler dry run |
-| `E2E_BASE_URL=https://who-am-i-game.nathancwatkins23.workers.dev npx playwright test acceptance` | Runs the acceptance scenario against a deployed Worker |
+| `E2E_BASE_URL=https://whoami.n8builds.dev npx playwright test acceptance` | Runs the acceptance scenario against a deployed Worker |
 | `SCREENSHOTS=1 npx playwright test screenshots` | Regenerates `docs/screenshots` at 1280x800 and 390x844 (after `vite build`) |
 
 ## Tests
