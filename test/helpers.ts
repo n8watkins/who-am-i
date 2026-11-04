@@ -46,7 +46,7 @@ export function setupRoom(
 ): { room: RoomState; a: string; b: string; ctx: ReturnType<typeof testContext> } {
   const ctx = testContext(opts.seed ?? 7);
   const created = createRoom(
-    { roomId: "room-1", code: "ABCDEF", nickname: "Alice", settings: { ...DEFAULT_SETTINGS, ...opts.settings } },
+    { roomId: "room-1", code: "ABCDEF", nickname: "Alice", settings: { ...DEFAULT_SETTINGS, firstPlayer: "host", ...opts.settings } },
     ctx,
   );
   const a = created.playerId;

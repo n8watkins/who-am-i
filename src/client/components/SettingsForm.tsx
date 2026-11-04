@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { PACK_META, PACK_ORDER } from "../../shared/packs";
-import { POINTS_TO_WIN, ROUNDS_PER_MATCH, type Mode, type Settings } from "../../shared/protocol";
+import { POINTS_TO_WIN, ROUNDS_PER_MATCH, type FirstPlayerOption, type Mode, type PlayerView, type Settings } from "../../shared/protocol";
 
 export const MODE_LABELS: Record<Mode, { name: string; blurb: string }> = {
   twenty_questions: { name: "20 Questions", blurb: "Ask yes/no questions to figure out who you are." },
@@ -9,6 +9,23 @@ export const MODE_LABELS: Record<Mode, { name: string; blurb: string }> = {
 
 export function matchLabel(settings: Settings): string {
   return settings.matchType === "points" ? `First to ${POINTS_TO_WIN} points` : `Best after ${ROUNDS_PER_MATCH} rounds`;
+}
+
+export const FIRST_PLAYER_LABELS: Record<FirstPlayerOption, string> = {
+  host: "Me",
+  opponent: "My opponent",
+  random: "Random",
+};
+
+/** "Alice goes first", "You go first" or "Random: decided when the game starts" for the lobby. */
+export function firstPlayerLabel(settings: Settings, players: PlayerView[], youId: string, hostId: string): string {
+  const option = settings.firstPlayer ?? "random";
+  if (option === "random") return "Random, decided when the game starts";
+  const host = players.find((p) => p.playerId === hostId);
+  const other = players.find((p) => p.playerId !== hostId);
+  const starter = option === "host" ? host : other;
+  if (!starter) return "Your opponent goes first";
+  return starter.playerId === youId ? "You go first" : `${starter.nickname} goes first`;
 }
 
 export function timerLabel(settings: Settings): string {
@@ -95,6 +112,17 @@ export function SettingsForm({ value, onChange }: { value: Settings; onChange: (
             </Option>
           ))}
         </div>
+      </Group>
+
+      <Group legend="Who goes first">
+        <div className="grid grid-cols-3 gap-2.5">
+          {(Object.keys(FIRST_PLAYER_LABELS) as FirstPlayerOption[]).map((option) => (
+            <Option key={option} name="first" checked={(value.firstPlayer ?? "random") === option} onChange={() => set("firstPlayer", option)}>
+              <span className="font-bold">{FIRST_PLAYER_LABELS[option]}</span>
+            </Option>
+          ))}
+        </div>
+        <p className="text-sm text-muted">After round 1, the first guesser alternates every round.</p>
       </Group>
 
       <Group legend="Match length">

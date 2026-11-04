@@ -20,6 +20,10 @@ export const TIMER_OPTIONS = [0, 60, 90] as const;
 export type TimerSeconds = (typeof TIMER_OPTIONS)[number];
 
 export const MATCH_TYPES = ["points", "rounds"] as const;
+
+/** Who guesses first in round 1 of a match started from the lobby. Rematches use the loser rule. */
+export const FIRST_PLAYER_OPTIONS = ["host", "opponent", "random"] as const;
+export type FirstPlayerOption = (typeof FIRST_PLAYER_OPTIONS)[number];
 export type MatchType = (typeof MATCH_TYPES)[number];
 
 /** First to this many points wins (points mode). */
@@ -36,6 +40,7 @@ export const SettingsSchema = z.object({
   mode: z.enum(MODES),
   timerSeconds: z.union([z.literal(0), z.literal(60), z.literal(90)]),
   matchType: z.enum(MATCH_TYPES),
+  firstPlayer: z.enum(FIRST_PLAYER_OPTIONS),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -44,6 +49,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mode: "twenty_questions",
   timerSeconds: 0,
   matchType: "points",
+  firstPlayer: "random",
 };
 
 // Remove control characters and collapse whitespace so names render predictably.
@@ -100,8 +106,8 @@ export type Seat = "A" | "B";
 export type RoomStatus =
   | "lobby"
   | "assigning"
-  | "guessing_a"
-  | "guessing_b"
+  | "guessing_first"
+  | "guessing_second"
   | "round_summary"
   | "match_summary";
 export type TurnResult = "correct" | "skipped" | "timed_out";
@@ -181,6 +187,8 @@ export interface RoomView {
   hostPlayerId: string;
   players: PlayerView[];
   roundIndex: number;
+  /** Who guesses first in the current round (alternates every round). */
+  firstPlayerId: string | null;
   turn: TurnView | null;
   /** Result of each player's turn in the current round, by player id. */
   turnResults: Record<string, TurnResult>;
@@ -188,6 +196,10 @@ export interface RoomView {
   opponentIdentity: PublicIdentity | null;
   roundSummary: RoundSummaryView | null;
   matchSummary: MatchSummaryView | null;
+  /** Players who tapped Rematch on the match summary. When both have, the next match starts. */
+  rematchVotes: string[];
+  /** On the match summary: who will guess first if both tap Rematch (the loser, or after a tie the previous second guesser). */
+  rematchFirstPlayerId: string | null;
   notices: Notice[];
 }
 

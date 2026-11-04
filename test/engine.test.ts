@@ -11,9 +11,10 @@ import {
   setPresence,
   type RoomState,
 } from "../src/worker/engine";
+import { viewFor } from "../src/worker/view";
 import { cmd, mustApply, setupRoom, testContext } from "./helpers";
 
-/** Plays one full round: A gets `aResult`, B gets `bResult`. */
+/** Plays one full round in whatever order the server chose: A gets `aResult`, B gets `bResult`. */
 function playRound(
   room: RoomState,
   a: string,
@@ -22,10 +23,10 @@ function playRound(
   aResult: "correct" | "skip" = "correct",
   bResult: "correct" | "skip" = "skip",
 ): RoomState {
-  for (const [guesser, judge, result] of [
-    [a, b, aResult],
-    [b, a, bResult],
-  ] as const) {
+  for (let i = 0; i < 2; i++) {
+    const guesser = room.turn!.playerId;
+    const judge = guesser === a ? b : a;
+    const result = guesser === a ? aResult : bResult;
     if (result === "correct") {
       room = mustApply(room, guesser, cmd(room, "turn.correct.request"), ctx);
       room = mustApply(room, judge, cmd(room, "turn.correct.confirm"), ctx);
@@ -63,7 +64,7 @@ describe("lobby and seats", () => {
     r = mustApply(r, b, cmd(r, "player.ready", { ready: true }), ctx);
     expect(applyCommand(r, b, cmd(r, "match.start"), ctx)).toMatchObject({ ok: false, error: "forbidden" });
     r = mustApply(r, a, cmd(r, "match.start"), ctx);
-    expect(r.status).toBe("guessing_a");
+    expect(r.status).toBe("guessing_first");
     expect(r.roundIndex).toBe(1);
   });
 
@@ -104,18 +105,18 @@ describe("lobby and seats", () => {
 describe("turns and scoring", () => {
   it("runs guessing_a -> guessing_b -> round_summary -> next round", () => {
     let { room, a, b, ctx } = setupRoom();
-    expect(room.status).toBe("guessing_a");
+    expect(room.status).toBe("guessing_first");
     expect(room.turn?.playerId).toBe(a);
     room = mustApply(room, a, cmd(room, "turn.correct.request"), ctx);
     expect(room.turn?.phase).toBe("pending_confirm");
     room = mustApply(room, b, cmd(room, "turn.correct.confirm"), ctx);
-    expect(room.status).toBe("guessing_b");
+    expect(room.status).toBe("guessing_second");
     expect(room.turn?.playerId).toBe(b);
     room = mustApply(room, b, cmd(room, "turn.skip"), ctx);
     expect(room.status).toBe("round_summary");
     expect(room.lastRoundSummary?.entries.map((e) => e.result)).toEqual(["correct", "skipped"]);
     room = mustApply(room, a, cmd(room, "round.next"), ctx);
-    expect(room.status).toBe("guessing_a");
+    expect(room.status).toBe("guessing_first");
     expect(room.roundIndex).toBe(2);
     expect(room.players.find((p) => p.id === a)!.score).toBe(1);
     expect(room.players.find((p) => p.id === b)!.skips).toBe(1);
@@ -188,7 +189,7 @@ describe("idempotency and version checks", () => {
     const dup = applyCommand(room, a, skip, ctx);
     expect(dup).toMatchObject({ ok: true, duplicate: true });
     expect(room.players.find((p) => p.id === a)!.skips).toBe(1);
-    expect(room.status).toBe("guessing_b");
+    expect(room.status).toBe("guessing_second");
   });
 
   it("when both clients race, the first valid transition wins", () => {
@@ -221,7 +222,7 @@ describe("timer", () => {
     expect(expireTurn(room, ctx)).toBeNull();
     ctx.advance(1);
     const expired = expireTurn(room, ctx)!;
-    expect(expired.status).toBe("guessing_b");
+    expect(expired.status).toBe("guessing_second");
     expect(expired.players.find((p) => p.id === a)!.skips).toBe(1);
     expect(expired.events.filter((e) => e.type === "turn.timed_out")).toHaveLength(1);
     // The next turn has a fresh deadline, so a second check does nothing.
@@ -371,7 +372,7 @@ describe("match end and rematch", () => {
     expect(room.match).toEqual({ winnerId: null, tie: true, rounds: ROUNDS_PER_MATCH });
   });
 
-  it("rematch keeps the room and settings, and resets scores and assignments", () => {
+  it("one-tap rematch: when both tap Rematch the next match starts with the same settings", () => {
     let { room, a, b, ctx } = setupRoom({ settings: { packId: "video-games" } });
     for (let i = 0; i < POINTS_TO_WIN; i++) {
       room = playRound(room, a, b, ctx);
@@ -379,15 +380,97 @@ describe("match end and rematch", () => {
     }
     expect(room.status).toBe("match_summary");
     room = mustApply(room, b, cmd(room, "match.rematch"), ctx);
-    expect(room.status).toBe("lobby");
+    expect(room.status).toBe("match_summary");
+    expect(room.rematchVotes).toEqual([b]);
+    expect(applyCommand(room, b, cmd(room, "match.rematch"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
+    room = mustApply(room, a, cmd(room, "match.rematch"), ctx);
+    expect(room.status).toBe("guessing_first");
+    expect(room.roundIndex).toBe(1);
     expect(room.code).toBe("ABCDEF");
     expect(room.settings.packId).toBe("video-games");
-    expect(room.usedIdentityIds).toEqual([]);
+    expect(room.usedIdentityIds).toHaveLength(2);
     expect(room.players.map((p) => p.score)).toEqual([0, 0]);
-    room = mustApply(room, a, cmd(room, "player.ready", { ready: true }), ctx);
-    room = mustApply(room, b, cmd(room, "player.ready", { ready: true }), ctx);
-    room = mustApply(room, a, cmd(room, "match.start"), ctx);
-    expect(room.roundIndex).toBe(1);
+    expect(room.rematchVotes).toEqual([]);
     expect(room.events.some((e) => e.type === "match.rematched")).toBe(true);
+  });
+
+  it("either player can go back to the lobby to change settings", () => {
+    let { room, a, b, ctx } = setupRoom();
+    for (let i = 0; i < POINTS_TO_WIN; i++) {
+      room = playRound(room, a, b, ctx);
+      room = mustApply(room, a, cmd(room, "round.next"), ctx);
+    }
+    room = mustApply(room, a, cmd(room, "match.rematch"), ctx);
+    room = mustApply(room, b, cmd(room, "match.change_settings"), ctx);
+    expect(room.status).toBe("lobby");
+    expect(room.rematchVotes).toEqual([]);
+    expect(room.players.every((p) => !p.ready && p.score === 0)).toBe(true);
+  });
+});
+
+describe("turn order", () => {
+  it("alternates the first guesser every round", () => {
+    let { room, a, b, ctx } = setupRoom({ settings: { matchType: "rounds" } });
+    const firsts: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      firsts.push(room.turn!.playerId);
+      expect(room.round!.order[0]).toBe(room.turn!.playerId);
+      room = playRound(room, a, b, ctx, "skip", "skip");
+      room = mustApply(room, a, cmd(room, "round.next"), ctx);
+    }
+    expect(firsts).toEqual([a, b, a, b]);
+  });
+
+  it("starts with the host, the opponent, or a random player per the lobby setting", () => {
+    const host = setupRoom({ settings: { firstPlayer: "host" } });
+    expect(host.room.turn!.playerId).toBe(host.a);
+    const opp = setupRoom({ settings: { firstPlayer: "opponent" } });
+    expect(opp.room.turn!.playerId).toBe(opp.b);
+    const starters = new Set<string>();
+    for (let seed = 1; seed <= 20; seed++) {
+      const r = setupRoom({ settings: { firstPlayer: "random" }, seed });
+      starters.add(r.room.turn!.playerId === r.a ? "host" : "opponent");
+    }
+    expect(starters).toEqual(new Set(["host", "opponent"]));
+  });
+
+  it("a rematch starts with the loser of the previous match", () => {
+    let { room, a, b, ctx } = setupRoom({ settings: { firstPlayer: "opponent" } });
+    // B goes first in round 1; A wins every round.
+    for (let i = 0; i < POINTS_TO_WIN; i++) {
+      room = playRound(room, a, b, ctx, "correct", "skip");
+      room = mustApply(room, a, cmd(room, "round.next"), ctx);
+    }
+    expect(room.match?.winnerId).toBe(a);
+    room = mustApply(room, a, cmd(room, "match.rematch"), ctx);
+    room = mustApply(room, b, cmd(room, "match.rematch"), ctx);
+    expect(room.turn!.playerId).toBe(b);
+
+    // Now B wins: A (the loser) starts the next rematch.
+    for (let i = 0; i < POINTS_TO_WIN; i++) {
+      room = playRound(room, a, b, ctx, "skip", "correct");
+      room = mustApply(room, a, cmd(room, "round.next"), ctx);
+    }
+    expect(room.match?.winnerId).toBe(b);
+    room = mustApply(room, b, cmd(room, "match.rematch"), ctx);
+    room = mustApply(room, a, cmd(room, "match.rematch"), ctx);
+    expect(room.turn!.playerId).toBe(a);
+  });
+
+  it("after a tie, whoever went second in the previous match's round 1 starts the rematch", () => {
+    let { room, a, b, ctx } = setupRoom({ settings: { matchType: "rounds", firstPlayer: "host" } });
+    for (let i = 0; i < ROUNDS_PER_MATCH; i++) {
+      room = playRound(room, a, b, ctx, "skip", "skip");
+      room = mustApply(room, a, cmd(room, "round.next"), ctx);
+    }
+    expect(room.match?.tie).toBe(true);
+    room = mustApply(room, a, cmd(room, "match.rematch"), ctx);
+    room = mustApply(room, b, cmd(room, "match.rematch"), ctx);
+    expect(room.turn!.playerId).toBe(b);
+  });
+
+  it("exposes who goes first in the view", () => {
+    const { room, a, b, ctx } = setupRoom({ settings: { firstPlayer: "opponent" } });
+    expect(viewFor(room, a, ctx.now).firstPlayerId).toBe(b);
   });
 });

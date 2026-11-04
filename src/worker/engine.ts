@@ -1,6 +1,12 @@
 // Pure, deterministic room state machine. No I/O: the Durable Object persists and broadcasts.
 //
-// lobby -> assigning -> guessing_a -> guessing_b -> round_summary -> assigning ... -> match_summary
+// lobby -> assigning -> guessing_first -> guessing_second -> round_summary -> assigning ... -> match_summary
+//                                                                                          |
+//                          match_summary --(both tap Rematch)--> assigning (next match) <--+
+//
+// Turn order: the first guesser alternates every round. Round 1 of a match started from the
+// lobby follows the host's setting (me, opponent, random). A rematch starts with the loser of
+// the previous match; after a tie, with whoever went second in the previous match's round 1.
 //
 // Every mutation returns a new RoomState with `version` incremented exactly once.
 import {
@@ -50,6 +56,8 @@ export interface RoundRecord {
   assignments: Record<string, string>;
   results: Record<string, TurnResult>;
   reshuffled: boolean;
+  /** [first guesser, second guesser] for this round. */
+  order: [string, string];
 }
 
 export interface RoundSummaryRecord {
@@ -100,6 +108,9 @@ export interface RoomState {
   usedIdentityIds: string[];
   lastRoundSummary: RoundSummaryRecord | null;
   match: { winnerId: string | null; tie: boolean; rounds: number } | null;
+  /** Who guessed first in round 1 of the current (or just finished) match. */
+  matchFirstPlayerId: string | null;
+  rematchVotes: string[];
   opponentLeft: boolean;
   recentCommands: { id: string; playerId: string }[];
   events: RoomEvent[];
@@ -139,7 +150,7 @@ export function opponentOf(room: RoomState, playerId: string): PlayerRecord | un
 }
 
 export function isGuessing(status: RoomStatus): boolean {
-  return status === "guessing_a" || status === "guessing_b";
+  return status === "guessing_first" || status === "guessing_second";
 }
 
 function clone(room: RoomState): RoomState {
@@ -288,6 +299,8 @@ export function createRoom(
     usedIdentityIds: [],
     lastRoundSummary: null,
     match: null,
+    matchFirstPlayerId: null,
+    rematchVotes: [],
     opponentLeft: false,
     recentCommands: [],
     events: [],
@@ -436,19 +449,9 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     if (room.hostPlayerId !== playerId) return fail("forbidden", "Only the host can start the match.");
     if (room.players.length < MAX_PLAYERS) return invalid("Waiting for a second player.");
     if (!room.players.every((p) => p.ready)) return invalid("Both players must be ready.");
-    for (const p of room.players) {
-      p.score = 0;
-      p.correct = 0;
-      p.skips = 0;
-    }
-    room.usedIdentityIds = [];
-    room.roundIndex = 0;
-    room.match = null;
-    room.lastRoundSummary = null;
-    room.opponentLeft = false;
     touch(room, ctx);
     emit(room, ctx, "match.started", { playerId });
-    startRound(room, ctx);
+    startMatch(room, chooseFirstFromSettings(room, ctx), ctx);
     return undefined;
   },
 
@@ -536,18 +539,21 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
 
   "match.rematch": (room, playerId, _cmd, ctx) => {
     if (room.status !== "match_summary") return invalid("The match is not over.");
-    resetToLobby(room);
+    if (room.rematchVotes.includes(playerId)) return invalid("You already asked for a rematch.");
+    room.rematchVotes.push(playerId);
     touch(room, ctx);
-    emit(room, ctx, "match.rematched", { playerId });
+    if (room.players.length === MAX_PLAYERS && room.players.every((p) => room.rematchVotes.includes(p.id))) {
+      emit(room, ctx, "match.rematched", { playerId });
+      startMatch(room, rematchFirstPlayer(room), ctx);
+    }
     return undefined;
   },
 
   "match.change_settings": (room, playerId, _cmd, ctx) => {
     if (room.status !== "match_summary") return invalid("The match is not over.");
-    if (room.hostPlayerId !== playerId) return fail("forbidden", "Only the host can change settings.");
     resetToLobby(room);
     touch(room, ctx);
-    emit(room, ctx, "match.rematched", { playerId });
+    emit(room, ctx, "settings.updated", { playerId });
     return undefined;
   },
 
@@ -571,12 +577,57 @@ function resetToLobby(room: RoomState): void {
   room.usedIdentityIds = [];
   room.lastRoundSummary = null;
   room.match = null;
+  room.rematchVotes = [];
   for (const p of room.players) {
     p.ready = false;
-    p.score = 0;
-    p.correct = 0;
-    p.skips = 0;
+    resetStats(p);
   }
+}
+
+function resetStats(p: PlayerRecord): void {
+  p.score = 0;
+  p.correct = 0;
+  p.skips = 0;
+}
+
+function chooseFirstFromSettings(room: RoomState, ctx: EngineContext): string {
+  const host = room.hostPlayerId;
+  const other = opponentOf(room, host)!.id;
+  switch (room.settings.firstPlayer ?? "random") {
+    case "host":
+      return host;
+    case "opponent":
+      return other;
+    default:
+      return ctx.random() < 0.5 ? host : other;
+  }
+}
+
+/** The loser of the previous match goes first; after a tie, whoever went second in its round 1. */
+export function rematchFirstPlayer(room: RoomState): string {
+  const previous = room.match;
+  const previousFirst = room.matchFirstPlayerId ?? room.hostPlayerId;
+  if (previous && !previous.tie && previous.winnerId) return opponentOf(room, previous.winnerId)!.id;
+  return opponentOf(room, previousFirst)!.id;
+}
+
+/** Resets scores and the shuffle, then starts round 1 with `firstPlayerId` guessing first. */
+function startMatch(room: RoomState, firstPlayerId: string, ctx: EngineContext): void {
+  for (const p of room.players) resetStats(p);
+  room.usedIdentityIds = [];
+  room.roundIndex = 0;
+  room.match = null;
+  room.lastRoundSummary = null;
+  room.opponentLeft = false;
+  room.rematchVotes = [];
+  room.matchFirstPlayerId = firstPlayerId;
+  startRound(room, ctx);
+}
+
+/** First guesser of a round: the match starter in odd rounds, the other player in even rounds. */
+export function firstGuesserOf(room: RoomState, roundIndex: number): string {
+  const starter = room.matchFirstPlayerId ?? room.hostPlayerId;
+  return roundIndex % 2 === 1 ? starter : opponentOf(room, starter)!.id;
 }
 
 function scoreCorrect(room: RoomState, turn: TurnRecord, ctx: EngineContext): void {
@@ -593,20 +644,21 @@ function scoreCorrect(room: RoomState, turn: TurnRecord, ctx: EngineContext): vo
 function startRound(room: RoomState, ctx: EngineContext): void {
   room.status = "assigning";
   room.roundIndex += 1;
-  const a = playerBySeat(room, "A")!;
-  const b = playerBySeat(room, "B")!;
+  const first = firstGuesserOf(room, room.roundIndex);
+  const second = opponentOf(room, first)!.id;
   const { pair, reshuffled } = drawPair(room, ctx.random);
   if (reshuffled) room.usedIdentityIds = [];
   room.usedIdentityIds.push(pair[0].id, pair[1].id);
   room.round = {
     index: room.roundIndex,
-    assignments: { [a.id]: pair[0].id, [b.id]: pair[1].id },
+    assignments: { [first]: pair[0].id, [second]: pair[1].id },
     results: {},
     reshuffled,
+    order: [first, second],
   };
   room.lastRoundSummary = null;
-  emit(room, ctx, "round.started", { roundIndex: room.roundIndex });
-  beginTurn(room, a, "guessing_a", ctx);
+  emit(room, ctx, "round.started", { roundIndex: room.roundIndex, playerId: first });
+  beginTurn(room, playerById(room, first)!, "guessing_first", ctx);
 }
 
 function beginTurn(room: RoomState, player: PlayerRecord, status: RoomStatus, ctx: EngineContext): void {
@@ -623,8 +675,8 @@ function beginTurn(room: RoomState, player: PlayerRecord, status: RoomStatus, ct
 }
 
 function advanceAfterTurn(room: RoomState, ctx: EngineContext): void {
-  if (room.status === "guessing_a") {
-    beginTurn(room, playerBySeat(room, "B")!, "guessing_b", ctx);
+  if (room.status === "guessing_first") {
+    beginTurn(room, playerById(room, room.round!.order[1])!, "guessing_second", ctx);
     return;
   }
   completeRound(room, ctx);

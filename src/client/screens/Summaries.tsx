@@ -1,6 +1,6 @@
 import type { RoomView } from "../../shared/protocol";
 import { Scoreboard } from "../components/Scoreboard";
-import { Button, Card } from "../components/ui";
+import { Banner, Button, Card } from "../components/ui";
 import { mePlayer, opponentPlayer } from "../lib/hooks";
 import type { RoomHandle } from "../lib/useRoom";
 import { ResultPill } from "./Game";
@@ -46,7 +46,12 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
   const match = view.matchSummary;
   const me = mePlayer(view);
   const opponent = opponentPlayer(view);
-  const isHost = view.hostPlayerId === me.playerId;
+  const iWant = view.rematchVotes.includes(me.playerId);
+  const opponentWants = !!opponent && view.rematchVotes.includes(opponent.playerId);
+  const starter = view.players.find((p) => p.playerId === view.rematchFirstPlayerId);
+  const starterText = starter
+    ? `${starter.playerId === me.playerId ? "You go" : `${starter.nickname} goes`} first${match?.tie ? " (went second last match)." : " (loser starts)."}`
+    : "";
   if (!match) return null;
   const winner = view.players.find((p) => p.playerId === match.winnerId);
   const headline = match.tie ? "It's a tie!" : winner?.playerId === me.playerId ? "You win!" : `${winner?.nickname ?? "Your opponent"} wins!`;
@@ -95,17 +100,19 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
       </Card>
 
       <div className="space-y-3">
-        <Button size="lg" block disabled={room.pending} onClick={() => room.send("match.rematch")}>
-          Rematch
-        </Button>
-        {isHost && (
-          <Button size="lg" variant="secondary" block disabled={room.pending} onClick={() => room.send("match.change_settings")}>
-            Change categories
-          </Button>
+        {opponentWants && !iWant && (
+          <Banner tone="success" role="status">
+            {opponent?.nickname} wants a rematch.
+          </Banner>
         )}
-        <p className="text-center text-sm text-muted">
-          Rematch keeps this room and its settings with a fresh shuffle.{" "}
-          {!isHost && opponent ? `${opponent.nickname} can change categories.` : ""}
+        <Button size="lg" block disabled={room.pending || iWant} onClick={() => room.send("match.rematch")}>
+          {iWant ? `Waiting for ${opponent?.nickname ?? "your opponent"}...` : opponentWants ? "Accept rematch" : "Rematch"}
+        </Button>
+        <Button size="lg" variant="secondary" block disabled={room.pending} onClick={() => room.send("match.change_settings")}>
+          Change settings
+        </Button>
+        <p className="text-center text-sm text-muted" data-testid="rematch-starter">
+          Same room and settings, fresh shuffle. {starterText}
         </p>
       </div>
     </div>

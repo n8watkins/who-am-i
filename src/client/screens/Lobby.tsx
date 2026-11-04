@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RoomView, Settings } from "../../shared/protocol";
-import { MODE_LABELS, matchLabel, SettingsForm, timerLabel } from "../components/SettingsForm";
+import { firstPlayerLabel, MODE_LABELS, matchLabel, SettingsForm, timerLabel } from "../components/SettingsForm";
 import { Banner, Button, Card, Pill } from "../components/ui";
 import { mePlayer, opponentPlayer } from "../lib/hooks";
 import { roomUrl } from "../lib/router";
@@ -120,6 +120,10 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
             <SettingItem label="Mode" value={MODE_LABELS[view.settings.mode].name} />
             <SettingItem label="Timer" value={timerLabel(view.settings)} />
             <SettingItem label="Match" value={matchLabel(view.settings)} />
+            <div className="col-span-2 rounded-2xl bg-brand-soft/60 px-4 py-3" data-testid="first-player">
+              <dt className="font-bold text-muted">First guess</dt>
+              <dd className="text-base font-extrabold text-brand-dark">{firstPlayerLabel(view.settings, view.players, view.youId, view.hostPlayerId)}</dd>
+            </div>
           </dl>
         )}
       </Card>

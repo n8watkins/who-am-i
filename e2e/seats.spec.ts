@@ -88,3 +88,19 @@ test("both players tapping ready at the same moment both end up ready", async ({
   await expect(bob.page.getByRole("alert")).toHaveCount(0);
   for (const c of [alice, bob]) await c.context.close();
 });
+
+test("the host can let the opponent go first from the lobby", async ({ browser }) => {
+  const alice = await newPlayer(browser);
+  const bob = await newPlayer(browser);
+  const { link } = await createGame(alice.page, { nickname: "Alice" });
+  await joinGame(bob.page, link, "Bob");
+  await alice.page.getByRole("button", { name: "Change" }).click();
+  await alice.page.getByRole("radio", { name: "My opponent", exact: true }).check();
+  await alice.page.getByRole("button", { name: "Save settings" }).click();
+  await expect(alice.page.getByTestId("first-player")).toContainText("Bob goes first");
+  await expect(bob.page.getByTestId("first-player")).toContainText("You go first");
+  await readyAndStart(alice.page, bob.page);
+  await expect(bob.page.getByTestId("turn-headline")).toHaveText("Your turn to guess");
+  await expect(alice.page.getByTestId("round-starter")).toHaveText("Bob goes first this round.");
+  for (const c of [alice, bob]) await c.context.close();
+});

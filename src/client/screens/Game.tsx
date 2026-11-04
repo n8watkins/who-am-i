@@ -43,6 +43,12 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
         Round {view.roundIndex}. {turnHeadline}.{pendingConfirm ? (myTurn ? " Waiting for confirmation." : ` ${opponent.nickname} thinks they got it.`) : ""}
       </p>
 
+      {view.firstPlayerId && (
+        <p className="text-sm font-bold text-muted" data-testid="round-starter">
+          {view.firstPlayerId === me.playerId ? "You go first this round." : `${opponent.nickname} goes first this round.`}
+        </p>
+      )}
+
       {view.notices.includes("pack_reshuffled") && (
         <Banner tone="info" role="status">
           Pack exhausted, reshuffling. Earlier identities can come up again.

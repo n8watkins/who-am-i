@@ -21,7 +21,10 @@ No account, no app install: one player creates a room, the other opens the invit
    A correct guess scores 1 point, a skip scores 0, and a timed-out turn counts as a skip.
 7. When both players have had their turn, the round summary reveals both identities.
 8. The match ends at **first to 5 points** or **best after 10 rounds**.
-   **Rematch** keeps the room and settings with a fresh shuffle.
+   When both players tap **Rematch**, the next match starts right away with the same settings and a fresh shuffle, and the loser goes first.
+   **Change settings** returns to the lobby instead.
+
+Who guesses first alternates every round. The host picks who starts round 1 in the lobby: me, my opponent, or random.
 
 Categories: Actors, Movie Characters, Historical Figures, Video Games, Brand Mascots, Anime & Cartoons, and Mixed (weighted from all of them).
 Identities never repeat within a match until a pack runs out, at which point the game says "Pack exhausted, reshuffling".
@@ -98,7 +101,9 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
 - **One Worker** serves the Vite-built React SPA as static assets and the JSON API under `/api`.
 - **One Durable Object per room** (`src/worker/room.ts`) is the authoritative game server.
   It loads the room from Durable Object storage, applies commands through a pure state machine (`src/worker/engine.ts`), persists before acknowledging, and pushes a filtered view to every connected socket using the WebSocket Hibernation API.
-- **State machine:** `lobby -> assigning -> guessing_a -> guessing_b -> round_summary -> assigning ... -> match_summary`.
+- **State machine:** `lobby -> assigning -> guessing_first -> guessing_second -> round_summary -> assigning ... -> match_summary`, and `match_summary -> assigning` when both players tap Rematch.
+- **Turn order:** the first guesser alternates every round.
+  Round 1 follows the host's lobby choice (me, my opponent, or random); a rematch starts with the loser of the previous match, or after a tie with whoever went second in its round 1.
 - **Commands** are validated with Zod, carry a client-generated command id (retries are answered, never re-applied) and the state version the client saw (stale versions get `409` with the canonical state).
   If both players act at once, the first valid transition wins.
 - **Timer:** a single Durable Object alarm handles the turn deadline and room expiry.
