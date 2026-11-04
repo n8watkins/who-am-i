@@ -19,7 +19,9 @@ type CommandExtra<T extends CommandType> = Omit<Extract<Command, { type: T }>, "
 const PING_INTERVAL_MS = 25_000;
 
 /** Commands whose meaning does not depend on the exact state the player saw (the server re-validates them). */
-const ABSOLUTE_COMMANDS = new Set<CommandType>(["player.ready", "settings.update", "match.start"]);
+const ABSOLUTE_COMMANDS = new Set<CommandType>(["player.ready", "settings.update", "match.start", "match.change_settings", "player.leave"]);
+/** How many times a command is resent after unrelated version conflicts before giving up. */
+const MAX_CONFLICT_RETRIES = 3;
 
 /** The parts of the state a turn command depends on. Presence or counter changes do not alter it. */
 function gamePosition(view: RoomView): string {
@@ -161,6 +163,19 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
       const current = viewRef.current;
       if (!current) return false;
       const command = { type, commandId: newCommandId(), expectedVersion: current.version, ...extra } as Command;
+      // Resend with the latest version while conflicts keep coming from unrelated changes.
+      const retryAfterConflicts = async (conflict: ApiRequestError) => {
+        let latest = conflict;
+        for (let attempt = 1; ; attempt++) {
+          try {
+            return await api.command(code, session.token, { ...command, expectedVersion: latest.body.view!.version });
+          } catch (err) {
+            const again = err instanceof ApiRequestError && err.body.error === "version_conflict" && shouldRetry(type, current, err.body.view);
+            if (!again || attempt >= MAX_CONFLICT_RETRIES) throw err;
+            latest = err;
+          }
+        }
+      };
       setPending(true);
       try {
         let response;
@@ -172,7 +187,7 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
             // A dropped request is retried once with the same command id; the server never applies it twice.
             response = await api.command(code, session.token, command);
           } else if (err.body.error === "version_conflict" && shouldRetry(type, current, err.body.view)) {
-            response = await api.command(code, session.token, { ...command, expectedVersion: err.body.view!.version });
+            response = await retryAfterConflicts(err);
           } else {
             throw err;
           }
