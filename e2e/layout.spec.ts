@@ -40,8 +40,8 @@ test("the main screens fit a desktop window and pass accessibility checks", asyn
   await checkScreen(A, "guesser");
   await checkScreen(B, "answerer");
 
-  await A.getByRole("button", { name: "Skip" }).click();
-  await B.getByRole("button", { name: "Skip" }).click();
+  await A.getByRole("button", { name: "Give up" }).click();
+  await B.getByRole("button", { name: "Give up" }).click();
   await expect(A.getByRole("heading", { name: "The big reveal" })).toBeVisible();
   await checkScreen(A, "reveal");
   for (const c of [alice, bob]) await c.context.close();

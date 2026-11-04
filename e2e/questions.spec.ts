@@ -26,7 +26,7 @@ test("the guesser asks in the app and the opponent answers on their phone", asyn
   // Suggestions sit in one scrollable row.
   await expect(A.getByRole("group", { name: "Suggested questions" }).getByRole("button")).toHaveCount(8);
   // The turn's actions are reachable at 390x844 without scrolling, with the ask panel open.
-  await expectInView(A, ["I Guessed It", "Skip", "Get a hint, 3 of 3 left"]);
+  await expectInView(A, ["I Guessed It", "Give up", "Get a hint, 3 of 3 left"]);
   // A suggested question.
   await A.getByRole("button", { name: "Am I alive today?" }).click();
   await expect(A.getByText("Waiting for Bob to answer...")).toBeVisible();
@@ -49,7 +49,7 @@ test("the guesser asks in the app and the opponent answers on their phone", asyn
   // With the log filled, actions stay in view, and scrolling to the end never hides the log under the bar.
   await A.getByRole("button", { name: "Get a hint" }).click();
   await expect(A.getByTestId("log-hint")).toHaveCount(1);
-  await expectInView(A, ["I Guessed It", "Skip", "Get a hint, 2 of 3 left"]);
+  await expectInView(A, ["I Guessed It", "Give up", "Get a hint, 2 of 3 left"]);
   await A.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   const bar = await A.getByTestId("action-bar").boundingBox();
   const lastEntry = await A.getByTestId("turn-log").locator("li").last().boundingBox();
@@ -61,7 +61,7 @@ test("the guesser asks in the app and the opponent answers on their phone", asyn
   await expect(A.getByTestId("question-count")).toHaveText("3");
 
   // The log resets for the next turn.
-  await A.getByRole("button", { name: "Skip" }).click();
+  await A.getByRole("button", { name: "Give up" }).click();
   await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
   await expect(B.getByTestId("log-question")).toHaveCount(0);
   for (const c of [alice, bob]) await c.context.close();
@@ -79,8 +79,8 @@ test("a spoken-only room hides the in-app question panel, and leaving frees the 
   await startMatch(alice.page, bob.page);
   await expect(alice.page.getByRole("group", { name: "Suggested questions" })).toHaveCount(0);
   await expect(bob.page.getByRole("button", { name: "Count one more question" })).toBeVisible();
-  await alice.page.getByRole("button", { name: "Skip" }).click();
-  await bob.page.getByRole("button", { name: "Skip" }).click();
+  await alice.page.getByRole("button", { name: "Give up" }).click();
+  await bob.page.getByRole("button", { name: "Give up" }).click();
   await alice.page.getByRole("button", { name: "Next round" }).click();
   await alice.page.getByRole("button", { name: "Leave room" }).first().click();
   await alice.page.getByRole("dialog").getByRole("button", { name: "Leave room" }).click();

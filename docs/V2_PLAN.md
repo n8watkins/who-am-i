@@ -68,6 +68,8 @@ These decisions came after reviewing the first UX preview, and they override any
   Friend games keep a head-to-head record, and Solo gets a skill rating against puzzle difficulty, because the AI checks those guesses.
 - **Images**: original category art and initials tiles only; no real photos, film stills or character art.
 
+Implementation notes from M2b: a player's log and counts carry between their moves, a timeout in Trade turns costs only that move, and **Give up** removes you from the round while your opponent can still solve it for the point (if both give up, nobody scores).
+
 Delivery order is now M2 (desktop-first UX), M2b (turn formats, difficulty, handicap), M2c (Pass and play), then M3 onward as planned.
 
 ## 3. Game modes

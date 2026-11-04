@@ -16,6 +16,8 @@ No account, no app install: one player creates a room, the other opens the invit
 3. The host taps **Start game**.
 4. Each screen shows your opponent's character and "Your identity: Hidden".
 5. On your turn, ask yes/no questions (**Ask**) or listen to your opponent describe you (**Clues**).
+   With **Trade turns**, the default for Ask, each move is one question and one guess, and the first correct guess wins the round.
+   With **Keep going**, your turn lasts until you get it or give up.
    Ask out loud, or send a question in the app: pick a suggested one or type your own, and your opponent answers on their phone with Yes, No, Sort of or Don't know.
    Both phones keep a log of the turn's questions and answers, and the top bar counts how many you have asked.
    Stuck? Tap **Get a hint** for up to three hints per turn, from vague to strong. Hints are free.

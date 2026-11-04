@@ -19,7 +19,7 @@ type CommandExtra<T extends CommandType> = Omit<Extract<Command, { type: T }>, "
 const PING_INTERVAL_MS = 25_000;
 
 /** Commands whose meaning does not depend on the exact state the player saw (the server re-validates them). */
-const ABSOLUTE_COMMANDS = new Set<CommandType>(["player.ready", "settings.update", "match.start", "match.change_settings", "player.leave", "player.remove"]);
+const ABSOLUTE_COMMANDS = new Set<CommandType>(["player.ready", "settings.update", "match.start", "match.change_settings", "player.leave", "player.remove", "player.difficulty"]);
 /** How many times a command is resent after unrelated version conflicts before giving up. */
 const MAX_CONFLICT_RETRIES = 3;
 

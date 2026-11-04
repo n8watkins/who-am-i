@@ -1,12 +1,13 @@
 import { useState } from "react";
-import type { RoomView, Settings } from "../../shared/protocol";
+import { DIFFICULTIES, type Difficulty, type RoomView, type Settings } from "../../shared/protocol";
 import { Invite } from "../components/Invite";
-import { firstPlayerLabel, SettingsForm, settingsSummary } from "../components/SettingsForm";
+import { DIFFICULTY_LABELS, firstPlayerLabel, SettingsForm, settingsSummary } from "../components/SettingsForm";
 import { Banner, Button, Card, Dialog, Pill } from "../components/ui";
-import { opponentPlayer } from "../lib/hooks";
+import { mePlayer, opponentPlayer } from "../lib/hooks";
 import type { RoomHandle } from "../lib/useRoom";
 
 export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
+  const me = mePlayer(view);
   const opponent = opponentPlayer(view);
   const isHost = view.hostPlayerId === view.youId;
   const host = view.players.find((p) => p.isHost);
@@ -87,6 +88,22 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
             </Button>
           )}
         </div>
+        <label className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3 text-sm font-bold">
+          Your difficulty
+          <select
+            value={me.difficulty ?? ""}
+            disabled={room.pending}
+            onChange={(e) => room.send("player.difficulty", { difficulty: (e.target.value || null) as Difficulty | null })}
+            className="min-h-11 rounded-xl border-2 border-line bg-white px-2.5 font-bold"
+          >
+            <option value="">Same as room ({DIFFICULTY_LABELS[view.settings.difficulty]})</option>
+            {DIFFICULTIES.map((level) => (
+              <option key={level} value={level}>
+                {DIFFICULTY_LABELS[level]}
+              </option>
+            ))}
+          </select>
+        </label>
       </Card>
 
       {opponent && (

@@ -19,8 +19,9 @@ import type { RoomHandle } from "../lib/useRoom";
 
 export const RESULT_LABELS: Record<TurnResult, { text: string; tone: "mint" | "neutral" | "amber" }> = {
   correct: { text: "Guessed it", tone: "mint" },
-  skipped: { text: "Skipped", tone: "neutral" },
+  skipped: { text: "Gave up", tone: "neutral" },
   timed_out: { text: "Time ran out", tone: "amber" },
+  beaten: { text: "Beaten to it", tone: "neutral" },
 };
 
 export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
@@ -30,6 +31,8 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const myTurn = turn?.playerId === me.playerId;
   const pendingConfirm = turn?.phase === "pending_confirm";
   const twentyQ = view.settings.mode === "twenty_questions";
+  const trade = twentyQ && view.settings.turnFormat === "trade";
+  const moveAsked = trade && !!turn?.moveAsked;
   const isHost = view.hostPlayerId === me.playerId;
   const now = useNow(500, !opponent.connected || view.settings.timerSeconds > 0);
   const opponentGoneFor = !opponent.connected && opponent.disconnectedAt ? now + room.serverOffset - opponent.disconnectedAt : 0;
@@ -45,8 +48,10 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const myResult = view.turnResults[me.playerId];
   const opponentResult = view.turnResults[opponent.playerId];
   const instruction = myTurn
-    ? twentyQ
-      ? `Ask ${opponent.nickname} yes/no questions about who you are${appOn && spokenOn ? ", out loud or here" : appOn ? " here" : " out loud"}.`
+    ? trade
+      ? `Ask ${opponent.nickname} one yes/no question${appOn && spokenOn ? ", out loud or here" : appOn ? " here" : " out loud"}, then guess or pass.`
+      : twentyQ
+        ? `Ask ${opponent.nickname} yes/no questions about who you are${appOn && spokenOn ? ", out loud or here" : appOn ? " here" : " out loud"}.`
       : `${opponent.nickname} is describing you. Say your guess out loud.`
     : twentyQ
       ? `Answer ${opponent.nickname}'s yes/no questions.`
@@ -98,6 +103,13 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
               <span aria-hidden="true" className="text-muted transition group-open:rotate-180">{"▾"}</span>
             </summary>
             <RulesList view={view} />
+            {trade && !myResult && (
+              <div className="pb-2">
+                <Button variant="ghost" className="-ml-5" disabled={room.pending} onClick={() => room.send("turn.skip")}>
+                  Give up this round
+                </Button>
+              </div>
+            )}
           </details>
         ) : (
           <Card className="flex items-center gap-4 border-2 border-brand/30 py-4">
@@ -125,9 +137,9 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
             {!myTurn && !pendingConfirm && !pendingQuestion && (
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-muted">
-                  {turnHeadline}. They will tap I Guessed It when they have it.
+                  {trade ? `It's ${opponent.nickname}'s move.` : `${turnHeadline}. They will tap I Guessed It when they have it.`}
                 </p>
-                {spokenOn && (
+                {spokenOn && !moveAsked && (
                   <Button variant="secondary" className="shrink-0" disabled={room.pending} onClick={() => room.send("turn.question")} aria-label="+1, count one more question">
                     +1
                   </Button>
@@ -137,7 +149,11 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
 
             {myTurn && !pendingConfirm && (
               <div className="space-y-2.5">
-                {appOn ? (
+                {moveAsked && !pendingQuestion ? (
+                  <p className="font-bold" data-testid="move-prompt">
+                    Make your guess, or pass to {opponent.nickname}.
+                  </p>
+                ) : appOn ? (
                   <AskPanel key={turn.log.length} room={room} waitingFor={pendingQuestion ? opponent.nickname : null} />
                 ) : (
                   spokenOn && (
@@ -158,10 +174,15 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
                       Hint <span className="tabular-nums text-muted">{HINTS_PER_TURN - turn.hintsUsed}</span>
                     </Button>
                   )}
-                  <Button variant="ghost" className="px-3.5" disabled={room.pending} onClick={() => room.send("turn.skip")}>
-                    Skip
+                  <Button
+                    variant="ghost"
+                    className="whitespace-nowrap px-3.5"
+                    disabled={room.pending || (trade && !!pendingQuestion)}
+                    onClick={() => room.send(trade ? "turn.pass" : "turn.skip")}
+                  >
+                    {trade ? "Pass" : "Give up"}
                   </Button>
-                  <Button size="lg" className="min-w-0 flex-1 whitespace-nowrap px-3" disabled={room.pending} onClick={() => room.send("turn.correct.request")}>
+                  <Button size="lg" className="min-w-0 flex-1 whitespace-nowrap px-3" disabled={room.pending || (trade && !!pendingQuestion)} onClick={() => room.send("turn.correct.request")}>
                     I Guessed It
                   </Button>
                 </div>
@@ -178,9 +199,11 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
                     Confirm without {opponent.nickname} (host)
                   </Button>
                 )}
-                <Button variant="secondary" block disabled={room.pending} onClick={() => room.send("turn.skip")}>
-                  Skip instead
-                </Button>
+                {!trade && (
+                  <Button variant="secondary" block disabled={room.pending} onClick={() => room.send("turn.skip")}>
+                    Give up instead
+                  </Button>
+                )}
               </div>
             )}
 
@@ -246,8 +269,12 @@ function RulesList({ view }: { view: RoomView }) {
   return (
     <ul className="list-disc space-y-1.5 pb-3 pl-5 text-sm text-muted">
       <li>{MODE_LABELS[view.settings.mode].blurb}</li>
-      <li>A correct guess, confirmed by your opponent, scores 1 point. A skip scores 0.</li>
-      <li>The round ends when both players have guessed or skipped. Then both identities are revealed.</li>
+      <li>A correct guess, confirmed by your opponent, scores 1 point.</li>
+      {view.settings.mode === "twenty_questions" && view.settings.turnFormat === "trade" ? (
+        <li>Each move is one question and one guess. The first correct guess wins the round, and a wrong guess ends your move.</li>
+      ) : (
+        <li>The round ends when both players have guessed or given up. Then both identities are revealed.</li>
+      )}
       {view.settings.timerSeconds > 0 && <li>Each turn lasts {view.settings.timerSeconds} seconds. When time runs out, the turn ends.</li>}
     </ul>
   );
@@ -426,7 +453,7 @@ export function ResultPill({ result }: { result: TurnResult }) {
   const r = RESULT_LABELS[result];
   return (
     <Pill tone={r.tone}>
-      <span aria-hidden="true">{result === "correct" ? "✓" : result === "skipped" ? "↷" : "⏱"}</span>
+      <span aria-hidden="true">{result === "correct" ? "✓" : result === "timed_out" ? "⏱" : "↷"}</span>
       {r.text}
     </Pill>
   );

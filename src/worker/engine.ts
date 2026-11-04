@@ -16,6 +16,7 @@ import {
   POINTS_TO_WIN,
   ROUNDS_PER_MATCH,
   type Command,
+  type Difficulty,
   type ErrorCode,
   type RoomStatus,
   type Seat,
@@ -42,6 +43,15 @@ export interface PlayerRecord {
   correct: number;
   skips: number;
   hintsUsed: number;
+  /** This player's own difficulty, or null to follow the room's. */
+  difficulty?: Difficulty | null;
+}
+
+/** What a player has done so far this round. Trade turns carry it from move to move. */
+export interface TrackRecord {
+  log: TurnLogEntry[];
+  questionCount: number;
+  hintsUsed: number;
 }
 
 export interface TurnRecord {
@@ -55,6 +65,8 @@ export interface TurnRecord {
   hintsUsed: number;
   /** Hints (and later questions) for this turn. Only already revealed hints are ever stored here. */
   log: TurnLogEntry[];
+  /** Trade turns: this move's one question has been asked. */
+  moveAsked?: boolean;
 }
 
 export interface RoundRecord {
@@ -67,6 +79,8 @@ export interface RoundRecord {
   reshuffled: boolean;
   /** [first guesser, second guesser] for this round. */
   order: [string, string];
+  /** Trade turns: each player's log and counts between their moves. */
+  tracks?: Record<string, TrackRecord>;
 }
 
 export interface RoundSummaryRecord {
@@ -87,6 +101,7 @@ export type EventType =
   | "turn.correct.rejected"
   | "turn.correct.confirmed"
   | "turn.skipped"
+  | "turn.passed"
   | "turn.timed_out"
   | "turn.hint.revealed"
   | "turn.question.asked"
@@ -269,11 +284,24 @@ function pickOne(candidates: Identity[], settings: Settings, random: () => numbe
   return pickUniform(entries[entries.length - 1]![1], random);
 }
 
-function drawFrom(pool: Identity[], used: Identity[], settings: Settings, random: () => number): [Identity, Identity] | null {
-  const fresh = pool.filter((c) => !used.some((u) => identitiesClash(c, u)));
-  if (fresh.length < 2) return null;
-  const first = pickOne(fresh, settings, random);
-  const rest = fresh.filter((c) => !identitiesClash(c, first));
+/** Which identity difficulties each level draws from. They overlap because hard identities are scarce. */
+export const DIFFICULTY_POOLS: Record<Difficulty, readonly Difficulty[]> = {
+  easy: ["easy"],
+  medium: ["easy", "medium"],
+  hard: ["medium", "hard"],
+};
+
+function poolFor(room: RoomState, level: Difficulty): Identity[] {
+  const allowed = DIFFICULTY_POOLS[level];
+  return packIdentities(room.settings.packId).filter((c) => allowed.includes(c.difficulty));
+}
+
+function drawFrom(pools: [Identity[], Identity[]], used: Identity[], settings: Settings, random: () => number): [Identity, Identity] | null {
+  const unused = (pool: Identity[]) => pool.filter((c) => !used.some((u) => identitiesClash(c, u)));
+  const firstPool = unused(pools[0]);
+  if (firstPool.length === 0) return null;
+  const first = pickOne(firstPool, settings, random);
+  const rest = unused(pools[1]).filter((c) => !identitiesClash(c, first));
   if (rest.length === 0) return null;
   return [first, pickOne(rest, settings, random)];
 }
@@ -282,12 +310,15 @@ function drawFrom(pool: Identity[], used: Identity[], settings: Settings, random
 export function drawPair(
   room: RoomState,
   random: () => number,
+  order: readonly string[] = room.players.map((p) => p.id),
 ): { pair: [Identity, Identity]; reshuffled: boolean } {
-  const pool = packIdentities(room.settings.packId);
+  const roomLevel = room.settings.difficulty ?? "medium";
+  const levelOf = (id: string | undefined) => (id ? playerById(room, id)?.difficulty : null) ?? roomLevel;
+  const pools: [Identity[], Identity[]] = [poolFor(room, levelOf(order[0])), poolFor(room, levelOf(order[1]))];
   const used = room.usedIdentityIds.map(getIdentity);
-  const pair = drawFrom(pool, used, room.settings, random);
+  const pair = drawFrom(pools, used, room.settings, random);
   if (pair) return { pair, reshuffled: false };
-  const reshuffledPair = drawFrom(pool, [], room.settings, random);
+  const reshuffledPair = drawFrom(pools, [], room.settings, random);
   if (!reshuffledPair) throw new Error(`Pack ${room.settings.packId} is too small to draw a pair`);
   return { pair: reshuffledPair, reshuffled: true };
 }
@@ -382,6 +413,13 @@ export function expireTurn(current: RoomState, ctx: EngineContext): RoomState | 
   if (!turn || !isGuessing(current.status) || turn.phase !== "asking") return null;
   if (turn.deadline === null || ctx.now < turn.deadline) return null;
   const room = clone(current);
+  if (isTrade(room)) {
+    // Running out of time only costs this move.
+    touch(room, ctx, false);
+    emit(room, ctx, "turn.timed_out", { playerId: turn.playerId, roundIndex: room.roundIndex });
+    endMove(room, ctx);
+    return room;
+  }
   room.round!.results[turn.playerId] = "timed_out";
   playerById(room, turn.playerId)!.skips += 1;
   room.turn = null;
@@ -488,6 +526,7 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     if ("ok" in turn) return turn;
     if (turn.playerId !== playerId) return fail("forbidden", "It is not your turn.");
     if (turn.phase !== "asking") return invalid("Your guess is already waiting for confirmation.");
+    if (isTrade(room) && hasPendingQuestion(turn)) return invalid("Wait for the answer before you guess.");
     turn.phase = "pending_confirm";
     touch(room, ctx);
     emit(room, ctx, "turn.correct.requested", { playerId, roundIndex: room.roundIndex });
@@ -511,6 +550,8 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     turn.phase = "asking";
     touch(room, ctx);
     emit(room, ctx, "turn.correct.rejected", { playerId: turn.playerId, roundIndex: room.roundIndex });
+    // In Trade turns a wrong guess uses up the move.
+    if (isTrade(room)) endMove(room, ctx);
     return undefined;
   },
 
@@ -533,6 +574,7 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     const turn = requireTurn(room);
     if ("ok" in turn) return turn;
     if (turn.playerId !== playerId) return fail("forbidden", "It is not your turn.");
+    saveTrack(room, turn);
     room.round!.results[playerId] = "skipped";
     playerById(room, playerId)!.skips += 1;
     room.turn = null;
@@ -542,12 +584,27 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     return undefined;
   },
 
+  "turn.pass": (room, playerId, _cmd, ctx) => {
+    const turn = requireTurn(room);
+    if ("ok" in turn) return turn;
+    if (!isTrade(room)) return invalid("This room does not trade turns.");
+    if (turn.playerId !== playerId) return fail("forbidden", "It is not your turn.");
+    if (turn.phase !== "asking") return invalid("A guess is waiting for confirmation.");
+    if (hasPendingQuestion(turn)) return invalid("Wait for the answer before you pass.");
+    touch(room, ctx);
+    emit(room, ctx, "turn.passed", { playerId, roundIndex: room.roundIndex });
+    endMove(room, ctx);
+    return undefined;
+  },
+
   "turn.question": (room, _playerId, _cmd, ctx) => {
     const turn = requireTurn(room);
     if ("ok" in turn) return turn;
-    if (room.settings.mode !== "twenty_questions") return invalid("The question counter is for 20 Questions.");
+    if (room.settings.mode !== "twenty_questions") return invalid("The question counter is for Ask rooms.");
     if (turn.phase !== "asking") return invalid("A guess is waiting for confirmation.");
+    if (isTrade(room) && turn.moveAsked) return invalid("One question per move.");
     turn.questionCount = Math.min(turn.questionCount + 1, 99);
+    turn.moveAsked = true;
     touch(room, ctx);
     return undefined;
   },
@@ -558,15 +615,15 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     if ((room.settings.questions ?? "both") === "spoken") return invalid("This room asks questions out loud.");
     if (turn.playerId !== playerId) return fail("forbidden", "Only the guesser asks questions.");
     if (turn.phase !== "asking") return invalid("A guess is waiting for confirmation.");
-    if (turn.log.some((e) => e.kind === "question" && e.answer === null)) {
-      return invalid("Wait for the answer before asking another question.");
-    }
+    if (hasPendingQuestion(turn)) return invalid("Wait for the answer before asking another question.");
+    if (isTrade(room) && turn.moveAsked) return invalid("One question per move.");
     const sends = (room.questionSends ??= {});
     const recent = (sends[playerId] ?? []).filter((t) => ctx.now - t < QUESTION_RATE_LIMIT.windowMs);
     if (recent.length >= QUESTION_RATE_LIMIT.limit) return fail("rate_limited", "Slow down a little before the next question.");
     sends[playerId] = [...recent, ctx.now];
     turn.log.push({ id: ctx.newId(), kind: "question", text: cmd.text, answer: null, at: ctx.now });
     turn.questionCount = Math.min(turn.questionCount + 1, 99);
+    turn.moveAsked = true;
     touch(room, ctx);
     emit(room, ctx, "turn.question.asked", { playerId, roundIndex: room.roundIndex });
     return undefined;
@@ -646,6 +703,13 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     room.opponentLeft = room.players.length > 0;
     touch(room, ctx);
     emit(room, ctx, "player.left", { playerId });
+    return undefined;
+  },
+
+  "player.difficulty": (room, playerId, cmd, ctx) => {
+    if (room.status !== "lobby") return invalid("Difficulty can only change between matches.");
+    playerById(room, playerId)!.difficulty = cmd.difficulty;
+    touch(room, ctx);
     return undefined;
   },
 
@@ -739,7 +803,7 @@ function startRound(room: RoomState, ctx: EngineContext): void {
   room.roundIndex += 1;
   const first = firstGuesserOf(room, room.roundIndex);
   const second = opponentOf(room, first)!.id;
-  const { pair, reshuffled } = drawPair(room, ctx.random);
+  const { pair, reshuffled } = drawPair(room, ctx.random, [first, second]);
   if (reshuffled) room.usedIdentityIds = [];
   room.usedIdentityIds.push(pair[0].id, pair[1].id);
   room.round = {
@@ -757,20 +821,56 @@ function startRound(room: RoomState, ctx: EngineContext): void {
 
 function beginTurn(room: RoomState, player: PlayerRecord, status: RoomStatus, ctx: EngineContext): void {
   room.status = status;
+  const track = room.round?.tracks?.[player.id];
   room.turn = {
     id: `${room.roundIndex}-${player.seat}-${room.version}`,
     playerId: player.id,
     phase: "asking",
     deadline: null,
     pausedRemainingMs: room.settings.timerSeconds > 0 ? room.settings.timerSeconds * 1000 : null,
-    questionCount: 0,
-    hintsUsed: 0,
-    log: [],
+    questionCount: track?.questionCount ?? 0,
+    hintsUsed: track?.hintsUsed ?? 0,
+    log: track?.log ?? [],
+    moveAsked: false,
   };
   syncTimer(room, ctx.now);
 }
 
+function isTrade(room: RoomState): boolean {
+  return room.settings.turnFormat === "trade" && room.settings.mode === "twenty_questions";
+}
+
+function hasPendingQuestion(turn: TurnRecord): boolean {
+  return turn.log.some((e) => e.kind === "question" && e.answer === null);
+}
+
+function saveTrack(room: RoomState, turn: TurnRecord): void {
+  (room.round!.tracks ??= {})[turn.playerId] = { log: turn.log, questionCount: turn.questionCount, hintsUsed: turn.hintsUsed };
+}
+
+/** Starts the move of whoever is still in the round, or the same player if their opponent gave up. */
+function beginMove(room: RoomState, playerId: string, ctx: EngineContext): void {
+  const round = room.round!;
+  beginTurn(room, playerById(room, playerId)!, playerId === round.order[0] ? "guessing_first" : "guessing_second", ctx);
+}
+
+function endMove(room: RoomState, ctx: EngineContext): void {
+  const turn = room.turn!;
+  const round = room.round!;
+  saveTrack(room, turn);
+  const other = round.order.find((id) => id !== turn.playerId)!;
+  room.turn = null;
+  beginMove(room, round.results[other] ? turn.playerId : other, ctx);
+}
+
 function advanceAfterTurn(room: RoomState, ctx: EngineContext): void {
+  if (isTrade(room)) {
+    const round = room.round!;
+    const remaining = round.order.find((id) => !round.results[id]);
+    if (remaining && !Object.values(round.results).includes("correct")) beginMove(room, remaining, ctx);
+    else completeRound(room, ctx);
+    return;
+  }
   if (room.status === "guessing_first") {
     beginTurn(room, playerById(room, room.round!.order[1])!, "guessing_second", ctx);
     return;
@@ -790,7 +890,7 @@ function completeRound(room: RoomState, ctx: EngineContext): void {
     entries: room.players.map((p) => ({
       playerId: p.id,
       identityId: round.assignments[p.id]!,
-      result: round.results[p.id] ?? "skipped",
+      result: round.results[p.id] ?? (Object.values(round.results).includes("correct") ? "beaten" : "skipped"),
       hintsUsed: round.hintsUsed?.[p.id] ?? 0,
     })),
     matchOver,

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { PACK_META, PACK_ORDER } from "../../shared/packs";
 import { PackArt } from "./PackArt";
-import { POINTS_TO_WIN, ROUNDS_PER_MATCH, type FirstPlayerOption, type Mode, type QuestionMode, type PlayerView, type Settings } from "../../shared/protocol";
+import { DIFFICULTIES, POINTS_TO_WIN, ROUNDS_PER_MATCH, type Difficulty, type FirstPlayerOption, type Mode, type QuestionMode, type PlayerView, type Settings, type TurnFormat } from "../../shared/protocol";
 
 export const MODE_LABELS: Record<Mode, { name: string; blurb: string }> = {
   twenty_questions: { name: "Ask", blurb: "You ask yes/no questions." },
@@ -12,11 +12,21 @@ export function matchLabel(settings: Settings): string {
   return settings.matchType === "points" ? `First to ${POINTS_TO_WIN} points` : `Best after ${ROUNDS_PER_MATCH} rounds`;
 }
 
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = { easy: "Easy", medium: "Medium", hard: "Hard" };
+
+const TURN_FORMAT_LABELS: Record<TurnFormat, { name: string; blurb: string }> = {
+  trade: { name: "Trade turns", blurb: "One question and one guess, then your opponent goes. First correct guess wins the round." },
+  keep_going: { name: "Keep going", blurb: "Your turn lasts until you get it or give up. Both players take a turn each round." },
+};
+
+const isTrade = (settings: Settings) => settings.mode === "twenty_questions" && settings.turnFormat === "trade";
+
 /** The room's settings as one line, for the lobby and join screens. */
 export function settingsSummary(settings: Settings): string {
   const match = settings.matchType === "points" ? `First to ${POINTS_TO_WIN}` : `Best of ${ROUNDS_PER_MATCH}`;
   const timer = settings.timerSeconds === 0 ? "No timer" : `${settings.timerSeconds} s`;
-  return [MODE_LABELS[settings.mode].name, match, timer, settings.hints === false ? "No hints" : "Hints on"].join(" · ");
+  const format = settings.mode === "twenty_questions" ? [TURN_FORMAT_LABELS[settings.turnFormat].name] : [];
+  return [MODE_LABELS[settings.mode].name, ...format, DIFFICULTY_LABELS[settings.difficulty], match, timer, settings.hints === false ? "No hints" : "Hints on"].join(" · ");
 }
 
 /** The options behind More options, as one line. */
@@ -24,7 +34,8 @@ export function optionsSummary(settings: Settings): string {
   const match = settings.matchType === "points" ? `First to ${POINTS_TO_WIN}` : `Best of ${ROUNDS_PER_MATCH}`;
   const first = { host: "You start", opponent: "They start", random: "Random start" }[settings.firstPlayer ?? "random"];
   const timer = settings.timerSeconds === 0 ? "No timer" : `${settings.timerSeconds} s turns`;
-  return [match, timer, settings.hints === false ? "No hints" : "Hints on", first].join(" · ");
+  const format = isTrade(settings) ? ["Trade turns"] : settings.mode === "twenty_questions" ? ["Keep going"] : [];
+  return [...format, match, timer, settings.hints === false ? "No hints" : "Hints on", first].join(" · ");
 }
 
 export const QUESTION_MODE_LABELS: Record<QuestionMode, string> = { spoken: "Spoken", app: "In the app", both: "Both" };
@@ -142,11 +153,38 @@ export function StylePicker({ value, onChange }: SettingsProps) {
   );
 }
 
+/** How hard the identities are. */
+export function DifficultyPicker({ value, onChange }: SettingsProps) {
+  return (
+    <Group legend="Difficulty">
+      <div className="grid grid-cols-3 gap-2">
+        {DIFFICULTIES.map((level) => (
+          <Option key={level} name="difficulty" checked={value.difficulty === level} onChange={() => onChange({ ...value, difficulty: level })}>
+            <span className="font-bold">{DIFFICULTY_LABELS[level]}</span>
+          </Option>
+        ))}
+      </div>
+    </Group>
+  );
+}
+
 /** Everything that has a good default. */
 export function MoreOptions({ value, onChange }: SettingsProps) {
   const set = <K extends keyof Settings>(key: K, v: Settings[K]) => onChange({ ...value, [key]: v });
   return (
     <div className="space-y-5">
+      {value.mode === "twenty_questions" && (
+        <Group legend="Turns">
+          <div className="grid grid-cols-2 gap-2.5">
+            {(Object.keys(TURN_FORMAT_LABELS) as TurnFormat[]).map((format) => (
+              <Option key={format} name="turnFormat" checked={value.turnFormat === format} onChange={() => set("turnFormat", format)}>
+                <span className="whitespace-nowrap font-bold">{TURN_FORMAT_LABELS[format].name}</span>
+              </Option>
+            ))}
+          </div>
+          <p className="text-sm text-muted">{TURN_FORMAT_LABELS[value.turnFormat].blurb}</p>
+        </Group>
+      )}
       <Group legend="Turn timer">
         <div className="grid grid-cols-3 gap-2.5">
           {([0, 60, 90] as const).map((t) => (
@@ -205,6 +243,7 @@ export function SettingsForm(props: SettingsProps) {
     <div className="space-y-5">
       <PackPicker {...props} />
       <StylePicker {...props} />
+      <DifficultyPicker {...props} />
       <MoreOptions {...props} />
     </div>
   );
