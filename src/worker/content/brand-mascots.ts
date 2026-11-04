@@ -1,4 +1,207 @@
-import { definePack } from "./types";
+import { definePack, type Hints } from "./types";
+
+const HINTS: Record<string, Hints> = {
+  "ronald-mcdonald": [
+    "A brand mascot",
+    "A fast food clown with red hair",
+    "The clown mascot of the Golden Arches",
+  ],
+  "colonel-sanders": [
+    "A brand mascot based on a real person",
+    "A white-suited Southern gentleman with a goatee",
+    "The founder and face of Kentucky Fried Chicken",
+  ],
+  "tony-the-tiger": [
+    "A cereal mascot",
+    "A striped cat in a red neckerchief",
+    "Says Frosted Flakes are \"Grrreat!\"",
+  ],
+  "mr-peanut": [
+    "A snack mascot",
+    "Wears a top hat, a monocle and white gloves",
+    "The dapper legume of Planters",
+  ],
+  "michelin-man": [
+    "A brand mascot",
+    "A white figure made of stacked rings",
+    "Built from tires for a French tire company",
+  ],
+  "pillsbury-doughboy": [
+    "A baking brand mascot",
+    "A small white figure in a chef's hat",
+    "Giggles \"Hoo hoo!\" when poked in the belly",
+  ],
+  "kool-aid-man": [
+    "A drink mascot",
+    "A giant red pitcher with a smiling face",
+    "Bursts through walls yelling \"Oh yeah!\"",
+  ],
+  "energizer-bunny": [
+    "A brand mascot",
+    "A pink toy rabbit in sunglasses",
+    "Keeps going and going, beating a bass drum",
+  ],
+  "geico-gecko": [
+    "An insurance mascot",
+    "A small green lizard with a British accent",
+    "Says 15 minutes could save you 15 percent",
+  ],
+  "mr-clean": [
+    "A cleaning product mascot",
+    "A bald, muscular man with an earring",
+    "Crosses his arms on a bottle of household cleaner",
+  ],
+  "chester-cheetah": [
+    "A snack mascot",
+    "A cool spotted cat in sunglasses",
+    "Promotes Cheetos and says it ain't easy being cheesy",
+  ],
+  "trix-rabbit": [
+    "A cereal mascot",
+    "A white rabbit who never gets to eat his cereal",
+    "Told that his fruity cereal is for kids",
+  ],
+  "toucan-sam": [
+    "A cereal mascot",
+    "A colorful tropical bird with a big striped beak",
+    "Follows his nose to Froot Loops",
+  ],
+  "capn-crunch": [
+    "A cereal mascot",
+    "A naval commander in a blue uniform",
+    "Commands a ship called the S.S. Guppy",
+  ],
+  "jolly-green-giant": [
+    "A food brand mascot",
+    "A huge figure who stands in a valley",
+    "Says \"Ho ho ho!\" for canned vegetables",
+  ],
+  "wendy": [
+    "A fast food mascot",
+    "A freckled girl with red pigtails",
+    "The face of a burger chain founded by her father",
+  ],
+  "burger-king": [
+    "A fast food mascot",
+    "A silent royal figure with a fixed grin",
+    "Wears a crown and cape for a flame-grilled burger chain",
+  ],
+  "jack-box": [
+    "A fast food mascot",
+    "A businessman with a giant round white head",
+    "Wears a pointy yellow hat and runs a burger chain",
+  ],
+  "aflac-duck": [
+    "An insurance mascot",
+    "A white bird who quacks a company's name",
+    "The duck of a supplemental insurance company",
+  ],
+  "mr-monopoly": [
+    "A board game mascot",
+    "An old man with a white mustache and top hat",
+    "Sends you to jail on the most famous property board game",
+  ],
+  "charlie-the-tuna": [
+    "A seafood mascot",
+    "A fish in sunglasses and a beret",
+    "StarKist rejects him because he isn't good enough",
+  ],
+  "gerber-baby": [
+    "A baby food mascot",
+    "A charcoal sketch of a smiling infant",
+    "The face on jars of baby food since 1928",
+  ],
+  "elsie-the-cow": [
+    "A dairy mascot",
+    "A cartoon cow with a daisy chain",
+    "Borden's dairy brand mascot",
+  ],
+  "quaker-oats-man": [
+    "A cereal mascot",
+    "A smiling man with long white hair and a hat",
+    "Appears on the round cardboard oatmeal canister",
+  ],
+  "betty-crocker": [
+    "A fictional baking brand persona",
+    "A made-up home cook from the 1920s",
+    "Her name is on cake mixes and a famous red-spoon cookbook",
+  ],
+  "hamburglar": [
+    "A fast food mascot",
+    "A small thief in a striped outfit and mask",
+    "Steals hamburgers and says \"Robble robble\"",
+  ],
+  "grimace": [
+    "A fast food mascot",
+    "A big, round, purple creature",
+    "Got a famous purple birthday shake in 2023",
+  ],
+  "chuck-e-cheese": [
+    "A restaurant mascot",
+    "A mouse who runs a family pizza place",
+    "Mascot of the arcade and pizza chain for kids' parties",
+  ],
+  "smokey-bear": [
+    "A public service mascot",
+    "Wears a ranger hat and blue jeans",
+    "Says only you can prevent wildfires",
+  ],
+  "big-boy": [
+    "A restaurant mascot",
+    "A chubby boy in checkered overalls",
+    "Holds a double-decker burger above his head",
+  ],
+  "morton-salt-girl": [
+    "A grocery brand mascot",
+    "A girl with an umbrella in the rain",
+    "\"When it rains, it pours\"",
+  ],
+  "gortons-fisherman": [
+    "A seafood mascot",
+    "A bearded sailor in a yellow raincoat",
+    "The face of frozen fish sticks",
+  ],
+  "coca-cola-polar-bear": [
+    "A drink mascot",
+    "A white Arctic animal in holiday ads",
+    "Drinks a bottle of cola while watching the northern lights",
+  ],
+  "lucky-the-leprechaun": [
+    "A cereal mascot",
+    "A tiny Irish figure in a green hat",
+    "Guards his marshmallow charms from kids",
+  ],
+  "sonny-the-cuckoo-bird": [
+    "A cereal mascot",
+    "A brown bird who goes wild for chocolate",
+    "Cuckoo for Cocoa Puffs",
+  ],
+  "mr-pringle": [
+    "A snack mascot",
+    "A man with a big mustache and parted hair",
+    "His face is on the tube of stackable chips",
+  ],
+  "duo-the-owl": [
+    "An app mascot",
+    "A green bird who reminds you to practice",
+    "The language-learning app's famously pushy owl",
+  ],
+  "clippy": [
+    "A software mascot",
+    "A paperclip with googly eyes",
+    "Popped up in Microsoft Office asking if you need help",
+  ],
+  "flo-progressive": [
+    "An insurance mascot",
+    "A cheerful saleswoman in a white apron",
+    "Works the Superstore counter in Progressive ads",
+  ],
+  "jake-from-state-farm": [
+    "An insurance mascot",
+    "Answers a late-night call in khakis",
+    "A good neighbor's agent in a red polo",
+  ],
+};
 
 export const brandMascots = definePack("brand-mascots", [
   ["ronald-mcdonald", "Ronald McDonald", "easy", [], ["fast food"]],
@@ -41,4 +244,4 @@ export const brandMascots = definePack("brand-mascots", [
   ["clippy", "Clippy", "medium", ["Clippit"], ["software"]],
   ["flo-progressive", "Flo from Progressive", "medium", ["Flo"], ["insurance"]],
   ["jake-from-state-farm", "Jake from State Farm", "medium", [], ["insurance"]],
-]);
+], HINTS);

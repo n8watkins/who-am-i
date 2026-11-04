@@ -1,4 +1,5 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { getIdentity } from "../src/worker/content";
 
 /**
  * Records everything a player's browser receives, in arrival order: every HTTP response body,
@@ -148,4 +149,35 @@ export async function readyAndStart(host: Page, guest: Page) {
 
 export async function scoreOf(page: Page, seat: "A" | "B"): Promise<string> {
   return (await page.getByTestId(`score-${seat}`).locator(".text-3xl").textContent())!.trim();
+}
+
+/** Both players' identities for a round, read from the viewer's reveal message. */
+function revealedPair(capture: Capture, roundIndex: number, windowStart: number) {
+  const reveal = capture.revealOf(roundIndex, windowStart)!;
+  const parsed = JSON.parse(reveal.text) as { view: ViewLike };
+  const own = parsed.view.roundSummary!.entries.find((e) => e.playerId === parsed.view.youId)!.identity;
+  const other = parsed.view.roundSummary!.entries.find((e) => e.playerId !== parsed.view.youId)!.identity;
+  return { reveal, own: getIdentity(own.id), other: getIdentity(other.id) };
+}
+
+/**
+ * Asserts each of the player's own hints for `roundIndex` reached their browser only after they
+ * requested it (`requestMarks[k]` is the capture mark taken right before requesting hint k+1),
+ * and unrequested hints never arrived before the reveal. Hint texts that also belong to the
+ * opponent's identity are skipped, because the player legitimately sees the opponent's hints.
+ */
+export async function assertHintsOnlyAfterRequest(capture: Capture, roundIndex: number, windowStart: number, requestMarks: number[]): Promise<number> {
+  await capture.settle();
+  const { reveal, own, other } = revealedPair(capture, roundIndex, windowStart);
+  let checked = 0;
+  own.hints.forEach((hint, k) => {
+    if (other.hints.includes(hint)) return;
+    const until = requestMarks[k] ?? reveal.seq;
+    for (const item of capture.between(windowStart, until)) {
+      checked++;
+      expect(item.text.includes(hint), `hint ${k + 1} "${hint}" arrived before it was requested (${item.kind} ${item.source})`).toBe(false);
+      expect(item.text.includes(JSON.stringify(hint).slice(1, -1)), `hint ${k + 1} arrived early (escaped)`).toBe(false);
+    }
+  });
+  return checked;
 }

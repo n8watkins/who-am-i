@@ -1,4 +1,4 @@
-import { HOST_OVERRIDE_AFTER_MS, QUESTION_LIMIT, type RoomView, type TurnResult } from "../../shared/protocol";
+import { HINTS_PER_TURN, HOST_OVERRIDE_AFTER_MS, QUESTION_LIMIT, type RoomView, type TurnLogEntry, type TurnResult } from "../../shared/protocol";
 import { Scoreboard } from "../components/Scoreboard";
 import { MODE_LABELS } from "../components/SettingsForm";
 import { Banner, Button, Card, Pill } from "../components/ui";
@@ -23,6 +23,7 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const opponentGoneFor = !opponent.connected && opponent.disconnectedAt ? now + room.serverOffset - opponent.disconnectedAt : 0;
   const canOverride = myTurn && pendingConfirm && isHost && !opponent.connected && opponentGoneFor >= HOST_OVERRIDE_AFTER_MS;
   const identityName = view.opponentIdentity?.canonicalName ?? "";
+  const hintsOn = view.settings.hints !== false;
 
   const turnHeadline = myTurn ? "Your turn to guess" : `${opponent.nickname} is guessing`;
   const myResult = view.turnResults[me.playerId];
@@ -125,6 +126,17 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
         )}
 
         <div className="mt-5">
+          {myTurn && !pendingConfirm && hintsOn && turn && (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-line px-4 py-2.5">
+              <span className="text-sm font-bold text-muted">
+                {turn.hintsUsed >= HINTS_PER_TURN ? "No hints left this turn" : `${HINTS_PER_TURN - turn.hintsUsed} of ${HINTS_PER_TURN} hints left`}
+              </span>
+              <Button variant="secondary" disabled={room.pending || turn.hintsUsed >= HINTS_PER_TURN} onClick={() => room.send("turn.hint")}>
+                Get a hint
+              </Button>
+            </div>
+          )}
+
           {myTurn && !pendingConfirm && (
             <div className="grid grid-cols-2 gap-3">
               <Button variant="secondary" size="lg" disabled={room.pending} onClick={() => room.send("turn.skip")}>
@@ -176,6 +188,8 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
         </div>
       </Card>
 
+      {turn && turn.log.length > 0 && <TurnLog entries={turn.log} guesserName={myTurn ? "You" : opponent.nickname} />}
+
       <details className="group rounded-3xl border border-line bg-card px-5 py-1 shadow-sm">
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between font-bold">
           Rules reminder
@@ -191,6 +205,27 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
         </ul>
       </details>
     </div>
+  );
+}
+
+function TurnLog({ entries, guesserName }: { entries: TurnLogEntry[]; guesserName: string }) {
+  return (
+    <Card>
+      <h2 className="text-sm font-extrabold uppercase tracking-wide text-muted">This turn</h2>
+      <ol className="mt-3 space-y-2" aria-live="polite" data-testid="turn-log">
+        {entries.map((entry) => (
+          <li key={entry.id} className="animate-pop flex gap-3 rounded-2xl bg-amber-soft/70 px-4 py-2.5" data-testid="log-hint">
+            <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-black text-amber" aria-hidden="true">
+              Hint {entry.index}
+            </span>
+            <span className="font-semibold">
+              <span className="sr-only">Hint {entry.index} for {guesserName === "You" ? "you" : guesserName}: </span>
+              {entry.text}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </Card>
   );
 }
 

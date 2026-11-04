@@ -120,6 +120,7 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
             <SettingItem label="Mode" value={MODE_LABELS[view.settings.mode].name} />
             <SettingItem label="Timer" value={timerLabel(view.settings)} />
             <SettingItem label="Match" value={matchLabel(view.settings)} />
+            <SettingItem label="Hints" value={view.settings.hints === false ? "Off" : "On, up to 3 per turn"} />
             <div className="col-span-2 rounded-2xl bg-brand-soft/60 px-4 py-3" data-testid="first-player">
               <dt className="font-bold text-muted">First guess</dt>
               <dd className="text-base font-extrabold text-brand-dark">{firstPlayerLabel(view.settings, view.players, view.youId, view.hostPlayerId)}</dd>

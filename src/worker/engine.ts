@@ -10,6 +10,7 @@
 //
 // Every mutation returns a new RoomState with `version` incremented exactly once.
 import {
+  HINTS_PER_TURN,
   HOST_OVERRIDE_AFTER_MS,
   POINTS_TO_WIN,
   ROUNDS_PER_MATCH,
@@ -19,6 +20,7 @@ import {
   type Seat,
   type Settings,
   type TurnPhase,
+  type TurnLogEntry,
   type TurnResult,
 } from "../shared/protocol";
 import { getIdentity, MIXED_WEIGHTS, packIdentities, type Identity, type SourcePackId } from "./content";
@@ -38,6 +40,7 @@ export interface PlayerRecord {
   score: number;
   correct: number;
   skips: number;
+  hintsUsed: number;
 }
 
 export interface TurnRecord {
@@ -48,6 +51,9 @@ export interface TurnRecord {
   deadline: number | null;
   pausedRemainingMs: number | null;
   questionCount: number;
+  hintsUsed: number;
+  /** Hints (and later questions) for this turn. Only already revealed hints are ever stored here. */
+  log: TurnLogEntry[];
 }
 
 export interface RoundRecord {
@@ -55,6 +61,8 @@ export interface RoundRecord {
   /** PRIVATE: player id -> id of the identity that player must guess. Never sent to that player. */
   assignments: Record<string, string>;
   results: Record<string, TurnResult>;
+  /** Hints each player revealed in this round. */
+  hintsUsed: Record<string, number>;
   reshuffled: boolean;
   /** [first guesser, second guesser] for this round. */
   order: [string, string];
@@ -62,7 +70,7 @@ export interface RoundRecord {
 
 export interface RoundSummaryRecord {
   roundIndex: number;
-  entries: { playerId: string; identityId: string; result: TurnResult }[];
+  entries: { playerId: string; identityId: string; result: TurnResult; hintsUsed: number }[];
   matchOver: boolean;
 }
 
@@ -79,6 +87,7 @@ export type EventType =
   | "turn.correct.confirmed"
   | "turn.skipped"
   | "turn.timed_out"
+  | "turn.hint.revealed"
   | "round.completed"
   | "match.completed"
   | "match.rematched";
@@ -325,6 +334,7 @@ function newPlayer(id: string, seat: Seat, nickname: string, now: number): Playe
     score: 0,
     correct: 0,
     skips: 0,
+    hintsUsed: 0,
   };
 }
 
@@ -524,6 +534,25 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     return undefined;
   },
 
+  "turn.hint": (room, playerId, _cmd, ctx) => {
+    const turn = requireTurn(room);
+    if ("ok" in turn) return turn;
+    if (room.settings.hints === false) return invalid("Hints are turned off in this room.");
+    if (turn.playerId !== playerId) return fail("forbidden", "Only the guesser can ask for a hint.");
+    if (turn.phase !== "asking") return invalid("A guess is waiting for confirmation.");
+    if (turn.hintsUsed >= HINTS_PER_TURN) return invalid("No more hints this turn.");
+    // The next hint for the guesser's own identity, revealed only now that they asked for it.
+    const identity = getIdentity(room.round!.assignments[playerId]!);
+    const index = turn.hintsUsed;
+    turn.hintsUsed += 1;
+    turn.log.push({ id: ctx.newId(), kind: "hint", index: index + 1, text: identity.hints[index]!, at: ctx.now });
+    room.round!.hintsUsed[playerId] = (room.round!.hintsUsed[playerId] ?? 0) + 1;
+    playerById(room, playerId)!.hintsUsed += 1;
+    touch(room, ctx);
+    emit(room, ctx, "turn.hint.revealed", { playerId, roundIndex: room.roundIndex });
+    return undefined;
+  },
+
   "round.next": (room, _playerId, _cmd, ctx) => {
     if (room.status !== "round_summary") return invalid("The round is not over yet.");
     if (room.lastRoundSummary?.matchOver) {
@@ -588,6 +617,7 @@ function resetStats(p: PlayerRecord): void {
   p.score = 0;
   p.correct = 0;
   p.skips = 0;
+  p.hintsUsed = 0;
 }
 
 function chooseFirstFromSettings(room: RoomState, ctx: EngineContext): string {
@@ -653,6 +683,7 @@ function startRound(room: RoomState, ctx: EngineContext): void {
     index: room.roundIndex,
     assignments: { [first]: pair[0].id, [second]: pair[1].id },
     results: {},
+    hintsUsed: {},
     reshuffled,
     order: [first, second],
   };
@@ -670,6 +701,8 @@ function beginTurn(room: RoomState, player: PlayerRecord, status: RoomStatus, ct
     deadline: null,
     pausedRemainingMs: room.settings.timerSeconds > 0 ? room.settings.timerSeconds * 1000 : null,
     questionCount: 0,
+    hintsUsed: 0,
+    log: [],
   };
   syncTimer(room, ctx.now);
 }
@@ -695,6 +728,7 @@ function completeRound(room: RoomState, ctx: EngineContext): void {
       playerId: p.id,
       identityId: round.assignments[p.id]!,
       result: round.results[p.id] ?? "skipped",
+      hintsUsed: round.hintsUsed?.[p.id] ?? 0,
     })),
     matchOver,
   };

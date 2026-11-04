@@ -125,6 +125,18 @@ export function SettingsForm({ value, onChange }: { value: Settings; onChange: (
         <p className="text-sm text-muted">After round 1, the first guesser alternates every round.</p>
       </Group>
 
+      <Group legend="Hints">
+        <div className="grid grid-cols-2 gap-2.5">
+          <Option name="hints" checked={value.hints !== false} onChange={() => set("hints", true)}>
+            <span className="font-bold">On</span>
+          </Option>
+          <Option name="hints" checked={value.hints === false} onChange={() => set("hints", false)}>
+            <span className="font-bold">Off</span>
+          </Option>
+        </div>
+        <p className="text-sm text-muted">The guesser can reveal up to 3 hints per turn. Hints never score or cost points.</p>
+      </Group>
+
       <Group legend="Match length">
         <div className="grid gap-2.5 sm:grid-cols-2">
           <Option name="match" checked={value.matchType === "points"} onChange={() => set("matchType", "points")}>
