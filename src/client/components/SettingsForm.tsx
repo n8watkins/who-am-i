@@ -60,7 +60,7 @@ function Option({
     <label
       data-testid={testId}
       className={[
-        "relative flex min-h-11 cursor-pointer items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5 transition",
+        "relative flex min-h-11 cursor-pointer items-center gap-2.5 rounded-2xl border-2 px-3 py-2.5 transition sm:gap-3 sm:px-3.5",
         "has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand",
         checked ? "border-brand bg-brand-soft/60" : "border-line bg-white hover:border-brand/40",
       ].join(" ")}
@@ -110,14 +110,14 @@ export function SettingsForm({ value, onChange }: { value: Settings; onChange: (
         <div className="grid grid-cols-3 gap-2.5">
           {([0, 60, 90] as const).map((t) => (
             <Option key={t} name="timer" checked={value.timerSeconds === t} onChange={() => set("timerSeconds", t)}>
-              <span className="font-bold">{t === 0 ? "Off" : `${t} s`}</span>
+              <span className="whitespace-nowrap font-bold">{t === 0 ? "Off" : `${t} s`}</span>
             </Option>
           ))}
         </div>
       </Group>
 
       <Group legend="Who goes first">
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className="grid gap-2.5 sm:grid-cols-3">
           {(Object.keys(FIRST_PLAYER_LABELS) as FirstPlayerOption[]).map((option) => (
             <Option key={option} name="first" checked={(value.firstPlayer ?? "random") === option} onChange={() => set("firstPlayer", option)}>
               <span className="font-bold">{FIRST_PLAYER_LABELS[option]}</span>
@@ -128,7 +128,7 @@ export function SettingsForm({ value, onChange }: { value: Settings; onChange: (
       </Group>
 
       <Group legend="Questions">
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className="grid gap-2.5 sm:grid-cols-3">
           {(Object.keys(QUESTION_MODE_LABELS) as QuestionMode[]).map((mode) => (
             <Option key={mode} name="questions" checked={(value.questions ?? "both") === mode} onChange={() => set("questions", mode)}>
               <span className="font-bold">{QUESTION_MODE_LABELS[mode]}</span>
