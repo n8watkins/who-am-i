@@ -1,9 +1,12 @@
-# Who Am I? v2 to-do
+# Who Am I? status
 
+Last updated 2026-11-04.
 Paused by the owner on 2026-11-04.
 Read this first when work resumes, then `docs/V2_PLAN.md` sections 2a and 2b, which override older plan text.
+The owner's master list mirrors a short summary of this file: `~/projects/ops/MAINTENANCE.md`, section 4.
+When this file changes in a way that matters there, update that summary too.
 
-## Where we stopped
+## Current state
 
 Live at https://whoami.n8builds.dev, and the old workers.dev address still works.
 
@@ -17,9 +20,12 @@ Shipped:
 - GitHub sign-in, which stays hidden until the owner's setup below is done.
 - Difficulty tracking: every finished round writes to the `identity_plays` table in D1, with no player data.
 
-Nothing is half built, and no work is waiting on a branch.
+## Parked branches and PRs
 
-## Owner to-do
+None: no PRs are open and no work is waiting on a branch.
+Other agent sessions left worktrees at `~/projects/who-am-i-domain` and `~/n8builds/worktrees/whoami-og`, and their work is merged.
+
+## Owner steps
 
 Sign-in cannot go live until these are done.
 
@@ -37,8 +43,9 @@ Later, and blocking nothing yet:
 - Google sign-in setup, so friends without GitHub can sign in.
 - Payments and a legal review, before anything costs money.
 - Branch protection on `main`, which is optional but stops a failing PR from being merged.
+- Rerun `set-cloudflare-deploy-token`, which adds the `CLOUDFLARE_API_TOKEN` repo secret here (`~/projects/ops/MAINTENANCE.md`, section 7).
 
-## Agent to-do, in order
+## Open work, in order
 
 1. **Finish sign-in** once the owner's steps are done.
    - Add `GITHUB_CLIENT_ID` to `wrangler.jsonc` vars and test a real sign-in on the live site.
@@ -57,6 +64,15 @@ Later, and blocking nothing yet:
 9. **Signature and revenue**: skins, live voice and the party pass.
 10. **Only if usage justifies it**: Solo, Daily, and matchmaking with strangers.
 
+## Links
+
+- Live site: https://whoami.n8builds.dev (the old workers.dev address still works)
+- Repo: https://github.com/n8watkins/who-am-i
+- Plan of record: `docs/V2_PLAN.md`
+- Reasoning and game ideas: https://claude.ai/artifact/FD3rWDr5kRWZMKPDLrx7jb
+- Master maintenance list: `~/projects/ops/MAINTENANCE.md`
+- Owner's list across repos: `~/OWNER-TODO.md`
+
 ## Good to know
 
 - Apply database migrations with `npx wrangler d1 migrations apply DB --remote` before deploying.
@@ -66,5 +82,6 @@ Later, and blocking nothing yet:
   That delay does not happen in CI.
 - PIN lookups are limited to 10 per 10 minutes per address, so repeating the join tests against the live site ends in "Too many tries".
   That is the limit working, not a bug.
+- A Sentry DSN is reserved for this app in `~/projects/ops/MAINTENANCE.md`, section 4, for when its code lands.
 - Other agent sessions have also worked on this repo, so check for open PRs and for worktrees before resuming.
 - `npm audit` reports moderate issues in dev tooling, blocked upstream by `eslint`, and the `minimatch` alert was dismissed for that reason.
