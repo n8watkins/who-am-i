@@ -45,6 +45,31 @@ Modes are 20 Questions and Describe It, with spoken or in-app questions, optiona
 - Accessibility holds: 44 px minimum targets, WCAG AA contrast, labelled controls, `prefers-reduced-motion` honoured, answers announced through `aria-live`.
 - CI stays green and fast: unit, Workers and E2E tests run with a mocked model; no CI job needs a Gemini key.
 
+## 2a. Owner decisions on 2026-11-04 (round 2)
+
+These decisions came after reviewing the first UX preview, and they override anything below that disagrees.
+
+- **Desktop first**: every screen must fit 1280x800 without page scrolling where the content allows it, and that is checked in E2E alongside the 390x844 phone checks.
+- **Names**: the modes are **Ask** and **Clues** on screen; the protocol values `twenty_questions` and `describe_it` stay.
+- **No question limit in friend games**: the 20 was only a label, so the counter now reads "3 asked".
+  Solo and Daily keep a limit because it is their score and caps AI cost.
+- **Turn format setting**: **Trade turns** (default) is one question, the answer, one optional guess, then the other player goes; the first correct guess wins the round's point and the first player alternates each round.
+  **Keep going** is the v1 long turn.
+  Clues rooms always use Keep going.
+- **Skip** is renamed **Give up** in Keep going and replaced by **Pass** in Trade turns.
+- **Difficulty**: rooms choose Easy, Medium or Hard.
+  Tiers overlap because hard identities are scarce (141 easy, 84 medium, 20 hard): Easy draws from easy, Medium from easy and medium, Hard from medium and hard.
+- **Handicap**: each player can pick their own difficulty, which is how a stronger and a newer player stay even.
+- **Pass and play**: one device, two nicknames, the answerer holds the device, and a "Pass to Alice" screen hides everything between turns.
+  Secrecy on one device depends on people not peeking, so S1 applies per seat only in two-device games.
+- **Slow Duel replaces the Duel in section 3.4**: each player has a secret identity and 3 or 5 moves per day (default 5), where a move is one question plus one guess.
+  The AI answers, the friend can correct, the first correct guess wins, fewer moves breaks a same-day tie, and a game lasts up to 7 days.
+- **Ratings**: no classic Elo until accounts and matchmaking exist.
+  Friend games keep a head-to-head record, and Solo gets a skill rating against puzzle difficulty, because the AI checks those guesses.
+- **Images**: original category art and initials tiles only; no real photos, film stills or character art.
+
+Delivery order is now M2 (desktop-first UX), M2b (turn formats, difficulty, handicap), M2c (Pass and play), then M3 onward as planned.
+
 ## 3. Game modes
 
 v2 ships four modes.

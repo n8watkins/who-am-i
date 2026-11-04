@@ -3,7 +3,7 @@
 // prove neither player's own identity reaches them before the round summary.
 import { expect, test } from "@playwright/test";
 import { packIdentities } from "../src/worker/content";
-import { assertHintsOnlyAfterRequest, assertNoLeakBeforeReveal, createGame, joinGame, newPlayer, readyAndStart, scoreOf } from "./support";
+import { assertHintsOnlyAfterRequest, assertNoLeakBeforeReveal, createGame, joinGame, newPlayer, startMatch, scoreOf } from "./support";
 
 const ACTOR_NAMES = new Set(packIdentities("actors").map((i) => i.canonicalName));
 
@@ -24,8 +24,8 @@ test("two players complete an Actors match without seeing their own identities, 
   await expect(A.getByTestId("first-player")).toContainText("You go first");
   await expect(B.getByTestId("first-player")).toContainText("Alice goes first");
 
-  // Both ready, A starts.
-  await readyAndStart(A, B);
+  // A starts.
+  await startMatch(A, B);
 
   const seenIdentities = new Set<string>();
   const totalChecked = { alice: 0, bob: 0 };
@@ -36,7 +36,7 @@ test("two players complete an Actors match without seeing their own identities, 
     await expect(A.getByRole("heading", { name: `Round ${round}` })).toBeVisible();
     await expect(B.getByRole("heading", { name: `Round ${round}` })).toBeVisible();
 
-    // The server assigned A and B different actors. Each sees the other's, and "Hidden" for their own.
+    // The server assigned A and B different actors. Each sees the other's, and never their own.
     const aSees = (await A.getByTestId("opponent-identity").textContent())!.trim();
     const bSees = (await B.getByTestId("opponent-identity").textContent())!.trim();
     expect(aSees).not.toBe(bSees);
@@ -47,8 +47,6 @@ test("two players complete an Actors match without seeing their own identities, 
     expect(seenIdentities.has(bSees)).toBe(false);
     seenIdentities.add(aSees);
     seenIdentities.add(bSees);
-    await expect(A.getByTestId("own-identity")).toHaveText("Hidden");
-    await expect(B.getByTestId("own-identity")).toHaveText("Hidden");
 
     // The first guesser alternates: Alice starts odd rounds (host chose "Me"), Bob even rounds.
     const aliceFirst = round % 2 === 1;
@@ -69,7 +67,7 @@ test("two players complete an Actors match without seeing their own identities, 
           await expect(A.getByTestId("log-hint")).toHaveCount(k);
           await expect(B.getByTestId("log-hint")).toHaveCount(k);
         }
-        await expect(A.getByText("1 of 3 hints left")).toBeVisible();
+        await expect(A.getByRole("button", { name: "Get a hint, 1 of 3 left" })).toBeVisible();
       }
       // Round 1: Alice also asks an in-app question and Bob answers it on his phone.
       if (round === 1) {
@@ -78,7 +76,7 @@ test("two players complete an Actors match without seeing their own identities, 
         await B.getByRole("button", { name: "Yes", exact: true }).click();
         await expect(A.getByTestId("log-question")).toContainText("Yes");
       }
-      // B counts a spoken question (20 Questions), A guesses correctly, B confirms (double-clicked on purpose).
+      // B counts a spoken question (Ask), A guesses correctly, B confirms (double-clicked on purpose).
       await B.getByRole("button", { name: "Count one more question" }).click();
       await expect(A.getByTestId("question-count")).toHaveText(round === 1 ? "2" : "1");
       await A.getByRole("button", { name: "I Guessed It" }).click();
@@ -161,7 +159,6 @@ test("two players complete an Actors match without seeing their own identities, 
   await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
   expect(await scoreOf(A, "A")).toBe("0");
   expect(await scoreOf(B, "B")).toBe("0");
-  await expect(A.getByTestId("own-identity")).toHaveText("Hidden");
   await alice.capture.snapshot("rematch round 1");
   await bob.capture.snapshot("rematch round 1");
   await B.getByRole("button", { name: "Skip" }).click();

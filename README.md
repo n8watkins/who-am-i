@@ -13,11 +13,11 @@ No account, no app install: one player creates a room, the other opens the invit
 
 1. One player taps **Create game**, picks a category, a mode, a turn timer, how questions are asked, hints on or off, who goes first and the match length, and enters a nickname.
 2. The other player scans the QR code, opens the invite link, or types the 4-digit PIN or 6-character room code on their own phone, and joins.
-3. Both tap **I'm ready**, and the host taps **Start game**.
+3. The host taps **Start game**.
 4. Each screen shows your opponent's character and "Your identity: Hidden".
-5. On your turn, ask yes/no questions (**20 Questions**) or listen to your opponent's clues (**Describe It**).
+5. On your turn, ask yes/no questions (**Ask**) or listen to your opponent describe you (**Clues**).
    Ask out loud, or send a question in the app: pick a suggested one or type your own, and your opponent answers on their phone with Yes, No, Sort of or Don't know.
-   Both phones keep a log of the turn's questions and answers, and sent questions count toward the 20 Questions counter.
+   Both phones keep a log of the turn's questions and answers, and the top bar counts how many you have asked.
    Stuck? Tap **Get a hint** for up to three hints per turn, from vague to strong. Hints are free.
    When you think you know, say it out loud and tap **I Guessed It**.
 6. Your opponent confirms the guess.
@@ -68,9 +68,9 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 
 - **Unit tests** (`test/engine.test.ts`, `test/view.test.ts`, `test/content.test.ts`) cover the state machine transitions, turn order (alternation, the lobby setting, loser-first rematches and the tie rule), one-tap rematch, idempotency (duplicate confirm and skip clicks score once), version checks, the two-player cap, distinct and non-repeating draws, reshuffling, timer timeouts and pauses, the host override, hints, in-app questions and their rate limit, the per-player view filter, and the hint content rules.
 - **Worker and Durable Object tests** (`test/worker.test.ts`) exercise the real HTTP API, signed sessions, WebSockets, rate limiting and alarms in `workerd`.
-- **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, ready up, ask an in-app question, request hints, guess, confirm, skip, reveal, five rounds with alternating first guessers to a winner, then a one-tap rematch started by the loser.
+- **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, start, ask an in-app question, request hints, guess, confirm, skip, reveal, five rounds with alternating first guessers to a winner, then a one-tap rematch started by the loser.
   While doing so they record every HTTP response body and WebSocket frame each browser receives, plus the page HTML and localStorage, and assert that a player's own identity (name and id) never appears before the round summary, and that each hint arrives only after it was requested.
-  Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, simultaneous Ready taps, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
+  Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, every main desktop screen fitting 1280x800 with no accessibility violations, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
 
 ## Secrecy model
 

@@ -1,10 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ANSWER_LABELS,
   ANSWERS,
   HINTS_PER_TURN,
   HOST_OVERRIDE_AFTER_MS,
-  QUESTION_LIMIT,
   QUESTION_MAX_LENGTH,
   QuestionTextSchema,
   type RoomView,
@@ -12,7 +11,7 @@ import {
   type TurnResult,
 } from "../../shared/protocol";
 import { pickSuggestions } from "../../shared/questions";
-import { Scoreboard } from "../components/Scoreboard";
+import { Portrait } from "../components/PackArt";
 import { MODE_LABELS } from "../components/SettingsForm";
 import { Banner, Button, Card, Pill } from "../components/ui";
 import { mePlayer, opponentPlayer, useNow } from "../lib/hooks";
@@ -38,146 +37,131 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const identityName = view.opponentIdentity?.canonicalName ?? "";
   const hintsOn = view.settings.hints !== false;
   const questionMode = view.settings.questions ?? "both";
-  const appOn = questionMode !== "spoken";
-  const spokenOn = questionMode !== "app";
+  const appOn = twentyQ && questionMode !== "spoken";
+  const spokenOn = twentyQ && questionMode !== "app";
   const pendingQuestion = turn?.log.find((e) => e.kind === "question" && e.answer === null);
 
   const turnHeadline = myTurn ? "Your turn to guess" : `${opponent.nickname} is guessing`;
   const myResult = view.turnResults[me.playerId];
   const opponentResult = view.turnResults[opponent.playerId];
+  const instruction = myTurn
+    ? twentyQ
+      ? `Ask ${opponent.nickname} yes/no questions about who you are${appOn && spokenOn ? ", out loud or here" : appOn ? " here" : " out loud"}.`
+      : `${opponent.nickname} is describing you. Say your guess out loud.`
+    : twentyQ
+      ? `Answer ${opponent.nickname}'s yes/no questions.`
+      : `Give ${opponent.nickname} clues without saying the name.`;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-extrabold tracking-tight">Round {view.roundIndex}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <Pill tone="brand">{view.pack.name}</Pill>
-          <Pill>{MODE_LABELS[view.settings.mode].name}</Pill>
-          {turn && view.settings.timerSeconds > 0 && <TurnTimer view={view} now={now} offset={room.serverOffset} />}
-        </div>
-      </div>
-
+    <div className="space-y-3 md:grid md:grid-cols-[minmax(0,1fr)_22rem] md:items-start md:gap-x-5 md:space-y-0">
+      <h1 className="sr-only">Round {view.roundIndex}</h1>
       <p className="sr-only" aria-live="polite" role="status">
         Round {view.roundIndex}. {turnHeadline}.{pendingConfirm ? (myTurn ? " Waiting for confirmation." : ` ${opponent.nickname} thinks they got it.`) : ""}
       </p>
-
       {view.firstPlayerId && (
-        <p className="text-sm font-bold text-muted" data-testid="round-starter">
+        <p className="sr-only" data-testid="round-starter">
           {view.firstPlayerId === me.playerId ? "You go first this round." : `${opponent.nickname} goes first this round.`}
         </p>
       )}
 
-      {view.notices.includes("pack_reshuffled") && (
-        <Banner tone="info" role="status">
-          Pack exhausted, reshuffling. Earlier identities can come up again.
-        </Banner>
-      )}
-      {!opponent.connected && (
-        <Banner tone="warn" role="status">
-          {opponent.nickname} lost connection. {view.settings.timerSeconds > 0 ? "The timer is paused " : "Hang tight "}
-          while they reconnect.
-        </Banner>
-      )}
+      <TopBar view={view} now={now} offset={room.serverOffset} />
 
-      <Scoreboard view={view} compact />
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="relative overflow-hidden border-2 border-brand/30">
-          <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Opponent's character</p>
-          <p className="mt-2 text-3xl font-black leading-tight text-ink sm:text-4xl" data-testid="opponent-identity">
-            {identityName}
-          </p>
-          <p className="mt-3 text-sm text-muted">
-            {opponent.nickname} is trying to guess this.{" "}
-            {opponentResult ? <ResultPill result={opponentResult} /> : !myTurn ? "It's their turn now." : "Their turn is next."}
-          </p>
-        </Card>
-        <Card className="flex items-center gap-4 border-2 border-dashed border-line bg-paper">
-          <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-brand text-4xl font-black text-white" aria-hidden="true">
-            ?
-          </span>
-          <div>
-            <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Your identity</p>
-            <p className="text-2xl font-black" data-testid="own-identity">
-              Hidden
-            </p>
-            <p className="text-sm text-muted">{myResult ? <ResultPill result={myResult} /> : "Revealed at the end of the round."}</p>
-          </div>
-        </Card>
-      </div>
-
-      <Card className={myTurn ? "border-2 border-brand" : ""}>
-        <div className="flex items-center gap-2.5">
-          <span className={`size-3 rounded-full ${myTurn ? "bg-brand" : "bg-coral"}`} aria-hidden="true" />
-          <h2 className="text-xl font-extrabold" data-testid="turn-headline">
-            {turnHeadline}
-          </h2>
+      {(view.notices.includes("pack_reshuffled") || !opponent.connected) && (
+        <div className="space-y-2 md:col-span-2 md:mt-3">
+          {view.notices.includes("pack_reshuffled") && (
+            <Banner tone="info" role="status">
+              Pack exhausted, reshuffling. Earlier identities can come up again.
+            </Banner>
+          )}
+          {!opponent.connected && (
+            <Banner tone="warn" role="status">
+              {opponent.nickname} lost connection. {view.settings.timerSeconds > 0 ? "The timer is paused " : "Hang tight "}
+              while they reconnect.
+            </Banner>
+          )}
         </div>
+      )}
 
-        {turn && !pendingConfirm && (
-          <p className="mt-2 text-muted">
-            {myTurn
-              ? twentyQ
-                ? `Ask ${opponent.nickname} yes/no questions about who you are${appOn && spokenOn ? ", out loud or in the app" : appOn ? " in the app" : ""}. Say your guess out loud, then tap I Guessed It.`
-                : `${opponent.nickname} is describing you. Say your guess out loud, then tap I Guessed It.`
-              : twentyQ
-                ? `Answer ${opponent.nickname}'s yes/no questions about ${identityName}${appOn && !spokenOn ? " when they appear here" : ""}.`
-                : `Give ${opponent.nickname} clues about ${identityName} without saying the name.`}
-          </p>
-        )}
-
-        {turn && twentyQ && !pendingConfirm && (
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-2.5">
-            <span className="font-bold">
-              Questions:{" "}
-              <span className="tabular-nums" data-testid="question-count">
-                {turn.questionCount}
+      <aside className="space-y-3 md:col-start-2 md:mt-3">
+        <h2 className="sr-only" data-testid="turn-headline">
+          {turnHeadline}
+        </h2>
+        {myTurn ? (
+          <details className="group rounded-2xl border-2 border-brand/25 bg-card px-4 py-1">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3">
+              {view.opponentIdentity && <Portrait name={identityName} categoryId={view.opponentIdentity.categoryId} className="size-9 text-sm" />}
+              <span className="min-w-0 flex-1 text-sm font-bold text-muted">
+                {opponent.nickname} is <span className="text-base font-black text-ink" data-testid="opponent-identity">{identityName}</span>
+                {opponentResult ? " " : ", up next"}
+                {opponentResult && <ResultPill result={opponentResult} />}
               </span>
-              <span className="whitespace-nowrap text-muted"> / {QUESTION_LIMIT}</span>
-              {turn.questionCount >= QUESTION_LIMIT && <span className="ml-2 text-coral">Limit reached</span>}
-            </span>
-            {spokenOn && (
-              <Button variant="secondary" disabled={room.pending} onClick={() => room.send("turn.question")} aria-label="Count one more question">
-                +1
-              </Button>
-            )}
-          </div>
+              <span aria-hidden="true" className="text-muted transition group-open:rotate-180">{"▾"}</span>
+            </summary>
+            <RulesList view={view} />
+          </details>
+        ) : (
+          <Card className="flex items-center gap-4 border-2 border-brand/30 py-4">
+            {view.opponentIdentity && <Portrait name={identityName} categoryId={view.opponentIdentity.categoryId} className="size-16 text-xl" />}
+            <div className="min-w-0">
+              <p className="text-xs font-extrabold uppercase tracking-wide text-muted">Answer as</p>
+              <p className="text-3xl font-black leading-tight" data-testid="opponent-identity">
+                {identityName}
+              </p>
+              {myResult && (
+                <p className="mt-1.5 text-sm font-bold text-muted">
+                  Your turn: <ResultPill result={myResult} />
+                </p>
+              )}
+            </div>
+          </Card>
         )}
 
-        {myTurn && !pendingConfirm && appOn && turn && (
-          <AskPanel key={turn.log.length} room={room} waitingFor={pendingQuestion ? opponent.nickname : null} />
-        )}
-
-        {!myTurn && !pendingConfirm && !pendingQuestion && (
-          <p className="mt-4 rounded-2xl bg-paper px-4 py-3 text-sm font-semibold text-muted">
-            When {opponent.nickname} guesses, you will be asked to confirm it here.
-          </p>
-        )}
-
-        {/* The turn's primary actions: a sticky bottom bar on phones, inline on larger screens. */}
-        {turn && (myTurn || pendingConfirm || pendingQuestion) && (
+        {turn && (
           <ActionBar>
-            {!myTurn && pendingQuestion && pendingQuestion.kind === "question" && !pendingConfirm && (
+            {!myTurn && !pendingConfirm && pendingQuestion?.kind === "question" && (
               <AnswerPanel room={room} asker={opponent.nickname} questionId={pendingQuestion.id} text={pendingQuestion.text} />
+            )}
+
+            {!myTurn && !pendingConfirm && !pendingQuestion && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-muted">
+                  {turnHeadline}. They will tap I Guessed It when they have it.
+                </p>
+                {spokenOn && (
+                  <Button variant="secondary" className="shrink-0" disabled={room.pending} onClick={() => room.send("turn.question")} aria-label="+1, count one more question">
+                    +1
+                  </Button>
+                )}
+              </div>
             )}
 
             {myTurn && !pendingConfirm && (
               <div className="space-y-2.5">
-                {hintsOn && (
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-bold text-muted">
-                      {turn.hintsUsed >= HINTS_PER_TURN ? "No hints left this turn" : `${HINTS_PER_TURN - turn.hintsUsed} of ${HINTS_PER_TURN} hints left`}
-                    </span>
-                    <Button variant="secondary" disabled={room.pending || turn.hintsUsed >= HINTS_PER_TURN} onClick={() => room.send("turn.hint")}>
-                      Get a hint
+                {appOn ? (
+                  <AskPanel key={turn.log.length} room={room} waitingFor={pendingQuestion ? opponent.nickname : null} />
+                ) : (
+                  spokenOn && (
+                    <Button variant="secondary" block size="lg" disabled={room.pending} onClick={() => room.send("turn.question")} aria-label="+1 question, count one more question">
+                      +1 question
                     </Button>
-                  </div>
+                  )
                 )}
-                <div className="grid grid-cols-2 gap-3">
-                  <Button variant="secondary" size="lg" disabled={room.pending} onClick={() => room.send("turn.skip")}>
+                <div className="flex items-center gap-2">
+                  {hintsOn && (
+                    <Button
+                      variant="secondary"
+                      disabled={room.pending || turn.hintsUsed >= HINTS_PER_TURN}
+                      onClick={() => room.send("turn.hint")}
+                      aria-label={`Get a hint, ${HINTS_PER_TURN - turn.hintsUsed} of ${HINTS_PER_TURN} left`}
+                      className="px-3.5 whitespace-nowrap"
+                    >
+                      Hint <span className="tabular-nums text-muted">{HINTS_PER_TURN - turn.hintsUsed}</span>
+                    </Button>
+                  )}
+                  <Button variant="ghost" className="px-3.5" disabled={room.pending} onClick={() => room.send("turn.skip")}>
                     Skip
                   </Button>
-                  <Button size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.request")} className="whitespace-nowrap">
+                  <Button size="lg" className="min-w-0 flex-1 whitespace-nowrap px-3" disabled={room.pending} onClick={() => room.send("turn.correct.request")}>
                     I Guessed It
                   </Button>
                 </div>
@@ -186,9 +170,9 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
 
             {myTurn && pendingConfirm && (
               <div className="space-y-2.5">
-                <Banner tone="info" role="status">
+                <p className="font-bold" role="status">
                   Waiting for {opponent.nickname} to confirm your guess...
-                </Banner>
+                </p>
                 {canOverride && (
                   <Button block disabled={room.pending} onClick={() => room.send("turn.correct.override")}>
                     Confirm without {opponent.nickname} (host)
@@ -217,30 +201,60 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
             )}
           </ActionBar>
         )}
-      </Card>
+      </aside>
 
-      {turn && turn.log.length > 0 && <TurnLog entries={turn.log} guesserName={myTurn ? "You" : opponent.nickname} />}
-
-      <details className="group rounded-3xl border border-line bg-card px-5 py-1 shadow-sm">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between font-bold">
-          Rules reminder
-          <span aria-hidden="true" className="transition group-open:rotate-180">
-            {"▾"}
-          </span>
-        </summary>
-        <ul className="list-disc space-y-1.5 pb-4 pl-5 text-sm text-muted">
-          <li>{MODE_LABELS[view.settings.mode].blurb}</li>
-          <li>A correct guess, confirmed by your opponent, scores 1 point. A skip scores 0.</li>
-          <li>The round ends when both players have guessed or skipped. Then both identities are revealed.</li>
-          {view.settings.timerSeconds > 0 && <li>Each turn lasts {view.settings.timerSeconds} seconds. When time runs out, the turn ends.</li>}
-        </ul>
-      </details>
+      {turn && (
+        <div className="md:col-start-1 md:row-start-2 md:mt-3">
+          <TurnLog entries={turn.log} guesserName={myTurn ? "You" : opponent.nickname} mine={myTurn} empty={instruction} />
+        </div>
+      )}
     </div>
   );
 }
 
+/** Round, score, question count and timer in one line. */
+function TopBar({ view, now, offset }: { view: RoomView; now: number; offset: number }) {
+  const me = mePlayer(view);
+  const opponent = opponentPlayer(view)!;
+  const turn = view.turn;
+  const points = (seat: string, score: number, name: string) => (
+    <span className="text-lg font-black tabular-nums" data-testid={`points-${seat}`} aria-label={`${name} has ${score} ${score === 1 ? "point" : "points"}`}>
+      {score}
+    </span>
+  );
+  return (
+    <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-line bg-card px-3.5 text-sm font-bold shadow-sm md:col-span-2" role="group" aria-label="Round and scores">
+      <span className="font-black text-brand" aria-hidden="true">R{view.roundIndex}</span>
+      <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+        <span className="shrink-0">You</span>
+        {points(me.seat, me.score, "You")}
+        <span className="text-muted" aria-hidden="true">:</span>
+        {points(opponent.seat, opponent.score, opponent.nickname)}
+        <span className="truncate">{opponent.nickname}</span>
+      </span>
+      {turn && view.settings.mode === "twenty_questions" && (
+        <span className="whitespace-nowrap tabular-nums text-muted">
+          <span className="text-ink" data-testid="question-count">{turn.questionCount}</span> asked
+        </span>
+      )}
+      {turn && view.settings.timerSeconds > 0 && <TurnTimer view={view} now={now} offset={offset} />}
+    </div>
+  );
+}
+
+function RulesList({ view }: { view: RoomView }) {
+  return (
+    <ul className="list-disc space-y-1.5 pb-3 pl-5 text-sm text-muted">
+      <li>{MODE_LABELS[view.settings.mode].blurb}</li>
+      <li>A correct guess, confirmed by your opponent, scores 1 point. A skip scores 0.</li>
+      <li>The round ends when both players have guessed or skipped. Then both identities are revealed.</li>
+      {view.settings.timerSeconds > 0 && <li>Each turn lasts {view.settings.timerSeconds} seconds. When time runs out, the turn ends.</li>}
+    </ul>
+  );
+}
+
 /**
- * Holds the turn's primary actions. Below the `sm` breakpoint it is fixed to the bottom of the
+ * Holds the turn's primary actions. Below the `md` breakpoint it is fixed to the bottom of the
  * screen (above the iOS home indicator), and the page reserves its height so it never covers
  * the log. On larger screens it renders inline. No animation, so reduced motion is respected.
  */
@@ -265,60 +279,60 @@ function ActionBar({ children }: { children: React.ReactNode }) {
       role="region"
       aria-label="Turn actions"
       data-testid="action-bar"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(29,26,46,0.10)] backdrop-blur sm:static sm:z-auto sm:mt-5 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(29,26,46,0.10)] backdrop-blur md:static md:z-auto md:rounded-3xl md:border md:bg-card md:p-5 md:shadow-sm md:backdrop-blur-none"
     >
-      <div className="mx-auto max-w-lg sm:max-w-none">{children}</div>
+      <div className="mx-auto max-w-lg md:max-w-none">{children}</div>
     </div>
   );
 }
 
-function TurnLog({ entries, guesserName }: { entries: TurnLogEntry[]; guesserName: string }) {
+function TurnLog({ entries, guesserName, mine, empty }: { entries: TurnLogEntry[]; guesserName: string; mine: boolean; empty: string }) {
+  const end = useRef<HTMLDivElement>(null);
+  const count = entries.length;
+  useEffect(() => {
+    if (count > 0) end.current?.scrollIntoView({ block: "end" });
+  }, [count]);
+  if (count === 0) return <p className="rounded-2xl bg-card/60 px-4 py-6 text-center font-semibold text-muted">{empty}</p>;
   const forWhom = guesserName === "You" ? "you" : guesserName;
   return (
-    <Card>
-      <h2 className="text-sm font-extrabold uppercase tracking-wide text-muted">This turn</h2>
-      <ol className="mt-3 space-y-2" aria-live="polite" data-testid="turn-log">
+    <>
+      <ol className="space-y-2" aria-live="polite" data-testid="turn-log">
         {entries.map((entry) =>
           entry.kind === "hint" ? (
-            <li key={entry.id} className="animate-pop flex gap-3 rounded-2xl bg-amber-soft/70 px-4 py-2.5" data-testid="log-hint">
-              <span className="h-fit shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-black text-amber" aria-hidden="true">
-                Hint {entry.index}
-              </span>
-              <span className="font-semibold">
-                <span className="sr-only">Hint {entry.index} for {forWhom}: </span>
-                {entry.text}
-              </span>
+            <li key={entry.id} className="animate-pop rounded-2xl bg-amber-soft/70 px-3.5 py-2 text-center text-sm font-semibold" data-testid="log-hint">
+              <span className="font-black text-amber" aria-hidden="true">Hint {entry.index}: </span>
+              <span className="sr-only">Hint {entry.index} for {forWhom}: </span>
+              {entry.text}
             </li>
           ) : (
-            <li key={entry.id} className="animate-pop flex items-start justify-between gap-3 rounded-2xl bg-paper px-4 py-2.5" data-testid="log-question">
-              <span className="min-w-0 break-words font-semibold">
+            <li key={entry.id} className={`animate-pop flex flex-col gap-1 ${mine ? "items-end" : "items-start"}`} data-testid="log-question">
+              <span className={`max-w-[85%] break-words rounded-2xl px-3.5 py-2 font-semibold ${mine ? "rounded-br-md bg-brand text-white" : "rounded-bl-md border border-line bg-card"}`}>
                 <span className="sr-only">{guesserName === "You" ? "You asked" : `${guesserName} asked`}: </span>
                 {entry.text}
               </span>
-              {entry.answer ? (
-                <Pill tone={entry.answer === "yes" ? "mint" : entry.answer === "no" ? "coral" : "amber"}>
-                  <span className="sr-only">Answer: </span>
-                  {ANSWER_LABELS[entry.answer]}
-                </Pill>
-              ) : (
-                <Pill>Waiting</Pill>
-              )}
+              <span className={mine ? "self-start" : "self-end"}>
+                {entry.answer ? (
+                  <Pill tone={entry.answer === "yes" ? "mint" : entry.answer === "no" ? "coral" : "amber"}>
+                    <span className="sr-only">Answer: </span>
+                    {ANSWER_LABELS[entry.answer]}
+                  </Pill>
+                ) : (
+                  <Pill>Waiting</Pill>
+                )}
+              </span>
             </li>
           ),
         )}
       </ol>
-    </Card>
+      <div ref={end} className="scroll-mb-[calc(var(--action-bar-h,0px)+1rem)]" />
+    </>
   );
 }
-
-const VISIBLE_SUGGESTIONS = 4;
 
 function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string | null }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
   const suggestions = useMemo(() => pickSuggestions(), []);
-  const visible = showAll ? suggestions : suggestions.slice(0, VISIBLE_SUGGESTIONS);
   const send = async (question: string) => {
     const parsed = QuestionTextSchema.safeParse(question);
     if (!parsed.success) {
@@ -330,34 +344,25 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
   };
   if (waitingFor) {
     return (
-      <p className="mt-4 rounded-2xl bg-brand-soft/60 px-4 py-3 font-semibold text-brand-dark" role="status">
+      <p className="rounded-2xl bg-brand-soft/60 px-4 py-3 font-semibold text-brand-dark" role="status">
         Waiting for {waitingFor} to answer...
       </p>
     );
   }
   return (
-    <div className="mt-4 space-y-2.5">
-      <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Ask in the app</p>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Suggested questions">
-        {visible.map((q) => (
+    <div className="space-y-2">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0 md:[&>button:nth-child(n+5)]:hidden" role="group" aria-label="Suggested questions">
+        {suggestions.map((q) => (
           <button
             key={q}
             type="button"
             disabled={room.pending}
             onClick={() => send(q)}
-            className="min-h-11 rounded-full border-2 border-brand/25 bg-brand-soft/50 px-3 text-sm font-bold text-brand-dark hover:border-brand disabled:opacity-50"
+            className="min-h-11 shrink-0 whitespace-nowrap rounded-full border-2 border-brand/25 bg-brand-soft/50 px-3 text-sm font-bold text-brand-dark hover:border-brand disabled:opacity-50"
           >
             {q}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => setShowAll((v) => !v)}
-          aria-expanded={showAll}
-          className="min-h-11 rounded-full px-3 text-sm font-bold text-brand underline-offset-2 hover:underline"
-        >
-          {showAll ? "Fewer" : "More"}
-        </button>
       </div>
       <form
         className="flex gap-2"
@@ -385,9 +390,9 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
           Send
         </Button>
       </form>
-      {(error || text.length > 0) && (
-        <p id="ask-help" className={`text-xs ${error ? "font-semibold text-coral" : "text-muted"}`}>
-          {error ?? `${text.length}/${QUESTION_MAX_LENGTH}`}
+      {error && (
+        <p id="ask-help" className="text-xs font-semibold text-coral">
+          {error}
         </p>
       )}
     </div>
@@ -401,7 +406,7 @@ function AnswerPanel({ room, asker, questionId, text }: { room: RoomHandle; aske
       <p className="break-words text-xl font-black" data-testid="pending-question">
         {text}
       </p>
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5">
         {ANSWERS.map((answer) => (
           <Button
             key={answer}

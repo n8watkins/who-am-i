@@ -1,7 +1,7 @@
 // In-app yes/no questions: suggested and typed questions, answers on the other phone, the
 // shared log, the question counter, and the room's Questions setting.
 import { expect, test, type Page } from "@playwright/test";
-import { createGame, joinGame, newPlayer, readyAndStart } from "./support";
+import { createGame, joinGame, newPlayer, startMatch } from "./support";
 
 /** Each named button is fully inside the viewport at the current scroll position (no scrolling needed). */
 async function expectInView(page: Page, names: string[]) {
@@ -21,16 +21,12 @@ test("the guesser asks in the app and the opponent answers on their phone", asyn
   const B = bob.page;
   const { link } = await createGame(A, { nickname: "Alice" });
   await joinGame(B, link, "Bob");
-  await readyAndStart(A, B);
+  await startMatch(A, B);
 
-  // Four suggestions at first, the rest behind More.
-  const chips = A.getByRole("group", { name: "Suggested questions" }).getByRole("button");
-  await expect(chips).toHaveCount(5);
-  await A.getByRole("button", { name: "More", exact: true }).click();
-  await expect(chips).toHaveCount(9);
-  await A.getByRole("button", { name: "Fewer", exact: true }).click();
+  // Suggestions sit in one scrollable row.
+  await expect(A.getByRole("group", { name: "Suggested questions" }).getByRole("button")).toHaveCount(8);
   // The turn's actions are reachable at 390x844 without scrolling, with the ask panel open.
-  await expectInView(A, ["I Guessed It", "Skip", "Get a hint"]);
+  await expectInView(A, ["I Guessed It", "Skip", "Get a hint, 3 of 3 left"]);
   // A suggested question.
   await A.getByRole("button", { name: "Am I alive today?" }).click();
   await expect(A.getByText("Waiting for Bob to answer...")).toBeVisible();
@@ -53,13 +49,13 @@ test("the guesser asks in the app and the opponent answers on their phone", asyn
   // With the log filled, actions stay in view, and scrolling to the end never hides the log under the bar.
   await A.getByRole("button", { name: "Get a hint" }).click();
   await expect(A.getByTestId("log-hint")).toHaveCount(1);
-  await expectInView(A, ["I Guessed It", "Skip", "Get a hint"]);
+  await expectInView(A, ["I Guessed It", "Skip", "Get a hint, 2 of 3 left"]);
   await A.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   const bar = await A.getByTestId("action-bar").boundingBox();
   const lastEntry = await A.getByTestId("turn-log").locator("li").last().boundingBox();
   expect(bar && lastEntry && lastEntry.y + lastEntry.height <= bar.y).toBe(true);
 
-  // Sent questions count toward 20 Questions; the manual +1 still works for spoken ones.
+  // Sent questions count; the manual +1 still works for spoken ones.
   await expect(A.getByTestId("question-count")).toHaveText("2");
   await B.getByRole("button", { name: "Count one more question" }).click();
   await expect(A.getByTestId("question-count")).toHaveText("3");
@@ -77,11 +73,11 @@ test("a spoken-only room hides the in-app question panel, and leaving frees the 
   const { link } = await createGame(alice.page, { nickname: "Alice" });
   await joinGame(bob.page, link, "Bob");
 
-  await alice.page.getByRole("button", { name: "Change" }).click();
+  await alice.page.getByRole("button", { name: "Edit" }).click();
   await alice.page.getByRole("radio", { name: "Spoken", exact: true }).check();
-  await alice.page.getByRole("button", { name: "Save settings" }).click();
-  await readyAndStart(alice.page, bob.page);
-  await expect(alice.page.getByText("Ask in the app")).toHaveCount(0);
+  await alice.page.getByRole("button", { name: "Save" }).click();
+  await startMatch(alice.page, bob.page);
+  await expect(alice.page.getByRole("group", { name: "Suggested questions" })).toHaveCount(0);
   await expect(bob.page.getByRole("button", { name: "Count one more question" })).toBeVisible();
   await alice.page.getByRole("button", { name: "Skip" }).click();
   await bob.page.getByRole("button", { name: "Skip" }).click();
