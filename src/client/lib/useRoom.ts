@@ -12,14 +12,14 @@ import {
 import { api, ApiRequestError, newCommandId, type StoredSession } from "./api";
 
 export type Connection = "connecting" | "open" | "reconnecting";
-export type FatalReason = "expired" | "unauthorized" | "left";
+export type FatalReason = "expired" | "unauthorized" | "left" | "removed";
 
 type CommandExtra<T extends CommandType> = Omit<Extract<Command, { type: T }>, "type" | "commandId" | "expectedVersion">;
 
 const PING_INTERVAL_MS = 25_000;
 
 /** Commands whose meaning does not depend on the exact state the player saw (the server re-validates them). */
-const ABSOLUTE_COMMANDS = new Set<CommandType>(["player.ready", "settings.update", "match.start", "match.change_settings", "player.leave"]);
+const ABSOLUTE_COMMANDS = new Set<CommandType>(["player.ready", "settings.update", "match.start", "match.change_settings", "player.leave", "player.remove"]);
 /** How many times a command is resent after unrelated version conflicts before giving up. */
 const MAX_CONFLICT_RETRIES = 3;
 
@@ -48,6 +48,7 @@ export interface RoomHandle {
   /** Milliseconds to add to Date.now() to get the server clock. */
   serverOffset: number;
   send: <T extends CommandType>(type: T, ...extra: keyof CommandExtra<T> extends never ? [] : [CommandExtra<T>]) => Promise<boolean>;
+  renewPin: () => Promise<void>;
 }
 
 export function useRoom(code: string, session: StoredSession): RoomHandle {
@@ -129,6 +130,7 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         if (stopped || socket !== ws) return;
         if (event.code === 4000) return setFatal("expired");
         if (event.code === 4001) return setFatal("left");
+        if (event.code === 4002) return setFatal("removed");
         setConnection("reconnecting");
         const delay = Math.min(500 * 2 ** retry, 8_000);
         retry += 1;
@@ -204,7 +206,18 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
     [code, session.token, accept, handleFailure],
   ) as RoomHandle["send"];
 
+  const renewPin = useCallback(async () => {
+    setPending(true);
+    try {
+      accept(await api.renewPin(code, session.token));
+    } catch (err) {
+      handleFailure(err);
+    } finally {
+      setPending(false);
+    }
+  }, [code, session.token, accept, handleFailure]);
+
   const clearError = useCallback(() => setError(null), []);
 
-  return { view, connection, fatal, error, clearError, pending, serverOffset, send };
+  return { view, connection, fatal, error, clearError, pending, serverOffset, send, renewPin };
 }

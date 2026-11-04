@@ -51,9 +51,9 @@ test("unknown room codes show a friendly error", async ({ page }) => {
   await page.goto("/r/ZZZZZZ");
   await expect(page.getByRole("heading", { name: "Room not found" })).toBeVisible();
   await page.goto("/join");
-  await page.getByLabel("Room code").fill("abc");
+  await page.getByLabel("PIN or room code").fill("abc");
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByText("Room codes are 6 letters and numbers.")).toBeVisible();
+  await expect(page.getByText("Enter the 4-digit PIN or the 6-character room code.")).toBeVisible();
 });
 
 test("a timed turn ends when the timer runs out", async ({ browser }) => {

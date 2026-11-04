@@ -108,6 +108,10 @@ export const RoomCodeSchema = z
   .transform((s) => s.trim().toUpperCase().replace(/[\s-]/g, ""))
   .pipe(z.string().regex(new RegExp(`^[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LENGTH}}$`), "Invalid room code"));
 
+/** A short-lived alias for a lobby, for typing on a phone while looking at a TV. */
+export const PIN_LENGTH = 4;
+export const PinSchema = z.string().regex(new RegExp(`^[0-9]{${PIN_LENGTH}}$`), "Invalid PIN");
+
 const base = {
   /** Client-generated id; a repeated id is answered with the canonical state and never re-applied. */
   commandId: z.string().min(8).max(64),
@@ -132,6 +136,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("match.rematch") }),
   z.object({ ...base, type: z.literal("match.change_settings") }),
   z.object({ ...base, type: z.literal("player.leave") }),
+  z.object({ ...base, type: z.literal("player.remove"), playerId: z.string().min(1).max(64) }),
 ]);
 export type Command = z.infer<typeof CommandSchema>;
 export type CommandType = Command["type"];
@@ -222,6 +227,8 @@ export type Notice = "pack_reshuffled" | "opponent_left" | "turn_timed_out";
  */
 export interface RoomView {
   code: string;
+  /** The 4-digit PIN, while the lobby has a free seat and the directory has room for one. */
+  pin: string | null;
   version: number;
   serverNow: number;
   status: RoomStatus;
@@ -255,6 +262,12 @@ export interface RoomPreview {
   hostNickname: string | null;
   playerCount: number;
   full: boolean;
+}
+
+/** What a PIN or code lookup returns: the room preview and nothing else. */
+export interface JoinLookupResponse {
+  ok: true;
+  preview: RoomPreview;
 }
 
 export type ErrorCode =

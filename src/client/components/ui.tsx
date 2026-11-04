@@ -150,7 +150,7 @@ export function Pill({ children, tone = "neutral" }: { children: ReactNode; tone
     coral: "bg-coral-soft text-[#9b2c12] border-coral/25",
     amber: "bg-amber-soft text-amber border-amber/25",
   };
-  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold ${tones[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-bold ${tones[tone]}`}>{children}</span>;
 }
 
 export function Spinner({ label = "Loading" }: { label?: string }) {

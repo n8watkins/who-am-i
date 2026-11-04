@@ -12,7 +12,7 @@ No account, no app install: one player creates a room, the other opens the invit
 ## How to play
 
 1. One player taps **Create game**, picks a category, a mode, a turn timer, how questions are asked, hints on or off, who goes first and the match length, and enters a nickname.
-2. The other player opens the invite link (or enters the 6-character room code) on their own phone and joins.
+2. The other player scans the QR code, opens the invite link, or types the 4-digit PIN or 6-character room code on their own phone, and joins.
 3. Both tap **I'm ready**, and the host taps **Start game**.
 4. Each screen shows your opponent's character and "Your identity: Hidden".
 5. On your turn, ask yes/no questions (**20 Questions**) or listen to your opponent's clues (**Describe It**).
@@ -70,7 +70,7 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 - **Worker and Durable Object tests** (`test/worker.test.ts`) exercise the real HTTP API, signed sessions, WebSockets, rate limiting and alarms in `workerd`.
 - **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, ready up, ask an in-app question, request hints, guess, confirm, skip, reveal, five rounds with alternating first guessers to a winner, then a one-tap rematch started by the loser.
   While doing so they record every HTTP response body and WebSocket frame each browser receives, plus the page HTML and localStorage, and assert that a player's own identity (name and id) never appears before the round summary, and that each hint arrives only after it was requested.
-  Other E2E tests cover in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, simultaneous Ready taps, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
+  Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, simultaneous Ready taps, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
 
 ## Secrecy model
 
@@ -100,7 +100,10 @@ The WebSocket carries the token as a subprotocol, because browsers cannot set he
 ### Abuse resistance
 
 - Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
-- Join attempts, room lookups and room creation are rate limited per client IP by a small Durable Object.
+- Join attempts, room lookups and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client) by a small Durable Object.
+- PINs are short-lived aliases for an open lobby, held in one `PinDirectoryDurableObject`.
+  They are chosen at random, last 15 minutes unless the host's lobby stays open, end when the room fills or the game starts, wait out a 10-minute cooldown before reuse, and lookups are limited to 10 per 10 minutes and 30 per hour.
+  Unknown and expired PINs get the same response, and a lookup returns only the room preview, never a player id or token.
 - Rooms hold at most two players and close after an hour without activity.
 
 ## Architecture

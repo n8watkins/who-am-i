@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { RoomView, Settings } from "../../shared/protocol";
 import { firstPlayerLabel, MODE_LABELS, QUESTION_MODE_LABELS, matchLabel, SettingsForm, timerLabel } from "../components/SettingsForm";
+import { Invite } from "../components/Invite";
 import { Banner, Button, Card, Pill } from "../components/ui";
 import { mePlayer, opponentPlayer } from "../lib/hooks";
-import { roomUrl } from "../lib/router";
 import type { RoomHandle } from "../lib/useRoom";
 
 export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
@@ -26,13 +26,13 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
     <div className="space-y-4">
       {view.notices.includes("opponent_left") && (
         <Banner tone="info" role="status">
-          Your opponent left. Share the code to invite someone new.
+          Your opponent left. Share the PIN or code to invite someone new.
         </Banner>
       )}
 
       <Card>
         <h1 className="sr-only">Lobby</h1>
-        <InviteBox code={view.code} />
+        <Invite code={view.code} pin={view.pin} seatFree={!opponent} isHost={isHost} busy={room.pending} onNewPin={() => void room.renewPin()} />
       </Card>
 
       <Card>
@@ -59,16 +59,21 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
                       <div className="mt-0.5 flex flex-wrap gap-1.5">
                         {p.isHost && <Pill tone="brand">Host</Pill>}
                         {!p.connected && <Pill tone="amber">Offline</Pill>}
+                        {p.ready ? (
+                          <Pill tone="mint">
+                            <span aria-hidden="true">{"✓"}</span> Ready
+                          </Pill>
+                        ) : (
+                          <Pill>
+                            <span aria-hidden="true">{"…"}</span> Not ready
+                          </Pill>
+                        )}
                       </div>
                     </div>
-                    {p.ready ? (
-                      <Pill tone="mint">
-                        <span aria-hidden="true">{"✓"}</span> Ready
-                      </Pill>
-                    ) : (
-                      <Pill>
-                        <span aria-hidden="true">{"…"}</span> Not ready
-                      </Pill>
+                    {isHost && p.playerId !== view.youId && (
+                      <Button variant="ghost" disabled={room.pending} onClick={() => room.send("player.remove", { playerId: p.playerId })} aria-label={`Remove ${p.nickname}`}>
+                        Remove
+                      </Button>
                     )}
                   </>
                 ) : (
@@ -159,56 +164,6 @@ function SettingItem({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="font-bold text-muted">{label}</dt>
       <dd className="text-base font-extrabold">{value}</dd>
-    </div>
-  );
-}
-
-function InviteBox({ code }: { code: string }) {
-  const [copied, setCopied] = useState<"code" | "link" | null>(null);
-  const url = roomUrl(code);
-
-  const copy = async (text: string, what: "code" | "link") => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(what);
-      setTimeout(() => setCopied(null), 2000);
-    } catch {
-      setCopied(null);
-    }
-  };
-
-  const share = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: "Who Am I?", text: "Join my Who Am I? game", url });
-        return;
-      } catch {
-        // Cancelled or unsupported: fall back to copying.
-      }
-    }
-    await copy(url, "link");
-  };
-
-  return (
-    <div className="text-center">
-      <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Room code</p>
-      <p className="mt-1 font-mono text-5xl font-black tracking-[0.18em] text-brand [padding-left:0.18em]" data-testid="room-code" aria-label={`Room code ${code.split("").join(" ")}`}>
-        {code}
-      </p>
-      <div className="mt-4 grid grid-cols-2 gap-2.5">
-        <Button variant="secondary" onClick={() => copy(code, "code")}>
-          {copied === "code" ? "Copied!" : "Copy code"}
-        </Button>
-        <Button variant="secondary" onClick={share}>
-          {copied === "link" ? "Link copied!" : "Share link"}
-        </Button>
-      </div>
-      <p className="mt-3 break-all text-sm text-muted">
-        Or open <span className="font-semibold text-ink" data-testid="invite-link">{url}</span> on the other phone.
-      </p>
-      <span className="sr-only" role="status">
-        {copied ? `${copied === "code" ? "Code" : "Link"} copied to clipboard` : ""}
-      </span>
     </div>
   );
 }
