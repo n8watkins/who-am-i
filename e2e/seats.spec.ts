@@ -104,3 +104,23 @@ test("the host can let the opponent go first from the lobby", async ({ browser }
   await expect(alice.page.getByTestId("round-starter")).toHaveText("Bob goes first this round.");
   for (const c of [alice, bob]) await c.context.close();
 });
+
+test("leaving right after another tap still leaves on a slow connection", async ({ browser }) => {
+  const alice = await newPlayer(browser);
+  const bob = await newPlayer(browser);
+  const { link } = await createGame(alice.page, { nickname: "Alice" });
+  await joinGame(bob.page, link, "Bob");
+  await readyAndStart(alice.page, bob.page);
+  // Alice's phone is slow: each command takes 500 ms to reach the server.
+  await alice.page.route("**/commands", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  // She skips and immediately leaves, before the skip's response has arrived.
+  await alice.page.getByRole("button", { name: "Skip" }).click();
+  await alice.page.getByRole("button", { name: "Leave room" }).first().click();
+  await alice.page.getByRole("dialog").getByRole("button", { name: "Leave room" }).click();
+  await expect(bob.page.getByText("Your opponent left.")).toBeVisible();
+  await expect(alice.page.getByRole("button", { name: "Create game" })).toBeVisible();
+  for (const c of [alice, bob]) await c.context.close();
+});
