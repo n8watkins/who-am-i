@@ -114,3 +114,24 @@ test("the host can remove a player, who then cannot use the old PIN", async ({ b
   await host.context.close();
   await guest.context.close();
 });
+
+test("a player removed before their connection opened is still told why", async ({ browser }) => {
+  const host = await newPlayer(browser);
+  const guest = await newPlayer(browser);
+  const { link } = await createGame(host.page, { nickname: "Alice" });
+  await guest.page.goto(link);
+  await guest.page.getByLabel("Your nickname").fill("Bob");
+  await guest.page.getByRole("button", { name: "Join game" }).click();
+  await expect(host.page.getByTestId("slot-B")).toContainText("Bob");
+
+  // The guest is gone when the host removes them, so no socket can carry the news.
+  await guest.page.close();
+  await host.page.getByRole("button", { name: "Remove Bob" }).click();
+  await expect(host.page.getByTestId("slot-B")).toContainText("Waiting for a player");
+
+  const back = await guest.context.newPage();
+  await back.goto(link);
+  await expect(back.getByRole("heading", { name: "You were removed from this game" })).toBeVisible();
+  await host.context.close();
+  await guest.context.close();
+});

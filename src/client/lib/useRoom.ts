@@ -75,7 +75,8 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         return;
       }
       if (err.body.view) accept(err.body.view);
-      if (err.status === 401 || err.status === 404) setFatal(err.status === 404 ? "expired" : "unauthorized");
+      if (err.body.error === "removed") setFatal("removed");
+      else if (err.status === 401 || err.status === 404) setFatal(err.status === 404 ? "expired" : "unauthorized");
       else if (err.body.error === "version_conflict") setError("The game moved on. You are seeing the latest state.");
       else setError(err.body.message);
     },
@@ -94,6 +95,10 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         accept(await api.state(code, session.token));
         return true;
       } catch (err) {
+        if (err instanceof ApiRequestError && err.body.error === "removed") {
+          setFatal("removed");
+          return false;
+        }
         if (err instanceof ApiRequestError && (err.status === 401 || err.status === 404)) {
           setFatal(err.status === 404 ? "expired" : "unauthorized");
           return false;
