@@ -1,0 +1,2 @@
+# Copy to .dev.vars (never commit it). `npm run setup` generates one with a random secret.
+SESSION_SECRET=replace-with-a-long-random-string
