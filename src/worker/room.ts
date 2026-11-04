@@ -17,11 +17,14 @@ import {
   expireTurn,
   joinRoom,
   nextDeadline,
+  pinWanted,
   playerById,
   setPresence,
+  withPin,
   type EngineContext,
   type RoomState,
 } from "./engine";
+import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { previewOf, viewFor } from "./view";
 
 /** Rooms are deleted after this long without any player activity. */
@@ -29,6 +32,9 @@ export const ROOM_IDLE_TTL_MS = 60 * 60 * 1000;
 const STORAGE_KEY = "room";
 const CLOSE_ROOM_EXPIRED = 4000;
 const CLOSE_LEFT_ROOM = 4001;
+const CLOSE_REMOVED = 4002;
+/** The host's open lobby refreshes the PIN this long before it would expire. */
+const PIN_REFRESH_MARGIN_MS = 60_000;
 
 export const PLAYER_ID_HEADER = "X-WhoAmI-Player";
 export const ROOM_ID_HEADER = "X-WhoAmI-Room";
@@ -57,6 +63,8 @@ function engineContext(): EngineContext {
 
 export class RoomDurableObject extends DurableObject<Env> {
   private room: RoomState | null = null;
+  /** Calling the directory yields to other events, so PIN work runs strictly one job at a time. */
+  private pinWork: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -74,7 +82,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     const ctx = engineContext();
     const { room, playerId } = createRoom({ roomId: crypto.randomUUID(), ...input }, ctx);
     await this.commit(room);
-    return { ok: true, roomId: room.roomId, playerId, view: viewFor(room, playerId, ctx.now) };
+    // The host has no socket yet, but their lobby is about to open.
+    await this.enqueuePinWork(() => this.reconcilePin(true));
+    return { ok: true, roomId: room.roomId, playerId, view: viewFor(this.room!, playerId, ctx.now) };
   }
 
   async preview(): Promise<RoomPreview | null> {
@@ -93,13 +103,28 @@ export class RoomDurableObject extends DurableObject<Env> {
     const result = joinRoom(room, nickname, ctx);
     if (!result.ok) return result;
     await this.commit(result.room);
-    return { ok: true, playerId: result.playerId, view: viewFor(result.room, result.playerId, ctx.now) };
+    return { ok: true, playerId: result.playerId, view: viewFor(this.room!, result.playerId, ctx.now) };
   }
 
   async getView(roomId: string, playerId: string): Promise<ViewResult> {
     const room = this.authorized(roomId, playerId);
     if (!room) return unauthorized();
     await this.expireIfDue();
+    return { ok: true, view: viewFor(this.room!, playerId, Date.now()) };
+  }
+
+  /** The host swaps the PIN, for example after someone unwanted saw it. */
+  async renewPin(roomId: string, playerId: string): Promise<ViewResult> {
+    const room = this.authorized(roomId, playerId);
+    if (!room) return unauthorized();
+    if (room.hostPlayerId !== playerId) return { ok: false, error: "forbidden", message: "Only the host can change the PIN." };
+    if (!pinWanted(room)) return { ok: false, error: "invalid_transition", message: "PINs are for lobbies with a free seat." };
+    await this.enqueuePinWork(async () => {
+      if (!this.room?.pin) return;
+      await this.pinDirectory().release(this.room.code);
+      await this.storePin(null);
+      await this.reconcilePin(true);
+    });
     return { ok: true, view: viewFor(this.room!, playerId, Date.now()) };
   }
 
@@ -113,7 +138,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       const stillPlayer = playerById(this.room!, playerId);
       return stillPlayer ? { ...result, view: viewFor(this.room!, playerId, ctx.now) } : result;
     }
-    if (!result.duplicate) await this.commit(result.room);
+    if (!result.duplicate) await this.commit(result.room, command.type === "player.remove" ? CLOSE_REMOVED : CLOSE_LEFT_ROOM);
     if (command.type === "player.leave") {
       this.closeSockets(playerId, CLOSE_LEFT_ROOM, "left_room");
       if (result.room.players.length === 0) await this.destroy();
@@ -184,7 +209,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       await this.destroy();
       return;
     }
-    if (!(await this.expireIfDue())) await this.scheduleAlarm();
+    await this.expireIfDue();
+    await this.updatePin();
+    await this.scheduleAlarm();
   }
 
   /** Applies a due turn timeout exactly once. Returns true if the state changed. */
@@ -200,26 +227,106 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!this.room) return;
     const expiry = this.room.lastActivityAt + ROOM_IDLE_TTL_MS;
     const deadline = nextDeadline(this.room);
-    await this.ctx.storage.setAlarm(deadline !== null ? Math.min(deadline, expiry) : expiry);
+    const pinAt = this.nextPinCheck();
+    await this.ctx.storage.setAlarm(Math.min(expiry, deadline ?? Infinity, pinAt ?? Infinity));
+  }
+
+  private nextPinCheck(): number | null {
+    const pin = this.room?.pin;
+    if (!pin) return null;
+    const now = Date.now();
+    const refreshAt = pin.expiresAt - PIN_REFRESH_MARGIN_MS;
+    if (now < refreshAt) return refreshAt;
+    // Past the refresh point with no host around: look again when it lapses, then stop.
+    return now < pin.expiresAt ? pin.expiresAt : null;
+  }
+
+  // -------------------------------------------------------------------------
+  // PIN lifecycle. Everything here is best effort: a room works fine with no PIN.
+
+  private pinDirectory() {
+    return this.env.PINS.getByName(PIN_DIRECTORY_NAME);
+  }
+
+  private enqueuePinWork(job: () => Promise<void>): Promise<void> {
+    this.pinWork = this.pinWork.then(job).catch((err: unknown) => {
+      console.error("PIN update failed", err instanceof Error ? err.message : "unknown");
+    });
+    return this.pinWork;
+  }
+
+  /** Skips the queue, and any call to the directory, when the room's PIN is already right. */
+  private updatePin(): Promise<void> {
+    const room = this.room;
+    if (!room) return this.pinWork;
+    const hostConnected = playerById(room, room.hostPlayerId)?.connected ?? false;
+    const settled = pinWanted(room)
+      ? room.pin
+        ? Date.now() < room.pin.expiresAt - PIN_REFRESH_MARGIN_MS
+        : !hostConnected
+      : !room.pin;
+    return settled ? this.pinWork : this.enqueuePinWork(() => this.reconcilePin(false));
+  }
+
+  /** Brings the PIN in line with the room as it is now, which may be newer than when this was queued. */
+  private async reconcilePin(hostIsArriving: boolean): Promise<void> {
+    const room = this.room;
+    if (!room) return;
+    const directory = this.pinDirectory();
+    const { code, roomId, pin } = room;
+    if (!pinWanted(room)) {
+      if (pin) {
+        await directory.release(code);
+        await this.storePin(null);
+      }
+      return;
+    }
+    const hostConnected = playerById(room, room.hostPlayerId)?.connected ?? false;
+    if (pin) {
+      const now = Date.now();
+      if (now < pin.expiresAt - PIN_REFRESH_MARGIN_MS) return;
+      if (hostConnected) {
+        const expiresAt = await directory.refresh(code);
+        if (expiresAt !== null) return this.storePin({ ...pin, expiresAt });
+        await this.storePin(null);
+      } else {
+        if (now >= pin.expiresAt) await this.storePin(null);
+        return;
+      }
+    }
+    if (!hostConnected && !hostIsArriving) return;
+    const issued = await directory.issue(code, roomId);
+    if (!issued) return; // The directory is full: the invite falls back to the code and QR.
+    if (this.room?.roomId === roomId) await this.storePin(issued);
+    else await directory.release(code);
+  }
+
+  private async storePin(pin: RoomState["pin"]): Promise<void> {
+    if (this.room) await this.store(withPin(this.room, pin, engineContext()));
   }
 
   // -------------------------------------------------------------------------
   // Persistence and broadcast
 
   /** Persist first, then cache, then notify every connected socket with its own view. */
-  private async commit(next: RoomState): Promise<void> {
+  private async store(next: RoomState, departedCloseCode = CLOSE_LEFT_ROOM): Promise<void> {
     await this.ctx.storage.put(STORAGE_KEY, next);
     this.room = next;
     await this.scheduleAlarm();
-    this.broadcast();
+    this.broadcast(departedCloseCode);
   }
 
-  private broadcast(): void {
+  private async commit(next: RoomState, departedCloseCode = CLOSE_LEFT_ROOM): Promise<void> {
+    await this.store(next, departedCloseCode);
+    await this.updatePin();
+  }
+
+  private broadcast(departedCloseCode: number): void {
     if (!this.room) return;
     for (const ws of this.ctx.getWebSockets()) {
       const { playerId } = ws.deserializeAttachment() as SocketAttachment;
       if (playerById(this.room, playerId)) this.sendView(ws, playerId);
-      else ws.close(CLOSE_LEFT_ROOM, "left_room");
+      else ws.close(departedCloseCode, "left_room");
     }
   }
 
@@ -245,6 +352,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private async destroy(): Promise<void> {
+    const code = this.room?.code;
     for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.close(CLOSE_ROOM_EXPIRED, "room_closed");
@@ -255,6 +363,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.room = null;
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
+    if (code) await this.enqueuePinWork(() => this.pinDirectory().release(code));
   }
 
   private authorized(roomId: string, playerId: string): RoomState | null {
@@ -276,6 +385,7 @@ function unauthorized(): RpcFailure {
 function leftView(room: RoomState, playerId: string, now: number): RoomView {
   return {
     code: room.code,
+    pin: null,
     version: room.version,
     serverNow: now,
     status: "lobby",

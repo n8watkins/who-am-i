@@ -435,7 +435,7 @@ Play with a friend opens a two-option sheet: **Together now** (Head-to-Head) or 
 **Create (Head-to-Head)**: nickname (prefilled from the last game), category as a 2-column grid of compact emoji chips, style (Ask or Clues) as a segmented control, and one summary line "No timer · First to 5 · Hints on · Opponent answers · Random start" with **More options** opening a sheet for timer, match length, who answers, who goes first, how questions are asked and hints.
 The page fits one screen on a 390x844 phone.
 
-**Join**: one field that accepts 4 digits (PIN) or 6 characters (code), with `inputmode` switching to numeric for digits and paste support; then "Join Alice's game?" with a one-line settings summary and the nickname field; one button.
+**Join**: one field that accepts 4 digits (PIN) or 6 characters (code), with paste support; it stays a text field, because a numeric keypad would block any room code that starts with a digit; then "Join Alice's game?" with a one-line settings summary and the nickname field; one button.
 
 **Lobby (host)**: the Invite block (PIN, QR, Share, Copy link, Copy code, **Show on a TV**), a compact two-row player list with **Remove** on the guest, the one-line settings summary with **Edit**, and one primary button that reads "Waiting for a player" (disabled) and then **Start game**.
 **Lobby (guest)**: who is here, the settings summary and "Waiting for Alice to start".
@@ -678,7 +678,7 @@ Each rule gets at least one unit or Workers test and is covered by the E2E captu
 
 ### 8.7 Configuration
 
-- `wrangler.jsonc`: Durable Object bindings `GAMES` and `PINS`, migration tag `v2` with `new_sqlite_classes: ["GameDurableObject", "PinDirectoryDurableObject"]`, D1 binding `DB`, `ratelimits` binding `AI_RATE_LIMIT`, `triggers.crons` for the daily job, vars `GEMINI_MODEL`, `GEMINI_BASE_URL`, `AI_DAILY_CALL_LIMIT`, `ENVIRONMENT`.
+- `wrangler.jsonc`: Durable Object bindings `GAMES` and `PINS`, migration tag `v2` with `new_sqlite_classes: ["PinDirectoryDurableObject"]` (shipped in M1) and tag `v3` for `GameDurableObject` (M4), D1 binding `DB`, `ratelimits` binding `AI_RATE_LIMIT`, `triggers.crons` for the daily job, vars `GEMINI_MODEL`, `GEMINI_BASE_URL`, `AI_DAILY_CALL_LIMIT`, `ENVIRONMENT`.
 - Secrets: `SESSION_SECRET` (existing), `GEMINI_API_KEY`, `DAILY_SECRET`.
 - Run `npm run cf-typegen` after binding changes.
 

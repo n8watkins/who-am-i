@@ -115,7 +115,7 @@ function JoinRoom({ code, onJoined }: { code: string; onJoined: (s: StoredSessio
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-muted">Room {code}</p>
           <h1 className="text-3xl font-extrabold tracking-tight">
-            {preview.hostNickname ? `Join ${preview.hostNickname}'s game` : "Join this game"}
+            {preview.hostNickname ? `Join ${preview.hostNickname}'s game?` : "Join this game?"}
           </h1>
         </div>
         <Card>
@@ -161,6 +161,11 @@ function JoinRoom({ code, onJoined }: { code: string; onJoined: (s: StoredSessio
         <Button type="submit" size="lg" block disabled={busy}>
           {busy ? "Joining..." : "Join game"}
         </Button>
+        <div className="text-center">
+          <Button variant="ghost" onClick={() => navigate("/join")}>
+            Not this game
+          </Button>
+        </div>
       </form>
     </Shell>
   );
@@ -183,6 +188,22 @@ function RoomScreen({ code, session, onSessionInvalid }: { code: string; session
       navigate("/", { replace: true });
     }
   }, [fatal, code]);
+
+  if (fatal === "removed") {
+    return (
+      <Shell>
+        <Card className="mt-6 text-center">
+          <h1 className="text-2xl font-extrabold">You were removed from this game</h1>
+          <p className="mt-2 text-muted">The host removed you from the lobby.</p>
+          <div className="mt-6">
+            <Button block onClick={() => { clearSession(code); navigate("/", { replace: true }); }}>
+              Back to home
+            </Button>
+          </div>
+        </Card>
+      </Shell>
+    );
+  }
 
   if (fatal === "expired" || fatal === "unauthorized") {
     return (

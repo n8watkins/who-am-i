@@ -6,6 +6,7 @@ import {
   CreateRoomRequestSchema,
   JoinRoomRequestSchema,
   PACK_IDS,
+  PinSchema,
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
   RoomCodeSchema,
@@ -13,14 +14,17 @@ import {
   WS_TOKEN_PREFIX,
   type ApiError,
   type ErrorCode,
+  type RoomPreview,
 } from "../shared/protocol";
 import { packInfo } from "./content";
+import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { allowRequest } from "./rate-limiter";
 import { PLAYER_ID_HEADER, ROOM_ID_HEADER, type RpcFailure } from "./room";
 import { MissingSecretError, signSession, verifySession, type SessionClaims } from "./session";
 
 export { RoomDurableObject } from "./room";
 export { RateLimiterDurableObject } from "./rate-limiter";
+export { PinDirectoryDurableObject } from "./pin-directory";
 
 const MAX_BODY_BYTES = 4 * 1024;
 const CODE_ATTEMPTS = 8;
@@ -100,12 +104,35 @@ async function authenticate(env: Env, code: string, token: string | null): Promi
   return claims;
 }
 
+/** Finds the joinable room behind a PIN or code. Every miss looks the same to the caller. */
+async function lookUpJoin(env: Env, value: string): Promise<RoomPreview | null> {
+  if (PinSchema.safeParse(value).success) {
+    const target = await env.PINS.getByName(PIN_DIRECTORY_NAME).resolve(value);
+    if (!target) return null;
+    const stub = env.ROOMS.getByName(target.code);
+    if ((await stub.roomId()) !== target.roomId) return null;
+    const preview = await stub.preview();
+    return preview && !preview.full ? preview : null;
+  }
+  const code = RoomCodeSchema.safeParse(value);
+  return code.success ? env.ROOMS.getByName(code.data).preview() : null;
+}
+
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   const parts = url.pathname.split("/").filter(Boolean); // ["api", ...]
   const method = request.method;
 
   if (parts[1] === "packs" && parts.length === 2 && method === "GET") {
     return json({ ok: true, packs: PACK_IDS.map(packInfo) });
+  }
+
+  // GET /api/join/:pinOrCode (the room preview, never a player id or token)
+  if (parts[1] === "join" && parts.length === 3 && method === "GET") {
+    // Both windows always count, so a burst cannot dodge the hourly limit.
+    const allowed = await Promise.all([allowRequest(env, request, "pin_short"), allowRequest(env, request, "pin_long")]);
+    if (!allowed.every(Boolean)) return error("rate_limited", "Too many tries. Wait a few minutes and try again.");
+    const preview = await lookUpJoin(env, parts[2]!);
+    return preview ? json({ ok: true, preview }) : error("not_found", "No open game matches that. Check it with the host.");
   }
 
   if (parts[1] !== "rooms") return error("not_found", "Unknown endpoint.");
@@ -168,6 +195,13 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   // GET /api/rooms/:code/state
   if (action === "state" && parts.length === 4 && method === "GET") {
     const result = await stub.getView(claims.roomId, claims.playerId);
+    return result.ok ? json(result) : failure(result);
+  }
+
+  // POST /api/rooms/:code/pin (the host swaps the PIN for a new one)
+  if (action === "pin" && parts.length === 4 && method === "POST") {
+    if (!(await allowRequest(env, request, "pin_new"))) return error("rate_limited", "Too many new PINs. Try again in a minute.");
+    const result = await stub.renewPin(claims.roomId, claims.playerId);
     return result.ok ? json(result) : failure(result);
   }
 

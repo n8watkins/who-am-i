@@ -5,6 +5,7 @@ import type {
   Command,
   CommandResponse,
   CreateRoomRequest,
+  JoinLookupResponse,
   PackInfo,
   RoomPreview,
   RoomView,
@@ -101,6 +102,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ nickname }),
     }),
+  lookUpJoin: (pinOrCode: string) =>
+    request<JoinLookupResponse>(`/api/join/${encodeURIComponent(pinOrCode)}`).then((r) => r.preview),
+  renewPin: (code: string, token: string) =>
+    request<ViewResponse>(`/api/rooms/${encodeURIComponent(code)}/pin`, { method: "POST", token }).then((r) => r.view),
   state: (code: string, token: string) =>
     request<ViewResponse>(`/api/rooms/${encodeURIComponent(code)}/state`, { token }).then((r) => r.view),
   command: (code: string, token: string, command: Command) =>

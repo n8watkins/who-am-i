@@ -123,6 +123,8 @@ export interface RoomState {
   /** Who guessed first in round 1 of the current (or just finished) match. */
   matchFirstPlayerId: string | null;
   rematchVotes: string[];
+  /** The lobby's 4-digit PIN, kept in step with the PIN directory by the room. */
+  pin?: { value: string; expiresAt: number } | null;
   /** Recent in-app question send times per player, for rate limiting. */
   questionSends?: Record<string, number[]>;
   opponentLeft: boolean;
@@ -390,6 +392,18 @@ export function expireTurn(current: RoomState, ctx: EngineContext): RoomState | 
 }
 
 /** The earliest time the room needs a timer callback (turn deadline), or null. */
+/** A PIN only makes sense for an occupied lobby with a free seat. */
+export function pinWanted(room: RoomState): boolean {
+  return room.status === "lobby" && room.players.length > 0 && room.players.length < MAX_PLAYERS;
+}
+
+/** Records the room's PIN. Not player activity, so it never keeps an idle room alive. */
+export function withPin(current: RoomState, pin: RoomState["pin"], ctx: EngineContext): RoomState {
+  const room = clone(current);
+  room.pin = pin;
+  return touch(room, ctx, false);
+}
+
 export function nextDeadline(room: RoomState): number | null {
   return room.turn?.deadline ?? null;
 }
@@ -633,6 +647,17 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     room.opponentLeft = room.players.length > 0;
     touch(room, ctx);
     emit(room, ctx, "player.left", { playerId });
+    return undefined;
+  },
+
+  "player.remove": (room, playerId, cmd, ctx) => {
+    if (room.status !== "lobby") return invalid("Players can only be removed in the lobby.");
+    if (room.hostPlayerId !== playerId) return fail("forbidden", "Only the host can remove a player.");
+    if (cmd.playerId === playerId || !playerById(room, cmd.playerId)) return invalid("That player cannot be removed.");
+    room.players = room.players.filter((p) => p.id !== cmd.playerId);
+    for (const p of room.players) p.ready = false;
+    touch(room, ctx);
+    emit(room, ctx, "player.left", { playerId: cmd.playerId });
     return undefined;
   },
 };

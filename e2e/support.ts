@@ -127,7 +127,7 @@ export async function createGame(
   await page.getByRole("button", { name: "Create game" }).click();
   await expect(page.getByTestId("room-code")).toBeVisible();
   const code = (await page.getByTestId("room-code").textContent())!.trim();
-  const link = (await page.getByTestId("invite-link").textContent())!.trim();
+  const link = (await page.getByTestId("invite-link").getAttribute("href"))!;
   return { code, link };
 }
 

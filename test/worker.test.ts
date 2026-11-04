@@ -1,17 +1,22 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_SETTINGS,
   WS_PROTOCOL,
   WS_TOKEN_PREFIX,
+  type ApiError,
   type CommandResponse,
+  type JoinLookupResponse,
   type RoomView,
   type ServerMessage,
   type SessionResponse,
   type Settings,
+  type ViewResponse,
 } from "../src/shared/protocol";
 import type { RoomState } from "../src/worker/engine";
 import type { RoomDurableObject } from "../src/worker/room";
+import { PIN_DIRECTORY_NAME, PIN_TTL_MS, type PinDirectoryDurableObject } from "../src/worker/pin-directory";
+import { RATE_LIMITS } from "../src/worker/rate-limiter";
 import { signSession } from "../src/worker/session";
 
 const BASE = "http://who-am-i.test";
@@ -283,5 +288,174 @@ describe("alarms", () => {
     await runDurableObjectAlarm(stub);
     expect((await api(`/api/rooms/${host.view.code}`)).status).toBe(404);
     expect((await api(`/api/rooms/${host.view.code}/state`, { token: host.token })).status).toBe(401);
+  });
+});
+
+const latestView = async (code: string, token: string) => (await api<ViewResponse>(`/api/rooms/${code}/state`, { token })).body.view;
+
+describe("PINs", () => {
+  const lookUp = (value: string, ip?: string) => api<JoinLookupResponse>(`/api/join/${value}`, { ip });
+  const pinOf = (view: RoomView) => {
+    expect(view.pin).toMatch(/^\d{4}$/);
+    return view.pin!;
+  };
+  const roomState = (code: string) =>
+    runInDurableObject(env.ROOMS.getByName(code), async (_room: RoomDurableObject, state) => (await state.storage.get<RoomState>("room"))!);
+  const unusedPin = async () => {
+    for (let n = 0; ; n++) {
+      const pin = String(n).padStart(4, "0");
+      if (!(await env.PINS.getByName(PIN_DIRECTORY_NAME).resolve(pin))) return pin;
+    }
+  };
+
+  it("resolves to the room preview and nothing else", async () => {
+    const host = await createRoom();
+    const res = await lookUp(pinOf(host.view));
+    expect(res.status).toBe(200);
+    expect(res.body.preview.code).toBe(host.view.code);
+    expect(res.body.preview.hostNickname).toBe("Alice");
+    const text = JSON.stringify(res.body);
+    expect(text).not.toContain(host.playerId);
+    expect(text).not.toContain(host.token);
+    expect(Object.keys(res.body).sort()).toEqual(["ok", "preview"]);
+  });
+
+  it("answers unknown, malformed, released and expired PINs identically (S11)", async () => {
+    const released = await createRoom();
+    const expired = await createRoom();
+    const expiredPin = pinOf(expired.view);
+    await send(released.view.code, released.token, released.view, "player.leave");
+    await runInDurableObject(env.PINS.getByName(PIN_DIRECTORY_NAME), async (_d: PinDirectoryDurableObject, state) => {
+      state.storage.sql.exec("UPDATE pins SET expires_at = ? WHERE pin = ?", Date.now() - PIN_TTL_MS, expiredPin);
+    });
+    const misses = await Promise.all([await unusedPin(), pinOf(released.view), expiredPin, "12", "ZZZZZZ"].map((value) => lookUp(value)));
+    for (const miss of misses) {
+      expect(miss.status).toBe(404);
+      expect(miss.body).toEqual(misses[0]!.body);
+    }
+  });
+
+  it("revokes the PIN when the room fills, and reissues a new one when the seat frees", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const first = pinOf(host.view);
+    await openSocket(code, host.token); // A new PIN needs the host's lobby to be open.
+    const guest = (await joinRoom(code)).body;
+    expect(guest.view.pin).toBeNull();
+    expect((await lookUp(first)).status).toBe(404);
+    const removed = (await send(code, host.token, await latestView(code, host.token), "player.remove", { playerId: guest.playerId })).body.view;
+    const second = pinOf(removed);
+    expect(second).not.toBe(first);
+    expect((await lookUp(second)).body.preview.code).toBe(code);
+  });
+
+  it("gives no PIN once the match starts, and a new one after a player leaves it", async () => {
+    const { code, host, guest, view } = await startedRoom();
+    expect(view.pin).toBeNull();
+    await openSocket(code, host.token);
+    const left = (await send(code, guest.token, await latestView(code, host.token), "player.leave")).body.view;
+    expect(left.pin).toBeNull();
+    const state = await latestView(code, host.token);
+    expect(state.status).toBe("lobby");
+    pinOf(state);
+  });
+
+  it("lets only the host swap the PIN, which ends the old one", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const first = pinOf(host.view);
+    const renewed = await api<ViewResponse>(`/api/rooms/${code}/pin`, { method: "POST", token: host.token });
+    expect(renewed.status).toBe(200);
+    expect(pinOf(renewed.body.view)).not.toBe(first);
+    expect((await lookUp(first)).status).toBe(404);
+    const guest = (await joinRoom(code)).body;
+    const denied = await api<ApiError>(`/api/rooms/${code}/pin`, { method: "POST", token: guest.token });
+    expect(denied.status).toBe(403);
+    const full = await api<ApiError>(`/api/rooms/${code}/pin`, { method: "POST", token: host.token });
+    expect(full.status).toBe(409);
+  });
+
+  it("refreshes while the host is connected and drops the PIN once they are gone", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const stub = env.ROOMS.getByName(code);
+    const pin = pinOf(host.view);
+    const nearExpiry = async () =>
+      runInDurableObject(stub, async (room: RoomDurableObject, state) => {
+        const current = (await state.storage.get<RoomState>("room"))!;
+        const next = { ...current, pin: { value: pin, expiresAt: Date.now() + 1000 } };
+        await state.storage.put("room", next);
+        (room as unknown as { room: RoomState }).room = next;
+      });
+
+    const socket = await openSocket(code, host.token);
+    await nearExpiry();
+    await runDurableObjectAlarm(stub);
+    expect((await roomState(code)).pin!.expiresAt).toBeGreaterThan(Date.now() + PIN_TTL_MS - 5000);
+
+    socket.ws.close();
+    await vi.waitFor(async () => expect((await roomState(code)).players[0]!.connected).toBe(false));
+    await nearExpiry();
+    await runDurableObjectAlarm(stub);
+    expect((await roomState(code)).pin!.value).toBe(pin);
+    await runInDurableObject(stub, async (room: RoomDurableObject, state) => {
+      const current = (await state.storage.get<RoomState>("room"))!;
+      const next = { ...current, pin: { value: pin, expiresAt: Date.now() - 1 } };
+      await state.storage.put("room", next);
+      (room as unknown as { room: RoomState }).room = next;
+    });
+    await runDurableObjectAlarm(stub);
+    expect((await roomState(code)).pin).toBeNull();
+  });
+
+  it("keeps working with no PIN when the directory fails", async () => {
+    const original = env.PINS.getByName;
+    env.PINS.getByName = () => {
+      throw new Error("directory down");
+    };
+    try {
+      const host = await createRoom();
+      expect(host.view.pin).toBeNull();
+      expect((await joinRoom(host.view.code)).status).toBe(200);
+    } finally {
+      env.PINS.getByName = original;
+    }
+  });
+
+  it("limits lookups per client, and counts a whole IPv6 /64 as one", async () => {
+    const short = RATE_LIMITS.pin_short.limit;
+    const ip = `2001:db8:${++ipCounter}:7`;
+    for (let i = 0; i < short; i++) expect((await lookUp("0000", `${ip}::${i}`)).status).not.toBe(429);
+    expect((await lookUp("0000", `${ip}:1:2:3:4`)).status).toBe(429);
+    expect((await lookUp("0000", `2001:db8:${++ipCounter}:7::1`)).status).not.toBe(429);
+  });
+});
+
+describe("player.remove", () => {
+  it("lets the host remove the guest, closes their socket with its own code and ends their session", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const guest = (await joinRoom(code)).body;
+    const socket = await openSocket(code, guest.token);
+    const closed = new Promise<number>((resolve) => socket.ws.addEventListener("close", (e) => resolve(e.code)));
+    const res = await send(code, host.token, await latestView(code, host.token), "player.remove", { playerId: guest.playerId });
+    expect(res.status).toBe(200);
+    expect(res.body.view.players.map((p) => p.nickname)).toEqual(["Alice"]);
+    expect(res.body.view.notices).not.toContain("opponent_left");
+    expect(await closed).toBe(4002);
+    expect((await api(`/api/rooms/${code}/state`, { token: guest.token })).status).toBe(401);
+  });
+
+  it("is host-only, lobby-only and cannot target the host", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const guest = (await joinRoom(code)).body;
+    const asGuest = await send(code, guest.token, guest.view, "player.remove", { playerId: host.playerId });
+    expect(asGuest.status).toBe(403);
+    const self = await send(code, host.token, guest.view, "player.remove", { playerId: host.playerId });
+    expect(self.status).toBe(409);
+    const started = await startedRoom();
+    const midGame = await send(started.code, started.host.token, started.view, "player.remove", { playerId: started.guest.playerId });
+    expect(midGame.status).toBe(409);
   });
 });

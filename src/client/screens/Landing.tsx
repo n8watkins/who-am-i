@@ -21,7 +21,7 @@ export function Landing() {
             Create game
           </Button>
           <Button size="lg" variant="secondary" block onClick={() => navigate("/join")}>
-            Join with a code
+            Join with PIN or code
           </Button>
           <Button variant="ghost" onClick={() => setHowOpen(true)} className="mx-auto">
             How to play

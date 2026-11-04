@@ -25,6 +25,7 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
 
   return {
     code: room.code,
+    pin: room.pin?.value ?? null,
     version: room.version,
     serverNow: now,
     status: room.status,
