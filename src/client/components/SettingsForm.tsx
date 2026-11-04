@@ -76,12 +76,15 @@ function Option({
   onChange,
   children,
   testId,
+  compact = false,
 }: {
   name: string;
   checked: boolean;
   onChange: () => void;
   children: ReactNode;
   testId?: string;
+  /** Centered text with no radio dot, for narrow rows where the border shows the choice. */
+  compact?: boolean;
 }) {
   return (
     <label
@@ -93,13 +96,15 @@ function Option({
       ].join(" ")}
     >
       <input type="radio" name={name} checked={checked} onChange={onChange} className="absolute inset-0 z-10 m-0 size-full cursor-pointer appearance-none rounded-2xl opacity-0" />
-      <span
-        aria-hidden="true"
-        className={`grid size-5 shrink-0 place-items-center rounded-full border-2 ${checked ? "border-brand bg-brand" : "border-line bg-white"}`}
-      >
-        {checked && <span className="size-2 rounded-full bg-white" />}
-      </span>
-      <span className="flex-1">{children}</span>
+      {!compact && (
+        <span
+          aria-hidden="true"
+          className={`grid size-5 shrink-0 place-items-center rounded-full border-2 ${checked ? "border-brand bg-brand" : "border-line bg-white"}`}
+        >
+          {checked && <span className="size-2 rounded-full bg-white" />}
+        </span>
+      )}
+      <span className={compact ? "flex-1 text-center" : "flex-1"}>{children}</span>
     </label>
   );
 }
@@ -159,7 +164,7 @@ export function DifficultyPicker({ value, onChange }: SettingsProps) {
     <Group legend="Difficulty">
       <div className="grid grid-cols-3 gap-2">
         {DIFFICULTIES.map((level) => (
-          <Option key={level} name="difficulty" checked={value.difficulty === level} onChange={() => onChange({ ...value, difficulty: level })}>
+          <Option key={level} compact name="difficulty" checked={value.difficulty === level} onChange={() => onChange({ ...value, difficulty: level })}>
             <span className="font-bold">{DIFFICULTY_LABELS[level]}</span>
           </Option>
         ))}

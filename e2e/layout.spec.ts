@@ -7,11 +7,26 @@ import { createGame, joinGame, newPlayer, startMatch } from "./support";
 async function checkScreen(page: Page, screen: string) {
   const { scroll, view } = await page.evaluate(() => ({ scroll: document.documentElement.scrollHeight, view: window.innerHeight }));
   expect(scroll, `${screen} is ${scroll}px tall in a ${view}px window`).toBeLessThanOrEqual(view);
+  const clipped = await page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>("button, label, a")).filter((el) => !el.classList.contains("sr-only") && el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
+  );
+  expect(clipped, `${screen} has clipped text`).toEqual([]);
   // Cards fade in, and a half-faded card would read as low contrast.
   await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
   const { violations } = await new AxeBuilder({ page }).analyze();
   expect(violations.map((v) => `${v.id}: ${v.nodes[0]?.html}`), `${screen} accessibility`).toEqual([]);
 }
+
+test("no label or button is clipped on a phone", async ({ browser }) => {
+  const { page, context } = await newPlayer(browser, { mobile: true });
+  await page.goto("/new");
+  await expect(page.getByTestId("pack-actors")).toBeVisible();
+  const clipped = await page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>("button, label, a")).filter((el) => !el.classList.contains("sr-only") && el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
+  );
+  expect(clipped).toEqual([]);
+  await context.close();
+});
 
 test("the main screens fit a desktop window and pass accessibility checks", async ({ browser }) => {
   const alice = await newPlayer(browser);
