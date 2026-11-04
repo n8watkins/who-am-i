@@ -1,6 +1,6 @@
 # Who Am I? v2 plan
 
-Status: proposed, awaiting owner review.
+Status: approved by the owner on 2026-11-04, with the recommendations in section 11 adopted.
 Written 2026-11-04 against `main` at `e07ceb0` (v0.1.0, release-kit 2.6.0).
 This document is the plan of record for v2.
 A new session should be able to build v2 from this file plus the repo, without other context.
@@ -768,6 +768,9 @@ Each milestone is one or more small PRs, each shippable on its own, squash-merge
 - **Scope**: four modes are a lot; mitigation: milestones ship independently, and M8 is optional.
 
 ## 11. Open questions for the owner
+
+The owner adopted every recommendation below on 2026-11-04 and will set the secrets later.
+They stay listed so the reasoning is on record, and any of them can still be changed.
 
 1. **Gemini tier**: the free tier's data is used to improve Google's products and its quotas are low; the paid tier costs about half a cent per 20-question game.
    Recommendation: paid tier, with a monthly budget alert in Google Cloud (for example US$10) and the app's own global daily cap.
