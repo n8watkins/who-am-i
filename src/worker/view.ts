@@ -3,7 +3,7 @@
 // the summary of a round that has already been completed.
 import type { Notice, PublicIdentity, RoomPreview, RoomView } from "../shared/protocol";
 import { getIdentity, packInfo } from "./content";
-import { isGuessing, opponentOf, playerById, type RoomState } from "./engine";
+import { isGuessing, opponentOf, playerById, rematchFirstPlayer, type RoomState } from "./engine";
 
 function publicIdentity(identityId: string): PublicIdentity {
   const identity = getIdentity(identityId);
@@ -45,6 +45,7 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
       skips: p.skips,
     })),
     roundIndex: room.roundIndex,
+    firstPlayerId: room.round?.order[0] ?? null,
     turn: room.turn
       ? {
           playerId: room.turn.playerId,
@@ -69,6 +70,8 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
           }
         : null,
     matchSummary: room.status === "match_summary" && room.match ? { ...room.match } : null,
+    rematchVotes: room.status === "match_summary" ? [...(room.rematchVotes ?? [])] : [],
+    rematchFirstPlayerId: room.status === "match_summary" && room.players.length === 2 ? rematchFirstPlayer(room) : null,
     notices,
   };
 }

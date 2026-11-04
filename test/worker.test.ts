@@ -30,7 +30,7 @@ async function api<T>(path: string, init: RequestInit & { token?: string; ip?: s
 async function createRoom(settings: Partial<Settings> = {}) {
   const res = await api<SessionResponse>("/api/rooms", {
     method: "POST",
-    body: JSON.stringify({ nickname: "Alice", settings: { ...DEFAULT_SETTINGS, ...settings } }),
+    body: JSON.stringify({ nickname: "Alice", settings: { ...DEFAULT_SETTINGS, firstPlayer: "host", ...settings } }),
   });
   expect(res.status).toBe(201);
   return res.body;
@@ -263,11 +263,11 @@ describe("alarms", () => {
       self.room = room;
     });
     expect(await runDurableObjectAlarm(stub)).toBe(true);
-    const after = await a.next((v) => v.status === "guessing_b");
+    const after = await a.next((v) => v.status === "guessing_second");
     expect(after.turnResults[host.playerId]).toBe("timed_out");
     await runDurableObjectAlarm(stub);
     const res = await api<{ view: RoomView }>(`/api/rooms/${code}/state`, { token: host.token });
-    expect(res.body.view.status).toBe("guessing_b");
+    expect(res.body.view.status).toBe("guessing_second");
     expect(res.body.view.players.find((p) => p.seat === "A")!.skips).toBe(1);
     a.ws.close();
   });

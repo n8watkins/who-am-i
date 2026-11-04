@@ -285,11 +285,14 @@ function leftView(room: RoomState, playerId: string, now: number): RoomView {
     hostPlayerId: room.hostPlayerId,
     players: [],
     roundIndex: 0,
+    firstPlayerId: null,
     turn: null,
     turnResults: {},
     opponentIdentity: null,
     roundSummary: null,
     matchSummary: null,
+    rematchVotes: [],
+    rematchFirstPlayerId: null,
     notices: [],
   };
 }

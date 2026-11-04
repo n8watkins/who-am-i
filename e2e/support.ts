@@ -109,7 +109,10 @@ export async function newPlayer(browser: Browser, opts: { mobile?: boolean } = {
   return { context, page, capture };
 }
 
-export async function createGame(page: Page, opts: { nickname: string; pack?: string; timer?: "Off" | "60 s" | "90 s"; rounds?: boolean }) {
+export async function createGame(
+  page: Page,
+  opts: { nickname: string; pack?: string; timer?: "Off" | "60 s" | "90 s"; rounds?: boolean; first?: "Me" | "My opponent" | "Random" },
+) {
   await page.goto("/");
   await page.getByRole("button", { name: "Create game" }).click();
   await expect(page.getByRole("heading", { name: "New game" })).toBeVisible();
@@ -117,6 +120,8 @@ export async function createGame(page: Page, opts: { nickname: string; pack?: st
   if (opts.pack) await page.getByTestId(`pack-${opts.pack}`).click();
   if (opts.timer) await page.getByRole("radio", { name: opts.timer, exact: true }).check();
   if (opts.rounds) await page.getByRole("radio", { name: /Best after/ }).check();
+  // Tests default to the host going first so turn order is deterministic.
+  await page.getByRole("radio", { name: opts.first ?? "Me", exact: true }).check();
   await page.getByRole("button", { name: "Create game" }).click();
   await expect(page.getByTestId("room-code")).toBeVisible();
   const code = (await page.getByTestId("room-code").textContent())!.trim();

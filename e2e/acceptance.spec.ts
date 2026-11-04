@@ -21,6 +21,8 @@ test("two players complete an Actors match without seeing their own identities, 
   await expect(B.getByText("Actors", { exact: true })).toBeVisible();
   await joinGame(B, link, "Bob");
   await expect(A.getByTestId("slot-B")).toContainText("Bob");
+  await expect(A.getByTestId("first-player")).toContainText("You go first");
+  await expect(B.getByTestId("first-player")).toContainText("Alice goes first");
 
   // Both ready, A starts.
   await readyAndStart(A, B);
@@ -46,32 +48,44 @@ test("two players complete an Actors match without seeing their own identities, 
     seenIdentities.add(bSees);
     await expect(A.getByTestId("own-identity")).toHaveText("Hidden");
     await expect(B.getByTestId("own-identity")).toHaveText("Hidden");
-    await expect(A.getByTestId("turn-headline")).toHaveText("Your turn to guess");
-    await expect(B.getByTestId("turn-headline")).toHaveText("Alice is guessing");
 
-    // Snapshot the rendered page and localStorage mid-round for the leak check.
-    await alice.capture.snapshot(`round ${round} A turn`);
-    await bob.capture.snapshot(`round ${round} A turn`);
+    // The first guesser alternates: Alice starts odd rounds (host chose "Me"), Bob even rounds.
+    const aliceFirst = round % 2 === 1;
+    await expect(A.getByTestId("round-starter")).toHaveText(aliceFirst ? "You go first this round." : "Bob goes first this round.");
+    await expect(B.getByTestId("round-starter")).toHaveText(aliceFirst ? "Alice goes first this round." : "You go first this round.");
 
-    // B counts a question (20 Questions), A guesses correctly, B confirms (double-clicked on purpose).
-    await B.getByRole("button", { name: "Count one more question" }).click();
-    await expect(A.getByTestId("question-count")).toHaveText("1");
-    await A.getByRole("button", { name: "I Guessed It" }).click();
-    await expect(A.getByText("Waiting for Bob to confirm your guess...")).toBeVisible();
-    await expect(B.getByText(`Did they say ${bSees}?`)).toBeVisible();
-    await B.getByRole("button", { name: "Yes, correct" }).dblclick();
-
-    // A's score increases exactly once, on both devices.
-    await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
-    await expect.poll(() => scoreOf(A, "A")).toBe(String(round));
-    await expect.poll(() => scoreOf(B, "A")).toBe(String(round));
-
-    await alice.capture.snapshot(`round ${round} B turn`);
-    await bob.capture.snapshot(`round ${round} B turn`);
-
-    // B takes their turn and skips.
-    await expect(A.getByTestId("turn-headline")).toHaveText("Bob is guessing");
-    await B.getByRole("button", { name: "Skip" }).click();
+    const aliceTurn = async () => {
+      await expect(A.getByTestId("turn-headline")).toHaveText("Your turn to guess");
+      await expect(B.getByTestId("turn-headline")).toHaveText("Alice is guessing");
+      // Snapshot the rendered page and localStorage mid-round for the leak check.
+      await alice.capture.snapshot(`round ${round} Alice turn`);
+      await bob.capture.snapshot(`round ${round} Alice turn`);
+      // B counts a question (20 Questions), A guesses correctly, B confirms (double-clicked on purpose).
+      await B.getByRole("button", { name: "Count one more question" }).click();
+      await expect(A.getByTestId("question-count")).toHaveText("1");
+      await A.getByRole("button", { name: "I Guessed It" }).click();
+      await expect(A.getByText("Waiting for Bob to confirm your guess...")).toBeVisible();
+      await expect(B.getByText(`Did they say ${bSees}?`)).toBeVisible();
+      await B.getByRole("button", { name: "Yes, correct" }).dblclick();
+      // A's score increases exactly once, on both devices.
+      await expect.poll(() => scoreOf(A, "A")).toBe(String(round));
+      await expect.poll(() => scoreOf(B, "A")).toBe(String(round));
+    };
+    const bobTurn = async () => {
+      await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
+      await expect(A.getByTestId("turn-headline")).toHaveText("Bob is guessing");
+      await alice.capture.snapshot(`round ${round} Bob turn`);
+      await bob.capture.snapshot(`round ${round} Bob turn`);
+      // B takes their turn and skips.
+      await B.getByRole("button", { name: "Skip" }).click();
+    };
+    if (aliceFirst) {
+      await aliceTurn();
+      await bobTurn();
+    } else {
+      await bobTurn();
+      await aliceTurn();
+    }
 
     // Both see the round summary revealing both identities.
     await expect(A.getByRole("heading", { name: "The big reveal" })).toBeVisible();
@@ -108,20 +122,25 @@ test("two players complete an Actors match without seeing their own identities, 
   ).identity.canonicalName as string;
   expect(bobReceived).toContain(aliceOwnRoundOne);
 
-  // Rematch in the same room: back to the lobby with scores reset and a new shuffle.
+  // One-tap rematch in the same room: both tap Rematch and the next match starts directly.
   const rematchStart = { alice: alice.capture.mark(), bob: bob.capture.mark() };
+  await expect(A.getByTestId("rematch-starter")).toContainText("Bob goes first (loser starts).");
   await A.getByRole("button", { name: "Rematch" }).click();
-  await expect(A.getByTestId("room-code")).toHaveText(code);
-  await expect(B.getByTestId("room-code")).toHaveText(code);
-  await readyAndStart(A, B);
+  await expect(A.getByRole("button", { name: "Waiting for Bob..." })).toBeDisabled();
+  await expect(B.getByText("Alice wants a rematch.")).toBeVisible();
+  await B.getByRole("button", { name: "Accept rematch" }).click();
   await expect(A.getByRole("heading", { name: "Round 1" })).toBeVisible();
+  await expect(B.getByRole("heading", { name: "Round 1" })).toBeVisible();
+  // The loser of the previous match guesses first.
+  await expect(B.getByTestId("round-starter")).toHaveText("You go first this round.");
+  await expect(B.getByTestId("turn-headline")).toHaveText("Your turn to guess");
   expect(await scoreOf(A, "A")).toBe("0");
   expect(await scoreOf(B, "B")).toBe("0");
   await expect(A.getByTestId("own-identity")).toHaveText("Hidden");
   await alice.capture.snapshot("rematch round 1");
   await bob.capture.snapshot("rematch round 1");
-  await A.getByRole("button", { name: "Skip" }).click();
   await B.getByRole("button", { name: "Skip" }).click();
+  await A.getByRole("button", { name: "Skip" }).click();
   await expect(A.getByRole("heading", { name: "The big reveal" })).toBeVisible();
   await expect(B.getByRole("heading", { name: "The big reveal" })).toBeVisible();
   totalChecked.alice += await assertNoLeakBeforeReveal(alice.capture, 1, rematchStart.alice);
