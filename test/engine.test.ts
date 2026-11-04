@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, POINTS_TO_WIN, ROUNDS_PER_MATCH } from "../src/shared/protocol";
+import { CommandSchema, DEFAULT_SETTINGS, POINTS_TO_WIN, QUESTION_RATE_LIMIT, QuestionTextSchema, ROUNDS_PER_MATCH } from "../src/shared/protocol";
 import { getIdentity, packIdentities } from "../src/worker/content";
 import {
   applyCommand,
@@ -379,6 +379,7 @@ describe("match end and rematch", () => {
       room = mustApply(room, a, cmd(room, "round.next"), ctx);
     }
     expect(room.status).toBe("match_summary");
+    const before = [...room.usedIdentityIds];
     room = mustApply(room, b, cmd(room, "match.rematch"), ctx);
     expect(room.status).toBe("match_summary");
     expect(room.rematchVotes).toEqual([b]);
@@ -388,7 +389,10 @@ describe("match end and rematch", () => {
     expect(room.roundIndex).toBe(1);
     expect(room.code).toBe("ABCDEF");
     expect(room.settings.packId).toBe("video-games");
-    expect(room.usedIdentityIds).toHaveLength(2);
+    // A fresh draw that avoids every identity from the previous match.
+    const previous = new Set(before);
+    expect(previous.has(room.round!.assignments[a]!)).toBe(false);
+    expect(previous.has(room.round!.assignments[b]!)).toBe(false);
     expect(room.players.map((p) => p.score)).toEqual([0, 0]);
     expect(room.rematchVotes).toEqual([]);
     expect(room.events.some((e) => e.type === "match.rematched")).toBe(true);
@@ -523,5 +527,62 @@ describe("hints", () => {
     const summary = viewFor(room, a, ctx.now).roundSummary!;
     expect(Object.fromEntries(summary.entries.map((e) => [e.playerId, e.hintsUsed]))).toEqual({ [a]: 2, [b]: 1 });
     expect(room.players.find((p) => p.id === a)!.score).toBe(1);
+  });
+});
+
+describe("in-app questions", () => {
+  it("the guesser asks, the opponent answers, both see the log, and the counter goes up", () => {
+    let { room, a, b, ctx } = setupRoom();
+    room = mustApply(room, a, cmd(room, "turn.ask", { text: "Am I a real person?" }), ctx);
+    const question = room.turn!.log.at(-1)!;
+    expect(question).toMatchObject({ kind: "question", text: "Am I a real person?", answer: null });
+    expect(room.turn!.questionCount).toBe(1);
+    expect(applyCommand(room, a, cmd(room, "turn.ask", { text: "Am I alive?" }), ctx)).toMatchObject({
+      ok: false,
+      error: "invalid_transition",
+    });
+    expect(applyCommand(room, a, cmd(room, "turn.answer", { questionId: question.id, answer: "yes" }), ctx)).toMatchObject({
+      ok: false,
+      error: "forbidden",
+    });
+    room = mustApply(room, b, cmd(room, "turn.answer", { questionId: question.id, answer: "sort_of" }), ctx);
+    for (const viewer of [a, b]) {
+      expect(viewFor(room, viewer, ctx.now).turn!.log).toEqual([expect.objectContaining({ text: "Am I a real person?", answer: "sort_of" })]);
+    }
+    expect(applyCommand(room, b, cmd(room, "turn.answer", { questionId: question.id, answer: "no" }), ctx)).toMatchObject({
+      ok: false,
+      error: "invalid_transition",
+    });
+  });
+
+  it("only the guesser can ask, and not in a spoken-only room", () => {
+    const { room, b, ctx } = setupRoom();
+    expect(applyCommand(room, b, cmd(room, "turn.ask", { text: "Am I fictional?" }), ctx)).toMatchObject({ ok: false, error: "forbidden" });
+    const spoken = setupRoom({ settings: { questions: "spoken" } });
+    expect(applyCommand(spoken.room, spoken.a, cmd(spoken.room, "turn.ask", { text: "Am I fictional?" }), spoken.ctx)).toMatchObject({
+      ok: false,
+      error: "invalid_transition",
+    });
+  });
+
+  it("rate-limits question sends per player", () => {
+    let { room, a, b, ctx } = setupRoom();
+    for (let i = 0; i < QUESTION_RATE_LIMIT.limit; i++) {
+      room = mustApply(room, a, cmd(room, "turn.ask", { text: `Question ${i}?` }), ctx);
+      room = mustApply(room, b, cmd(room, "turn.answer", { questionId: room.turn!.log.at(-1)!.id, answer: "no" }), ctx);
+      ctx.advance(1_000);
+    }
+    expect(applyCommand(room, a, cmd(room, "turn.ask", { text: "One more?" }), ctx)).toMatchObject({ ok: false, error: "rate_limited" });
+    ctx.advance(QUESTION_RATE_LIMIT.windowMs);
+    expect(applyCommand(room, a, cmd(room, "turn.ask", { text: "One more?" }), ctx).ok).toBe(true);
+  });
+
+  it("validates question text with Zod: trimmed, plain, at most 140 characters", () => {
+    expect(QuestionTextSchema.parse("  Am I\n  famous?\u0000 ")).toBe("Am I famous?");
+    expect(QuestionTextSchema.safeParse("   ").success).toBe(false);
+    expect(QuestionTextSchema.safeParse("x".repeat(141)).success).toBe(false);
+    expect(QuestionTextSchema.parse("<b>Am I bold?</b>")).toBe("<b>Am I bold?</b>");
+    const parsed = CommandSchema.safeParse({ type: "turn.ask", commandId: "abcdefgh", expectedVersion: 1, text: "x".repeat(200) });
+    expect(parsed.success).toBe(false);
   });
 });

@@ -12,6 +12,7 @@
 import {
   HINTS_PER_TURN,
   HOST_OVERRIDE_AFTER_MS,
+  QUESTION_RATE_LIMIT,
   POINTS_TO_WIN,
   ROUNDS_PER_MATCH,
   type Command,
@@ -88,6 +89,8 @@ export type EventType =
   | "turn.skipped"
   | "turn.timed_out"
   | "turn.hint.revealed"
+  | "turn.question.asked"
+  | "turn.question.answered"
   | "round.completed"
   | "match.completed"
   | "match.rematched";
@@ -120,6 +123,8 @@ export interface RoomState {
   /** Who guessed first in round 1 of the current (or just finished) match. */
   matchFirstPlayerId: string | null;
   rematchVotes: string[];
+  /** Recent in-app question send times per player, for rate limiting. */
+  questionSends?: Record<string, number[]>;
   opponentLeft: boolean;
   recentCommands: { id: string; playerId: string }[];
   events: RoomEvent[];
@@ -534,6 +539,39 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     return undefined;
   },
 
+  "turn.ask": (room, playerId, cmd, ctx) => {
+    const turn = requireTurn(room);
+    if ("ok" in turn) return turn;
+    if ((room.settings.questions ?? "both") === "spoken") return invalid("This room asks questions out loud.");
+    if (turn.playerId !== playerId) return fail("forbidden", "Only the guesser asks questions.");
+    if (turn.phase !== "asking") return invalid("A guess is waiting for confirmation.");
+    if (turn.log.some((e) => e.kind === "question" && e.answer === null)) {
+      return invalid("Wait for the answer before asking another question.");
+    }
+    const sends = (room.questionSends ??= {});
+    const recent = (sends[playerId] ?? []).filter((t) => ctx.now - t < QUESTION_RATE_LIMIT.windowMs);
+    if (recent.length >= QUESTION_RATE_LIMIT.limit) return fail("rate_limited", "Slow down a little before the next question.");
+    sends[playerId] = [...recent, ctx.now];
+    turn.log.push({ id: ctx.newId(), kind: "question", text: cmd.text, answer: null, at: ctx.now });
+    turn.questionCount = Math.min(turn.questionCount + 1, 99);
+    touch(room, ctx);
+    emit(room, ctx, "turn.question.asked", { playerId, roundIndex: room.roundIndex });
+    return undefined;
+  },
+
+  "turn.answer": (room, playerId, cmd, ctx) => {
+    const turn = requireTurn(room);
+    if ("ok" in turn) return turn;
+    if (turn.playerId === playerId) return fail("forbidden", "Your opponent answers your questions.");
+    const entry = turn.log.find((e) => e.id === cmd.questionId);
+    if (!entry || entry.kind !== "question") return invalid("That question is not part of this turn.");
+    if (entry.answer !== null) return invalid("That question was already answered.");
+    entry.answer = cmd.answer;
+    touch(room, ctx);
+    emit(room, ctx, "turn.question.answered", { playerId, roundIndex: room.roundIndex });
+    return undefined;
+  },
+
   "turn.hint": (room, playerId, _cmd, ctx) => {
     const turn = requireTurn(room);
     if ("ok" in turn) return turn;
@@ -573,7 +611,8 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     touch(room, ctx);
     if (room.players.length === MAX_PLAYERS && room.players.every((p) => room.rematchVotes.includes(p.id))) {
       emit(room, ctx, "match.rematched", { playerId });
-      startMatch(room, rematchFirstPlayer(room), ctx);
+      // Keep the previous match's identities out of the draw so a rematch never reuses one just revealed.
+      startMatch(room, rematchFirstPlayer(room), ctx, { keepUsedIdentities: true });
     }
     return undefined;
   },
@@ -642,9 +681,9 @@ export function rematchFirstPlayer(room: RoomState): string {
 }
 
 /** Resets scores and the shuffle, then starts round 1 with `firstPlayerId` guessing first. */
-function startMatch(room: RoomState, firstPlayerId: string, ctx: EngineContext): void {
+function startMatch(room: RoomState, firstPlayerId: string, ctx: EngineContext, opts: { keepUsedIdentities?: boolean } = {}): void {
   for (const p of room.players) resetStats(p);
-  room.usedIdentityIds = [];
+  if (!opts.keepUsedIdentities) room.usedIdentityIds = [];
   room.roundIndex = 0;
   room.match = null;
   room.lastRoundSummary = null;

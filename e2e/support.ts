@@ -90,7 +90,8 @@ export async function assertNoLeakBeforeReveal(capture: Capture, roundIndex: num
   const before = capture.between(windowStart, reveal!.seq);
   expect(before.length).toBeGreaterThan(0);
   for (const item of before) {
-    const context = `${item.kind} ${item.source} (seq ${item.seq})`;
+    const at = item.text.indexOf(own.id);
+    const context = `${item.kind} ${item.source} (seq ${item.seq})${at >= 0 ? `: ...${item.text.slice(Math.max(0, at - 300), at + 80)}...` : ""}`;
     expect(item.text.includes(own.id), `own identity id ${own.id} leaked in ${context}`).toBe(false);
     expect(item.text.includes(own.canonicalName), `own identity "${own.canonicalName}" leaked in ${context}`).toBe(false);
     const escaped = JSON.stringify(own.canonicalName).slice(1, -1);

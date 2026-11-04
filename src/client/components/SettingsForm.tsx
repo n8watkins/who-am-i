@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { PACK_META, PACK_ORDER } from "../../shared/packs";
-import { POINTS_TO_WIN, ROUNDS_PER_MATCH, type FirstPlayerOption, type Mode, type PlayerView, type Settings } from "../../shared/protocol";
+import { POINTS_TO_WIN, ROUNDS_PER_MATCH, type FirstPlayerOption, type Mode, type QuestionMode, type PlayerView, type Settings } from "../../shared/protocol";
 
 export const MODE_LABELS: Record<Mode, { name: string; blurb: string }> = {
   twenty_questions: { name: "20 Questions", blurb: "Ask yes/no questions to figure out who you are." },
@@ -10,6 +10,8 @@ export const MODE_LABELS: Record<Mode, { name: string; blurb: string }> = {
 export function matchLabel(settings: Settings): string {
   return settings.matchType === "points" ? `First to ${POINTS_TO_WIN} points` : `Best after ${ROUNDS_PER_MATCH} rounds`;
 }
+
+export const QUESTION_MODE_LABELS: Record<QuestionMode, string> = { spoken: "Spoken", app: "In the app", both: "Both" };
 
 export const FIRST_PLAYER_LABELS: Record<FirstPlayerOption, string> = {
   host: "Me",
@@ -123,6 +125,17 @@ export function SettingsForm({ value, onChange }: { value: Settings; onChange: (
           ))}
         </div>
         <p className="text-sm text-muted">After round 1, the first guesser alternates every round.</p>
+      </Group>
+
+      <Group legend="Questions">
+        <div className="grid grid-cols-3 gap-2.5">
+          {(Object.keys(QUESTION_MODE_LABELS) as QuestionMode[]).map((mode) => (
+            <Option key={mode} name="questions" checked={(value.questions ?? "both") === mode} onChange={() => set("questions", mode)}>
+              <span className="font-bold">{QUESTION_MODE_LABELS[mode]}</span>
+            </Option>
+          ))}
+        </div>
+        <p className="text-sm text-muted">Ask out loud, type yes/no questions in the app, or both.</p>
       </Group>
 
       <Group legend="Hints">

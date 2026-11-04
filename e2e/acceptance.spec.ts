@@ -71,9 +71,16 @@ test("two players complete an Actors match without seeing their own identities, 
         }
         await expect(A.getByText("1 of 3 hints left")).toBeVisible();
       }
-      // B counts a question (20 Questions), A guesses correctly, B confirms (double-clicked on purpose).
+      // Round 1: Alice also asks an in-app question and Bob answers it on his phone.
+      if (round === 1) {
+        await A.getByRole("button", { name: "Am I a real person?" }).click();
+        await expect(B.getByTestId("pending-question")).toHaveText("Am I a real person?");
+        await B.getByRole("button", { name: "Yes", exact: true }).click();
+        await expect(A.getByTestId("log-question")).toContainText("Yes");
+      }
+      // B counts a spoken question (20 Questions), A guesses correctly, B confirms (double-clicked on purpose).
       await B.getByRole("button", { name: "Count one more question" }).click();
-      await expect(A.getByTestId("question-count")).toHaveText("1");
+      await expect(A.getByTestId("question-count")).toHaveText(round === 1 ? "2" : "1");
       await A.getByRole("button", { name: "I Guessed It" }).click();
       await expect(A.getByText("Waiting for Bob to confirm your guess...")).toBeVisible();
       await expect(B.getByText(`Did they say ${bSees}?`)).toBeVisible();
