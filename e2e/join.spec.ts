@@ -122,6 +122,8 @@ test("a player removed before their connection opened is still told why", async 
   await guest.page.goto(link);
   await guest.page.getByLabel("Your nickname").fill("Bob");
   await guest.page.getByRole("button", { name: "Join game" }).click();
+  // Wait for the guest's own lobby: until then their browser has not saved its session.
+  await expect(guest.page.getByTestId("room-code")).toBeVisible();
   await expect(host.page.getByTestId("slot-B")).toContainText("Bob");
 
   // The guest is gone when the host removes them, so no socket can carry the news.

@@ -64,5 +64,7 @@ Later, and blocking nothing yet:
   Wait for the live site to serve the new build before running live checks, and save their full output.
 - Local E2E runs can sit for about 2 minutes per test server before starting, because this machine is slow to refuse closed ports.
   That delay does not happen in CI.
+- PIN lookups are limited to 10 per 10 minutes per address, so repeating the join tests against the live site ends in "Too many tries".
+  That is the limit working, not a bug.
 - Other agent sessions have also worked on this repo, so check for open PRs and for worktrees before resuming.
 - `npm audit` reports moderate issues in dev tooling, blocked upstream by `eslint`, and the `minimatch` alert was dismissed for that reason.
