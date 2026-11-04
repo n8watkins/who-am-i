@@ -105,11 +105,11 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
         {turn && twentyQ && !pendingConfirm && (
           <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-2.5">
             <span className="font-bold">
-              Questions asked:{" "}
+              Questions:{" "}
               <span className="tabular-nums" data-testid="question-count">
                 {turn.questionCount}
               </span>
-              <span className="text-muted"> / {QUESTION_LIMIT}</span>
+              <span className="whitespace-nowrap text-muted"> / {QUESTION_LIMIT}</span>
               {turn.questionCount >= QUESTION_LIMIT && <span className="ml-2 text-coral">Limit reached</span>}
             </span>
             <Button variant="secondary" disabled={room.pending} onClick={() => room.send("turn.question")} aria-label="Count one more question">

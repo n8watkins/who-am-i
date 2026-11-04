@@ -8,7 +8,7 @@ export function Landing() {
     <Shell>
       <div className="flex flex-col items-center pt-6 text-center sm:pt-12">
         <IdentityIllustration />
-        <h1 className="mt-8 text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
+        <h1 className="mt-8 text-balance text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
           Who are you?
           <br />
           <span className="text-brand">Your friend knows.</span>

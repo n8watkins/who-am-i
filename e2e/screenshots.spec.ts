@@ -1,7 +1,7 @@
 // Captures every screen at desktop (1280x800) and mobile (390x844) for design review.
 // Run with SCREENSHOTS=1 npm run e2e -- screenshots; skipped otherwise.
 import { expect, test, type Page } from "@playwright/test";
-import { createGame, joinGame, newPlayer, readyAndStart } from "./support";
+import { createGame, joinGame, newPlayer } from "./support";
 
 const OUT = "docs/screenshots";
 
@@ -38,7 +38,10 @@ for (const device of ["desktop", "mobile"] as const) {
     await shot(A, "05-lobby-host");
     await shot(B, "06-lobby-guest");
 
-    await readyAndStart(A, B);
+    await B.getByRole("button", { name: "I'm ready" }).click();
+    await A.getByRole("button", { name: "Start game" }).click();
+    await expect(A.getByTestId("opponent-identity")).not.toBeEmpty();
+    await expect(B.getByTestId("opponent-identity")).not.toBeEmpty();
     await shot(A, "07-game-alice-guessing");
     await shot(B, "08-game-bob-answering");
 

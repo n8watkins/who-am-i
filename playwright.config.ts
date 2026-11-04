@@ -21,10 +21,11 @@ export default defineConfig({
   webServer: {
     // The client is built by `npm run e2e` before this starts. A fresh state dir per run keeps
     // rate-limit windows and rooms from earlier runs out of the way.
-    command: `rm -rf .wrangler/e2e-state && npx wrangler dev --port ${PORT} --ip 127.0.0.1 --persist-to .wrangler/e2e-state --var SESSION_SECRET:e2e-only-secret-not-for-production`,
+    command: `rm -rf .wrangler/e2e-state && exec node_modules/.bin/wrangler dev --port ${PORT} --ip 127.0.0.1 --persist-to .wrangler/e2e-state --var SESSION_SECRET:e2e-only-secret-not-for-production`,
     url: `http://127.0.0.1:${PORT}/api/packs`,
     reuseExistingServer: false,
     timeout: 60_000,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
     stdout: "ignore",
     stderr: "pipe",
   },

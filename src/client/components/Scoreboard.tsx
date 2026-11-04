@@ -20,8 +20,7 @@ export function Scoreboard({ view, compact = false }: { view: RoomView; compact?
             <div className="min-w-0">
               <div className="truncate font-extrabold">{p.nickname}</div>
               <div className="text-xs font-bold text-muted">
-                {you ? "You" : "Opponent"}
-                {active && <span className="text-brand"> {"·"} guessing</span>}
+                {active ? <span className="text-brand">{you ? "You, guessing" : "Guessing now"}</span> : you ? "You" : "Opponent"}
               </div>
             </div>
             <div className="text-right">

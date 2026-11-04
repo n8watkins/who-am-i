@@ -186,7 +186,7 @@ function InviteBox({ code }: { code: string }) {
   return (
     <div className="text-center">
       <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Room code</p>
-      <p className="mt-1 font-mono text-5xl font-black tracking-[0.18em] text-brand" data-testid="room-code" aria-label={`Room code ${code.split("").join(" ")}`}>
+      <p className="mt-1 font-mono text-5xl font-black tracking-[0.18em] text-brand [padding-left:0.18em]" data-testid="room-code" aria-label={`Room code ${code.split("").join(" ")}`}>
         {code}
       </p>
       <div className="mt-4 grid grid-cols-2 gap-2.5">

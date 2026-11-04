@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "e2e": "npm run setup && vite build && node scripts/check-bundle.mjs && playwright test"
+    "e2e": "vite build && node scripts/check-bundle.mjs && playwright test"
   },
   "dependencies": {
     "react": "^19.3.1",
