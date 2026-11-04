@@ -5,6 +5,11 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // Served at https://whoami.n8builds.dev, a Workers custom domain that
+  // Cloudflare creates the DNS record and certificate for on deploy. The
+  // workers.dev address keeps working.
+  "routes": [{ "pattern": "whoami.n8builds.dev", "custom_domain": true }],
+  "workers_dev": true,
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
@@ -18,6 +23,14 @@
       { "name": "PINS", "class_name": "PinDirectoryDurableObject" }
     ]
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "who-am-i",
+      "database_id": "23259c6d-8f58-47cc-8e70-c2e52a29d632",
+      "migrations_dir": "migrations"
+    }
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RoomDurableObject", "RateLimiterDurableObject"] },
     { "tag": "v2", "new_sqlite_classes": ["PinDirectoryDurableObject"] }

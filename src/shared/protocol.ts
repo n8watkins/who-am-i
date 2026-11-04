@@ -286,6 +286,20 @@ export interface JoinLookupResponse {
   preview: RoomPreview;
 }
 
+/** The public profile of a signed-in player. */
+export interface AccountUser {
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+}
+
+export interface MeResponse {
+  ok: true;
+  /** False until GitHub sign-in is configured, so the app can hide it. */
+  signInAvailable: boolean;
+  user: AccountUser | null;
+}
+
 export type ErrorCode =
   | "bad_request"
   | "unauthorized"

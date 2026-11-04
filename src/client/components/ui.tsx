@@ -1,3 +1,4 @@
+import { AccountControl } from "./AccountControl";
 import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { navigate } from "../lib/router";
 
@@ -64,7 +65,10 @@ export function Shell({ children, wide = false, aside }: { children: ReactNode; 
           <Logo size={36} />
           <span>Who Am I?</span>
         </a>
-        {aside}
+        <div className="flex items-center gap-1">
+          <AccountControl />
+          {aside}
+        </div>
       </header>
       {/* On phones, reserve room for the sticky turn action bar (its height is published as --action-bar-h). */}
       <main

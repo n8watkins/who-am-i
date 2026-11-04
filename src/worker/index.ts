@@ -16,6 +16,7 @@ import {
   type ErrorCode,
   type RoomPreview,
 } from "../shared/protocol";
+import { finishGitHubSignIn, me, signOut, startGitHubSignIn } from "./auth";
 import { packInfo } from "./content";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { allowRequest } from "./rate-limiter";
@@ -124,6 +125,18 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
   if (parts[1] === "packs" && parts.length === 2 && method === "GET") {
     return json({ ok: true, packs: PACK_IDS.map(packInfo) });
+  }
+
+  if (parts[1] === "me" && parts.length === 2 && method === "GET") return json(await me(request, env));
+
+  if (parts[1] === "auth") {
+    const route = `${method} ${parts.slice(2).join("/")}`;
+    if (route === "GET github/start" || route === "GET github/callback") {
+      if (!(await allowRequest(env, request, "create"))) return error("rate_limited", "Too many tries. Try again in a minute.");
+      return route === "GET github/start" ? startGitHubSignIn(request, env, url) : finishGitHubSignIn(request, env, url);
+    }
+    if (route === "POST logout") return signOut(url);
+    return error("not_found", "Unknown endpoint.");
   }
 
   // GET /api/join/:pinOrCode (the room preview, never a player id or token)

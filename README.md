@@ -7,7 +7,7 @@ Take turns asking yes/no questions or giving clues until you work out who you ar
 
 No account, no app install: one player creates a room, the other opens the invite link, and you are playing in under 30 seconds.
 
-**Play it:** https://who-am-i-game.nathancwatkins23.workers.dev
+**Play it:** https://whoami.n8builds.dev
 
 ## How to play
 
@@ -63,7 +63,7 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 | `npm test` | Vitest unit and integration tests, running inside the Workers runtime via `@cloudflare/vitest-plugin` |
 | `npm run e2e` | Builds the client, checks the bundle for identity content, and runs Playwright against `wrangler dev` |
 | `npm run build` | Builds the client, checks the bundle, and bundles the Worker with a Wrangler dry run |
-| `E2E_BASE_URL=https://who-am-i-game.nathancwatkins23.workers.dev npx playwright test acceptance` | Runs the acceptance scenario against a deployed Worker |
+| `E2E_BASE_URL=https://whoami.n8builds.dev npx playwright test acceptance` | Runs the acceptance scenario against a deployed Worker |
 | `SCREENSHOTS=1 npx playwright test screenshots` | Regenerates `docs/screenshots` at 1280x800 and 390x844 (after `vite build`) |
 
 ## Tests
@@ -103,6 +103,9 @@ The WebSocket carries the token as a subprotocol, because browsers cannot set he
 
 - Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
 - Join attempts, room lookups and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client) by a small Durable Object.
+- Accounts are optional and use GitHub sign-in, which stays hidden until `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set.
+  The session is an HttpOnly signed cookie, only public profile data is read, and the GitHub access token is never stored.
+- Each finished round records how each identity went (solved, questions, hints, level) in D1 with no player or room data, so difficulty can be measured instead of guessed.
 - PINs are short-lived aliases for an open lobby, held in one `PinDirectoryDurableObject`.
   They are chosen at random, last 15 minutes unless the host's lobby stays open, end when the room fills or the game starts, wait out a 10-minute cooldown before reuse, and lookups are limited to 10 per 10 minutes and 30 per hour.
   Unknown and expired PINs get the same response, and a lookup returns only the room preview, never a player id or token.

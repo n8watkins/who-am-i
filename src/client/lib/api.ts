@@ -5,6 +5,7 @@ import type {
   Command,
   CommandResponse,
   CreateRoomRequest,
+  MeResponse,
   JoinLookupResponse,
   PackInfo,
   RoomPreview,
@@ -93,6 +94,8 @@ async function request<T>(path: string, init: RequestInit & { token?: string } =
 }
 
 export const api = {
+  me: () => request<MeResponse>("/api/me"),
+  signOut: () => request<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   packs: () => request<{ packs: PackInfo[] }>("/api/packs").then((r) => r.packs),
   createRoom: (body: CreateRoomRequest) =>
     request<SessionResponse>("/api/rooms", { method: "POST", body: JSON.stringify(body) }),
