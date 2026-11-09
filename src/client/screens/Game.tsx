@@ -11,7 +11,9 @@ import {
   type TurnResult,
 } from "../../shared/protocol";
 import { pickSuggestions } from "../../shared/questions";
+import { absentSince, presenceOf } from "../../kit/shared/presence";
 import { Portrait } from "../components/PackArt";
+import { OpponentPresenceBanner } from "../components/Presence";
 import { MODE_LABELS } from "../components/SettingsForm";
 import { Banner, Button, Card, Pill } from "../components/ui";
 import { mePlayer, opponentPlayer, useNow } from "../lib/hooks";
@@ -34,9 +36,10 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const trade = twentyQ && view.settings.turnFormat === "trade";
   const moveAsked = trade && !!turn?.moveAsked;
   const isHost = view.hostPlayerId === me.playerId;
-  const now = useNow(500, !opponent.connected || view.settings.timerSeconds > 0);
-  const opponentGoneFor = !opponent.connected && opponent.disconnectedAt ? now + room.serverOffset - opponent.disconnectedAt : 0;
-  const canOverride = myTurn && pendingConfirm && isHost && !opponent.connected && opponentGoneFor >= HOST_OVERRIDE_AFTER_MS;
+  const opponentAbsentSince = absentSince(opponent);
+  const now = useNow(500, opponentAbsentSince !== null || view.settings.timerSeconds > 0);
+  const opponentGoneFor = opponentAbsentSince !== null ? now + room.serverOffset - opponentAbsentSince : 0;
+  const canOverride = myTurn && pendingConfirm && isHost && opponentAbsentSince !== null && opponentGoneFor >= HOST_OVERRIDE_AFTER_MS;
   const identityName = view.opponentIdentity?.canonicalName ?? "";
   const hintsOn = view.settings.hints !== false;
   const questionMode = view.settings.questions ?? "both";
@@ -71,19 +74,14 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
 
       <TopBar view={view} now={now} offset={room.serverOffset} />
 
-      {(view.notices.includes("pack_reshuffled") || !opponent.connected) && (
+      {(view.notices.includes("pack_reshuffled") || presenceOf(opponent) !== "here") && (
         <div className="space-y-2 md:col-span-2 md:mt-3">
           {view.notices.includes("pack_reshuffled") && (
             <Banner tone="info" role="status">
               Pack exhausted, reshuffling. Earlier identities can come up again.
             </Banner>
           )}
-          {!opponent.connected && (
-            <Banner tone="warn" role="status">
-              {opponent.nickname} lost connection. {view.settings.timerSeconds > 0 ? "The timer is paused " : "Hang tight "}
-              while they reconnect.
-            </Banner>
-          )}
+          <OpponentPresenceBanner opponent={opponent} timerPaused={view.settings.timerSeconds > 0} />
         </div>
       )}
 

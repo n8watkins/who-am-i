@@ -51,7 +51,7 @@ export type MatchType = (typeof MATCH_TYPES)[number];
 export const POINTS_TO_WIN = 5;
 /** Highest score after this many rounds wins (rounds mode). */
 export const ROUNDS_PER_MATCH = 10;
-/** How long the confirming player must be disconnected before the host may override. */
+/** How long the confirming player must be disconnected or away before the host may override. */
 export const HOST_OVERRIDE_AFTER_MS = 30_000;
 /** Hints a guesser may reveal per turn (every identity has exactly this many). */
 export const HINTS_PER_TURN = 3;
@@ -179,6 +179,10 @@ export interface PlayerView {
   connected: boolean;
   /** Server timestamp (ms) when the player's last connection closed, if disconnected. */
   disconnectedAt: number | null;
+  /** Connected, but their page is hidden (phone locked, another app). Cleared when they come back. */
+  away: boolean;
+  /** Server timestamp (ms) when they went away, while away. */
+  awaySince: number | null;
   isHost: boolean;
   score: number;
   correct: number;

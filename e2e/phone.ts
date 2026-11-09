@@ -23,7 +23,8 @@ declare global {
 export async function installPhoneMocks(context: BrowserContext, opts: { supported?: boolean; refuse?: boolean } = {}): Promise<void> {
   await context.addInitScript(
     ({ supported, refuse }) => {
-      let visibility: "visible" | "hidden" = "visible";
+      // Kept in sessionStorage so a reload of a "locked" phone starts hidden, like the real thing.
+      let visibility: "visible" | "hidden" = sessionStorage.getItem("__visibility") === "hidden" ? "hidden" : "visible";
       Object.defineProperty(Document.prototype, "visibilityState", { configurable: true, get: () => visibility });
       Object.defineProperty(Document.prototype, "hidden", { configurable: true, get: () => visibility !== "visible" });
       const stats = { requests: 0, releases: 0, held: 0 };
@@ -63,6 +64,7 @@ export async function installPhoneMocks(context: BrowserContext, opts: { support
       }
       window.__setVisibility = (state) => {
         visibility = state;
+        sessionStorage.setItem("__visibility", state);
         if (state === "hidden") for (const s of [...sentinels]) void s.release();
         document.dispatchEvent(new Event("visibilitychange"));
       };

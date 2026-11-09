@@ -19,11 +19,13 @@ import {
   nextDeadline,
   pinWanted,
   playerById,
+  setAway,
   setPresence,
   withPin,
   type EngineContext,
   type RoomState,
 } from "./engine";
+import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { previewOf, viewFor } from "./view";
 
@@ -41,6 +43,8 @@ export const ROOM_ID_HEADER = "X-WhoAmI-Room";
 
 interface SocketAttachment {
   playerId: string;
+  /** The page behind this socket is hidden. Missing on sockets accepted before away existed. */
+  away?: boolean;
 }
 
 export type RpcFailure = { ok: false; error: ErrorCode; message: string; view?: RoomView };
@@ -167,16 +171,39 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.expireIfDue();
     const updated = setPresence(this.room!, playerId, true, engineContext());
     if (updated) await this.commit(updated);
-    else this.sendView(server, playerId);
+    else {
+      // Another tab was already connected: this visible one may end their away state.
+      this.sendView(server, playerId);
+      await this.syncAway(playerId);
+    }
 
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": WS_PROTOCOL } });
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    // The only client message is a request to resend the current state.
-    if (message !== "sync") return;
-    const { playerId } = ws.deserializeAttachment() as SocketAttachment;
-    if (this.room && playerById(this.room, playerId)) this.sendView(ws, playerId);
+    const attachment = ws.deserializeAttachment() as SocketAttachment;
+    const { playerId } = attachment;
+    if (!this.room || !playerById(this.room, playerId)) return;
+    if (message === "sync") {
+      this.sendView(ws, playerId);
+      return;
+    }
+    // "away" / "back": the page behind this socket was hidden or shown.
+    if (!isPresenceSignal(message)) return;
+    ws.serializeAttachment({ ...attachment, away: message === PRESENCE_AWAY } satisfies SocketAttachment);
+    await this.syncAway(playerId);
+  }
+
+  /** A player is away when every one of their open sockets reports a hidden page. */
+  private async syncAway(playerId: string, except?: WebSocket): Promise<void> {
+    if (!this.room) return;
+    const sockets = this.ctx
+      .getWebSockets(playerId)
+      .filter((s) => s !== except && s.readyState === WebSocket.OPEN)
+      .map((s) => ({ away: (s.deserializeAttachment() as SocketAttachment).away ?? false }));
+    if (sockets.length === 0) return;
+    const updated = setAway(this.room, playerId, allAway(sockets), engineContext());
+    if (updated) await this.commit(updated);
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
@@ -194,7 +221,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     const stillOpen = this.ctx
       .getWebSockets(playerId)
       .some((s) => s !== ws && s.readyState === WebSocket.OPEN);
-    if (stillOpen) return;
+    if (stillOpen) return this.syncAway(playerId, ws);
     const updated = setPresence(this.room, playerId, false, engineContext());
     if (updated) await this.commit(updated);
   }

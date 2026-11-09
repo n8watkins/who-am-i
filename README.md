@@ -130,14 +130,16 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
   If both players act at once, the first valid transition wins.
 - **Timer:** a single Durable Object alarm handles the turn deadline and room expiry.
   The clock pauses while a guess awaits confirmation or a player is disconnected, and each turn has a unique id so a timeout ends it exactly once.
-- **Disconnects:** the opponent sees a banner and the timer pauses; if the confirming player is gone for 30 seconds, the host may confirm their own guess.
+- **Disconnects and away:** the opponent sees a banner and the timer pauses; if the confirming player is gone for 30 seconds, the host may confirm their own guess.
+  A player whose phone locks or who switches apps keeps their socket but sends `away` (and `back` on return, `src/kit/client/visibility.ts`), so the other phone says "Bob stepped away" instead of stalling silently, and the same pause and host-override rules apply.
+  A player with two tabs is away only while every tab is hidden.
   Leaving frees the seat and returns the room to the lobby.
 - **Screen wake lock:** while a player is in a room, `src/kit/client/wake-lock.ts` keeps the phone's screen on, takes the lock again whenever the page becomes visible, and does nothing where the API is missing or refused.
 - **No external database:** room state lives in Durable Object storage and is deleted when the room expires.
 
 ```
 src/
-  kit/       the party kit: game-agnostic phone comforts (wake lock, ...) shared by every game in the collection
+  kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, ...) shared by every game in the collection
   shared/    protocol types, Zod schemas, pack metadata (safe for the client)
   worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
   client/    React screens (landing, setup, join, lobby, game, round summary, match summary)

@@ -9,6 +9,7 @@ import {
   expireTurn,
   identitiesClash,
   joinRoom,
+  setAway,
   setPresence,
   type RoomState,
 } from "../src/worker/engine";
@@ -291,6 +292,54 @@ describe("host override", () => {
     room = setPresence(room, a, false, ctx)!;
     ctx.advance(60_000);
     expect(applyCommand(room, b, cmd(room, "turn.correct.override"), ctx)).toMatchObject({ ok: false, error: "forbidden" });
+  });
+});
+
+describe("away (phone locked or another app)", () => {
+  it("pauses a timed turn while a player is away and resumes when they are back", () => {
+    let { room, b, ctx } = setupRoom({ settings: { timerSeconds: 60 } });
+    ctx.advance(15_000);
+    room = setAway(room, b, true, ctx)!;
+    expect(room.players.find((p) => p.id === b)).toMatchObject({ away: true, awaySince: ctx.now });
+    expect(room.turn).toMatchObject({ deadline: null, pausedRemainingMs: 45_000 });
+    ctx.advance(600_000);
+    expect(expireTurn(room, ctx)).toBeNull();
+    room = setAway(room, b, false, ctx)!;
+    expect(room.players.find((p) => p.id === b)).toMatchObject({ away: false, awaySince: null });
+    expect(room.turn?.deadline).toBe(ctx.now + 45_000);
+  });
+
+  it("is shown to the other player, and is not player activity", () => {
+    let { room, a, b, ctx } = setupRoom();
+    const before = room.lastActivityAt;
+    ctx.advance(1_000);
+    room = setAway(room, b, true, ctx)!;
+    expect(room.lastActivityAt).toBe(before);
+    expect(viewFor(room, a, ctx.now).players.find((p) => p.playerId === b)).toMatchObject({ away: true, awaySince: ctx.now });
+  });
+
+  it("changes nothing when repeated, or for a disconnected player, and a reconnect clears it", () => {
+    let { room, b, ctx } = setupRoom();
+    room = setAway(room, b, true, ctx)!;
+    expect(setAway(room, b, true, ctx)).toBeNull();
+    room = setPresence(room, b, false, ctx)!;
+    expect(setAway(room, b, false, ctx)).toBeNull();
+    room = setPresence(room, b, true, ctx)!;
+    expect(room.players.find((p) => p.id === b)).toMatchObject({ connected: true, away: false });
+  });
+
+  it("lets the host confirm their own guess once the opponent has been away for 30 s", () => {
+    let { room, a, b, ctx } = setupRoom();
+    room = mustApply(room, a, cmd(room, "turn.correct.request"), ctx);
+    room = setAway(room, b, true, ctx)!;
+    ctx.advance(29_000);
+    expect(applyCommand(room, a, cmd(room, "turn.correct.override"), ctx)).toMatchObject({ ok: false, error: "forbidden" });
+    ctx.advance(1_000);
+    const away = mustApply(room, a, cmd(room, "turn.correct.override"), ctx);
+    expect(away.players.find((p) => p.id === a)!.score).toBe(1);
+    // Coming back in time takes the override away again.
+    room = setAway(room, b, false, ctx)!;
+    expect(applyCommand(room, a, cmd(room, "turn.correct.override"), ctx)).toMatchObject({ ok: false, error: "forbidden" });
   });
 });
 

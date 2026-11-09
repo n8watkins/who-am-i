@@ -1,5 +1,6 @@
 import type { RoomView } from "../../shared/protocol";
 import { Portrait } from "../components/PackArt";
+import { OpponentPresenceBanner } from "../components/Presence";
 import { Scoreboard } from "../components/Scoreboard";
 import { Banner, Button, Card } from "../components/ui";
 import { mePlayer, opponentPlayer } from "../lib/hooks";
@@ -13,8 +14,10 @@ export function RoundSummary({ room, view }: { room: RoomHandle; view: RoomView 
   const me = mePlayer(view);
   if (!summary) return null;
   const entries = [...summary.entries].sort((a, b) => Number(b.playerId === me.playerId) - Number(a.playerId === me.playerId));
+  const opponent = opponentPlayer(view);
   return (
     <div className="space-y-4">
+      {opponent && <OpponentPresenceBanner opponent={opponent} timerPaused={false} />}
       <div>
         <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Round {summary.roundIndex} complete</p>
         <h1 className="text-3xl font-extrabold tracking-tight">The big reveal</h1>
@@ -102,6 +105,7 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
       </Card>
 
       <div className="space-y-3">
+        {opponent && <OpponentPresenceBanner opponent={opponent} timerPaused={false} />}
         {opponentWants && !iWant && (
           <Banner tone="success" role="status">
             {opponent?.nickname} wants a rematch.
