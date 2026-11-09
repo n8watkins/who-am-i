@@ -1,5 +1,6 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
+import pkg from "../package.json";
 import {
   DEFAULT_SETTINGS,
   WS_PROTOCOL,
@@ -199,6 +200,15 @@ describe("HTTP API", () => {
   it("returns 404 for invalid codes and unknown rooms", async () => {
     expect((await api("/api/rooms/abc")).status).toBe(404);
     expect((await api("/api/rooms/ZZZZZY")).status).toBe(404);
+  });
+});
+
+describe("version", () => {
+  it("reports the package version and a dev commit for local builds", async () => {
+    const res = await SELF.fetch(`${BASE}/api/version`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ ok: true, name: "who-am-i", version: pkg.version, commit: "dev" });
   });
 });
 

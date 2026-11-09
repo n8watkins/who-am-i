@@ -16,6 +16,8 @@ import {
   type ErrorCode,
   type RoomPreview,
 } from "../shared/protocol";
+import pkg from "../../package.json";
+import { versionResponse, type VersionEnv } from "../kit/worker/version";
 import { finishGitHubSignIn, me, signOut, startGitHubSignIn } from "./auth";
 import { packInfo } from "./content";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
@@ -123,6 +125,9 @@ async function lookUpJoin(env: Env, value: string): Promise<RoomPreview | null> 
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   const parts = url.pathname.split("/").filter(Boolean); // ["api", ...]
   const method = request.method;
+
+  // GET /api/version (which build is live: version and commit)
+  if (parts[1] === "version" && parts.length === 2 && method === "GET") return versionResponse(pkg, env as Env & VersionEnv);
 
   if (parts[1] === "packs" && parts.length === 2 && method === "GET") {
     return json({ ok: true, packs: PACK_IDS.map(packInfo) });

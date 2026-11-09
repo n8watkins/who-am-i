@@ -75,8 +75,7 @@ Later, and blocking nothing yet:
 
 ## Good to know
 
-- Apply database migrations with `npx wrangler d1 migrations apply DB --remote` before deploying.
-- Deploys are manual: run `npx wrangler deploy` after merging.
+- Deploys are manual: run `npm run deploy` after merging (it builds, applies D1 migrations and stamps the commit into `/api/version`).
   Wait for the live site to serve the new build before running live checks, and save their full output.
 - Local E2E runs can sit for about 2 minutes per test server before starting, because this machine is slow to refuse closed ports.
   That delay does not happen in CI.

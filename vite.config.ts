@@ -1,12 +1,15 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import pkg from "./package.json" with { type: "json" };
 
 // Builds only the browser SPA. The Worker is bundled by Wrangler (`wrangler dev` / `wrangler deploy`),
 // which serves this output as static assets. Identity content lives in src/worker and is never
 // imported by the client, so it cannot end up in the bundle (checked by scripts/check-bundle.mjs).
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // The footer shows the version; /api/version reports the same one from the Worker.
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   build: { outDir: "dist/client", emptyOutDir: true },
   server: {
     // `npm run dev:ui` proxies the API to a running `wrangler dev` for hot reload.
