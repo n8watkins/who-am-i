@@ -1,7 +1,7 @@
 import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { CARD_TTL_MS, type CreatedCard, type PublicCard } from "../src/kit/shared/share-cards";
-import { checkCardPng, handleShareApi } from "../src/kit/worker/share-cards";
+import { checkCardPng, handleShareApi, shareCardPage } from "../src/kit/worker/share-cards";
 import { getIdentity, packIdentities } from "../src/worker/content";
 import type { RoomState } from "../src/worker/engine";
 import type { RoomDurableObject } from "../src/worker/room";
@@ -58,6 +58,17 @@ const share = (code: string, token: string, body: Uint8Array) => call(`/api/room
 const setPublic = (id: string, ownerKey: string, value: boolean) =>
   call(`/api/share/${id}/visibility`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerKey, public: value }) });
 
+/** The app shell the share page rewrites. Tests use their own, so they never depend on a client build. */
+const SHELL = `<!doctype html><html><head><title>Who Am I?</title><meta name="description" content="d" /><link rel="canonical" href="https://whoami.n8builds.dev/" />
+<meta property="og:title" content="t" /><meta property="og:description" content="d" /><meta property="og:url" content="u" /><meta property="og:image" content="i" /><meta property="og:image:alt" content="a" />
+<meta name="twitter:title" content="t" /><meta name="twitter:description" content="d" /><meta name="twitter:image" content="i" /></head><body><div id="root"></div></body></html>`;
+
+function pageFor(id: string): Promise<Response> {
+  const url = new URL(`${BASE}/s/${id}`);
+  const assets = { fetch: async () => new Response(SHELL, { headers: { "Content-Type": "text/html" } }) } as unknown as Fetcher;
+  return shareCardPage(new Request(url), { DB: env.DB, ASSETS: assets }, url) as Promise<Response>;
+}
+
 describe("party kit card check", () => {
   it("accepts only a 1200x630 PNG under the size cap", () => {
     expect(checkCardPng(fakePng())).toBeNull();
@@ -91,9 +102,8 @@ describe("shared result cards", () => {
     const preview = await call(`/api/share/${created.id}/image.png?key=${created.ownerKey}`);
     expect(preview.status).toBe(200);
     expect(preview.headers.get("Cache-Control")).toBe("private, no-store");
-    const privatePage = await call(`/s/${created.id}`);
-    expect(privatePage.status).toBe(404);
-    const privateHtml = await privatePage.text();
+    expect((await call(`/s/${created.id}`)).status).toBe(404);
+    const privateHtml = await (await pageFor(created.id)).text();
     expect(privateHtml).not.toContain("beat");
     expect(privateHtml).toContain('content="noindex"');
 
@@ -110,7 +120,8 @@ describe("shared result cards", () => {
     expect(image.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(fakePng());
 
-    const page = await call(`/s/${created.id}`);
+    expect((await call(`/s/${created.id}`)).status).toBe(200);
+    const page = await pageFor(created.id);
     expect(page.status).toBe(200);
     const html = await page.text();
     expect(html).toContain("<title>Alice beat Bob 5-3 at Who Am I?</title>");
