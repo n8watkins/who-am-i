@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NicknameSchema, type RoomPreview } from "../../shared/protocol";
 import { PackArt } from "../components/PackArt";
 import { settingsSummary } from "../components/SettingsForm";
+import { useWakeLock } from "../../kit/client/wake-lock";
 import { Banner, Button, Card, Dialog, Shell, Spinner, TextField } from "../components/ui";
 import { api, ApiRequestError, clearSession, loadNickname, loadSession, saveNickname, saveSession, type StoredSession } from "../lib/api";
 import { navigate } from "../lib/router";
@@ -160,6 +161,8 @@ function RoomScreen({ code, session, onSessionInvalid }: { code: string; session
   const room = useRoom(code, session);
   const { view, fatal, error, clearError, connection } = room;
   const [leaveOpen, setLeaveOpen] = useState(false);
+  // Keep the screen on for the whole room (lobby QR, opponent turns, reveals), not just your turn.
+  useWakeLock(!!view && !fatal);
 
   useEffect(() => {
     if (!error) return;

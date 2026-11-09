@@ -4,5 +4,5 @@
     "lib": ["ES2023"],
     "types": ["@cloudflare/vitest-plugin/types"]
   },
-  "include": ["src/worker/**/*.ts", "src/shared/**/*.ts", "test/**/*.ts"]
+  "include": ["src/worker/**/*.ts", "src/shared/**/*.ts", "src/kit/worker/**/*.ts", "src/kit/shared/**/*.ts", "test/**/*.ts"]
 }
