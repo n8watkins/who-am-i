@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DIFFICULTIES, type Difficulty, type RoomView, type Settings } from "../../shared/protocol";
 import { Invite } from "../components/Invite";
+import { PresencePill } from "../components/Presence";
 import { DIFFICULTY_LABELS, firstPlayerLabel, SettingsForm, settingsSummary } from "../components/SettingsForm";
 import { Banner, Button, Card, Dialog, Pill } from "../components/ui";
 import { mePlayer, opponentPlayer } from "../lib/hooks";
@@ -49,7 +50,7 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
                       {p.playerId === view.youId && <span className="font-semibold text-muted"> (you)</span>}
                     </span>
                     {p.isHost && <Pill tone="brand">Host</Pill>}
-                    {!p.connected && <Pill tone="amber">Offline</Pill>}
+                    <PresencePill player={p} />
                     {isHost && p.playerId !== view.youId && (
                       <Button variant="ghost" className="-mr-3" disabled={room.pending} onClick={() => room.send("player.remove", { playerId: p.playerId })} aria-label={`Remove ${p.nickname}`}>
                         Remove

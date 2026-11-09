@@ -9,6 +9,8 @@ import {
   type RoomView,
   type ServerMessage,
 } from "../../shared/protocol";
+import { visibilitySignal, watchVisibility } from "../../kit/client/visibility";
+import { PRESENCE_AWAY } from "../../kit/shared/presence";
 import { api, ApiRequestError, newCommandId, type StoredSession } from "./api";
 
 export type Connection = "connecting" | "open" | "reconnecting";
@@ -118,6 +120,8 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
       ws.onopen = () => {
         retry = 0;
         setConnection("open");
+        // Every new socket starts as "here"; a hidden page says so at once.
+        if (visibilitySignal() === PRESENCE_AWAY) ws.send(PRESENCE_AWAY);
         clearInterval(pingTimer);
         pingTimer = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send("ping"), PING_INTERVAL_MS);
       };
@@ -155,9 +159,14 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
       }
     };
     document.addEventListener("visibilitychange", onVisible);
+    // Tell the room when this phone locks or switches apps, and when it comes back.
+    const stopWatching = watchVisibility((signal) => {
+      if (socket?.readyState === WebSocket.OPEN) socket.send(signal);
+    });
 
     return () => {
       stopped = true;
+      stopWatching();
       clearTimeout(retryTimer);
       clearInterval(pingTimer);
       document.removeEventListener("visibilitychange", onVisible);

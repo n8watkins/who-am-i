@@ -40,6 +40,8 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
       ready: p.ready,
       connected: p.connected,
       disconnectedAt: p.disconnectedAt,
+      away: p.connected && (p.away ?? false),
+      awaySince: p.connected && p.away ? (p.awaySince ?? null) : null,
       isHost: p.id === room.hostPlayerId,
       score: p.score,
       correct: p.correct,

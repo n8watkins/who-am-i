@@ -244,6 +244,32 @@ describe("WebSockets", () => {
     a.ws.close();
   });
 
+  it("shows a player as away while their page is hidden, until every tab is back", async () => {
+    const { code, host, guest } = await startedRoom();
+    const a = await openSocket(code, host.token);
+    const b1 = await openSocket(code, guest.token);
+    await a.next((v) => v.players.every((p) => p.connected));
+    const guestOf = (v: RoomView) => v.players.find((p) => p.seat === "B")!;
+
+    b1.ws.send("away");
+    const away = await a.next((v) => guestOf(v).away);
+    expect(guestOf(away).awaySince).not.toBeNull();
+
+    // A second, visible tab means the player is here; closing it leaves only the hidden one.
+    const b2 = await openSocket(code, guest.token);
+    await a.next((v) => v.version > away.version && !guestOf(v).away);
+    b2.ws.close(1000, "bye");
+    const awayAgain = await a.next((v) => v.version > away.version + 1 && guestOf(v).away);
+    expect(guestOf(awayAgain).connected).toBe(true);
+
+    b1.ws.send("back");
+    await a.next((v) => v.version > awayAgain.version && !guestOf(v).away);
+    // Anything else on the socket is ignored.
+    b1.ws.send("hello");
+    a.ws.close();
+    b1.ws.close();
+  });
+
   it("refuses sockets without a valid token", async () => {
     const host = await createRoom();
     const res = await SELF.fetch(`${BASE}/api/rooms/${host.view.code}/ws`, {

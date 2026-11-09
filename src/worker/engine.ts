@@ -25,6 +25,7 @@ import {
   type TurnLogEntry,
   type TurnResult,
 } from "../shared/protocol";
+import { absentSince, presenceOf } from "../kit/shared/presence";
 import { getIdentity, MIXED_WEIGHTS, packIdentities, type Identity, type SourcePackId } from "./content";
 
 export const MAX_PLAYERS = 2;
@@ -39,6 +40,9 @@ export interface PlayerRecord {
   ready: boolean;
   connected: boolean;
   disconnectedAt: number | null;
+  /** Connected, but the page is hidden (phone locked, another app). Absent in rooms saved before away existed. */
+  away?: boolean;
+  awaySince?: number | null;
   joinedAt: number;
   score: number;
   correct: number;
@@ -240,7 +244,7 @@ export function identitiesClash(a: Identity, b: Identity): boolean {
 
 /**
  * The timer runs only while a timed turn is in the asking phase and both players are
- * connected. Otherwise the remaining time is frozen in `pausedRemainingMs`.
+ * connected and looking at the game (not away). Otherwise the remaining time is frozen in `pausedRemainingMs`.
  */
 function syncTimer(room: RoomState, now: number): void {
   const turn = room.turn;
@@ -249,7 +253,7 @@ function syncTimer(room: RoomState, now: number): void {
     isGuessing(room.status) &&
     turn.phase === "asking" &&
     room.players.length === MAX_PLAYERS &&
-    room.players.every((p) => p.connected);
+    room.players.every((p) => presenceOf(p) === "here");
   if (shouldRun && turn.deadline === null && turn.pausedRemainingMs !== null) {
     turn.deadline = now + turn.pausedRemainingMs;
     turn.pausedRemainingMs = null;
@@ -407,6 +411,20 @@ export function setPresence(current: RoomState, playerId: string, connected: boo
   const player = playerById(room, playerId)!;
   player.connected = connected;
   player.disconnectedAt = connected ? null : ctx.now;
+  // A new connection starts visible; its page reports "away" right away if it is hidden.
+  player.away = false;
+  player.awaySince = null;
+  return touch(room, ctx, false);
+}
+
+/** Records that a connected player's page was hidden or shown again. Returns null when nothing changed. */
+export function setAway(current: RoomState, playerId: string, away: boolean, ctx: EngineContext): RoomState | null {
+  const existing = playerById(current, playerId);
+  if (!existing || !existing.connected || (existing.away ?? false) === away) return null;
+  const room = clone(current);
+  const player = playerById(room, playerId)!;
+  player.away = away;
+  player.awaySince = away ? ctx.now : null;
   return touch(room, ctx, false);
 }
 
@@ -567,7 +585,9 @@ const handlers: { [K in Command["type"]]: Handler<K> } = {
     }
     if (turn.phase !== "pending_confirm") return invalid("Request confirmation first.");
     const opponent = opponentOf(room, playerId);
-    if (opponent && (opponent.connected || ctx.now - (opponent.disconnectedAt ?? ctx.now) < HOST_OVERRIDE_AFTER_MS)) {
+    // The opponent must have been offline or away (phone locked) for a while.
+    const since = opponent ? absentSince(opponent) : null;
+    if (opponent && (since === null || ctx.now - since < HOST_OVERRIDE_AFTER_MS)) {
       return fail("forbidden", "Your opponent can still confirm.");
     }
     scoreCorrect(room, turn, ctx);
