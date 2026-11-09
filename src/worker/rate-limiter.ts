@@ -15,6 +15,8 @@ export const RATE_LIMITS = {
   pin_short: { limit: 10, windowMs: 10 * 60_000 },
   pin_long: { limit: 30, windowMs: 60 * 60_000 },
   pin_new: { limit: 6, windowMs: 60_000 },
+  // Result cards: a player shares a match once or twice, never dozens of times.
+  share: { limit: 10, windowMs: 10 * 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitBucket = keyof typeof RATE_LIMITS;

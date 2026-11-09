@@ -5,12 +5,15 @@ export type Route =
   | { name: "create" }
   | { name: "join"; code?: string }
   | { name: "room"; code: string }
+  | { name: "share"; id: string }
   | { name: "not_found" };
 
 export function parseRoute(pathname: string): Route {
   if (pathname === "/" || pathname === "") return { name: "landing" };
   if (pathname === "/new") return { name: "create" };
   if (pathname === "/join") return { name: "join" };
+  const shared = /^\/s\/([A-Za-z0-9_-]{22})\/?$/.exec(pathname);
+  if (shared) return { name: "share", id: shared[1]! };
   const room = /^\/r\/([A-Za-z0-9-]{4,12})\/?$/.exec(pathname);
   if (room) return { name: "room", code: room[1]!.toUpperCase() };
   return { name: "not_found" };

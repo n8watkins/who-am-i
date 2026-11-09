@@ -13,6 +13,7 @@ import type {
   SessionResponse,
   ViewResponse,
 } from "../../shared/protocol";
+import type { CreatedCard, PublicCard } from "../../kit/shared/share-cards";
 
 export interface StoredSession {
   token: string;
@@ -75,7 +76,7 @@ export class ApiRequestError extends Error {
 
 async function request<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body) headers.set("Content-Type", "application/json");
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (init.token) headers.set("Authorization", `Bearer ${init.token}`);
   let res: Response;
   try {
@@ -111,6 +112,10 @@ export const api = {
     request<ViewResponse>(`/api/rooms/${encodeURIComponent(code)}/pin`, { method: "POST", token }).then((r) => r.view),
   state: (code: string, token: string) =>
     request<ViewResponse>(`/api/rooms/${encodeURIComponent(code)}/state`, { token }).then((r) => r.view),
+  /** Uploads the painted result card. It stays private until the player shares it. */
+  shareResult: (code: string, token: string, png: Blob) =>
+    request<CreatedCard>(`/api/rooms/${encodeURIComponent(code)}/share`, { method: "POST", token, body: png, headers: { "Content-Type": "image/png" } }),
+  sharedCard: (id: string) => request<PublicCard>(`/api/share/${encodeURIComponent(id)}`),
   command: (code: string, token: string, command: Command) =>
     request<CommandResponse>(`/api/rooms/${encodeURIComponent(code)}/commands`, {
       method: "POST",

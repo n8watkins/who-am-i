@@ -11,6 +11,7 @@ import {
 } from "../../shared/protocol";
 import { visibilitySignal, watchVisibility } from "../../kit/client/visibility";
 import { PRESENCE_AWAY } from "../../kit/shared/presence";
+import type { CreatedCard } from "../../kit/shared/share-cards";
 import { api, ApiRequestError, newCommandId, type StoredSession } from "./api";
 
 export type Connection = "connecting" | "open" | "reconnecting";
@@ -51,6 +52,8 @@ export interface RoomHandle {
   serverOffset: number;
   send: <T extends CommandType>(type: T, ...extra: keyof CommandExtra<T> extends never ? [] : [CommandExtra<T>]) => Promise<boolean>;
   renewPin: () => Promise<void>;
+  /** Uploads a painted result card for this match, private until shared. */
+  shareResult: (png: Blob) => Promise<CreatedCard>;
 }
 
 export function useRoom(code: string, session: StoredSession): RoomHandle {
@@ -232,6 +235,7 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
   }, [code, session.token, accept, handleFailure]);
 
   const clearError = useCallback(() => setError(null), []);
+  const shareResult = useCallback((png: Blob) => api.shareResult(code, session.token, png), [code, session.token]);
 
-  return { view, connection, fatal, error, clearError, pending, serverOffset, send, renewPin };
+  return { view, connection, fatal, error, clearError, pending, serverOffset, send, renewPin, shareResult };
 }

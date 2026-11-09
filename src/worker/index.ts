@@ -17,6 +17,8 @@ import {
   type RoomPreview,
 } from "../shared/protocol";
 import pkg from "../../package.json";
+import { CARD_MAX_BYTES, SHARE_PATH_PREFIX } from "../kit/shared/share-cards";
+import { checkCardPng, createCard, handleShareApi, shareCardPage } from "../kit/worker/share-cards";
 import { versionResponse, type VersionEnv } from "../kit/worker/version";
 import { finishGitHubSignIn, me, signOut, startGitHubSignIn } from "./auth";
 import { packInfo } from "./content";
@@ -75,6 +77,26 @@ async function readJson<T>(request: Request, schema: z.ZodType<T>): Promise<T | 
   return parsed.data;
 }
 
+/** Reads a request body of at most `limit` bytes, or null if it is longer. */
+async function readBytes(request: Request, limit: number): Promise<Uint8Array | null> {
+  if (Number(request.headers.get("Content-Length") ?? "0") > limit) return null;
+  if (!request.body) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const chunk of request.body as unknown as AsyncIterable<Uint8Array>) {
+    total += chunk.byteLength;
+    if (total > limit) return null;
+    chunks.push(chunk);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 function randomCode(): string {
   const bytes = new Uint8Array(ROOM_CODE_LENGTH);
   let code = "";
@@ -128,6 +150,9 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
   // GET /api/version (which build is live: version and commit)
   if (parts[1] === "version" && parts.length === 2 && method === "GET") return versionResponse(pkg, env as Env & VersionEnv);
+
+  // /api/share/... (shared result cards: public details, image, and the owner's visibility switch)
+  if (parts[1] === "share") return (await handleShareApi(request, env, url)) ?? error("not_found", "Unknown endpoint.");
 
   if (parts[1] === "packs" && parts.length === 2 && method === "GET") {
     return json({ ok: true, packs: PACK_IDS.map(packInfo) });
@@ -224,6 +249,20 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     return result.ok ? json(result) : failure(result);
   }
 
+  // POST /api/rooms/:code/share (body: the 1200x630 PNG result card the player's browser painted).
+  // The card is stored private; it goes public only while the player shares it.
+  if (action === "share" && parts.length === 4 && method === "POST") {
+    if (!(await allowRequest(env, request, "share"))) return error("rate_limited", "Too many shares. Try again in a few minutes.");
+    const png = await readBytes(request, CARD_MAX_BYTES);
+    if (!png) return error("bad_request", "The card image is too large.");
+    const problem = checkCardPng(png);
+    if (problem) return error("bad_request", problem);
+    const text = await stub.shareText(claims.roomId, claims.playerId);
+    if (!text.ok) return failure(text);
+    const card = await createCard(env, url.origin, { game: "who-am-i", title: text.title, description: text.description, png });
+    return json(card, 201);
+  }
+
   // POST /api/rooms/:code/commands
   if (action === "commands" && parts.length === 4 && method === "POST") {
     const command = await readJson(request, CommandSchema);
@@ -238,6 +277,14 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith(SHARE_PATH_PREFIX) && request.method === "GET") {
+      try {
+        return (await shareCardPage(request, env, url)) ?? env.ASSETS.fetch(request);
+      } catch (err) {
+        console.error("Share page failed", err instanceof Error ? err.message : "unknown");
+        return env.ASSETS.fetch(request);
+      }
+    }
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
     try {
       return await handleApi(request, env, url);

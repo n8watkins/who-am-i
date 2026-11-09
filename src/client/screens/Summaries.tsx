@@ -1,8 +1,11 @@
+import { useState } from "react";
+import { canNativeShare, useShareCard } from "../../kit/client/share";
 import type { RoomView } from "../../shared/protocol";
 import { Portrait } from "../components/PackArt";
 import { OpponentPresenceBanner } from "../components/Presence";
 import { Scoreboard } from "../components/Scoreboard";
-import { Banner, Button, Card } from "../components/ui";
+import { Banner, Button, Card, Dialog } from "../components/ui";
+import { paintResultCard, resultHeadline } from "../lib/resultCard";
 import { mePlayer, opponentPlayer } from "../lib/hooks";
 import type { RoomHandle } from "../lib/useRoom";
 import { ResultPill } from "./Game";
@@ -83,6 +86,7 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
         <p className="mt-2 text-muted">
           {match.rounds} {match.rounds === 1 ? "round" : "rounds"} played in {view.pack.name}.
         </p>
+        <ShareResult room={room} view={view} />
       </Card>
 
       <Card>
@@ -122,5 +126,87 @@ export function MatchSummary({ room, view }: { room: RoomHandle; view: RoomView 
         </p>
       </div>
     </div>
+  );
+}
+
+/** "Share result": paints the card, keeps it private until a tap on Share or Copy link. */
+function ShareResult({ room, view }: { room: RoomHandle; view: RoomView }) {
+  const [open, setOpen] = useState(false);
+  const handle = useShareCard({
+    paint: () => paintResultCard(view),
+    upload: room.shareResult,
+    title: "Who Am I?",
+    text: `${resultHeadline(view)} Our Who Am I? result:`,
+  });
+  const native = canNativeShare();
+  const ready = handle.status === "ready";
+  const message =
+    handle.outcome === "copied"
+      ? "Link copied. Anyone with the link can see this card."
+      : handle.outcome === "shared"
+        ? "Shared. Anyone with the link can see this card."
+        : handle.outcome === "failed"
+          ? "Could not share the link. Try again."
+          : handle.isPublic
+            ? "Anyone with the link can see this card."
+            : "Only you can see this card until you share it.";
+
+  return (
+    <>
+      <Button
+        variant="secondary"
+        className="mt-4"
+        onClick={() => {
+          setOpen(true);
+          handle.prepare();
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+        </svg>
+        Share result
+      </Button>
+      <Dialog open={open} onClose={() => setOpen(false)} title="Share your result">
+        <div className="space-y-4">
+          <div className="grid aspect-[1200/630] w-full place-items-center overflow-hidden rounded-2xl border border-line bg-paper">
+            {handle.previewUrl ? (
+              <img src={handle.previewUrl} alt={`Result card: ${resultHeadline(view)}`} className="size-full object-cover" data-testid="share-preview" />
+            ) : handle.status === "error" ? null : (
+              <span className="text-sm font-semibold text-muted">Making your card...</span>
+            )}
+          </div>
+          {handle.status === "error" ? (
+            <Banner tone="error" role="alert">
+              Could not make the card. Check your connection and try again.
+            </Banner>
+          ) : (
+            <p className="text-sm font-semibold text-muted" role="status" data-testid="share-status">
+              {ready ? message : "Getting your card ready..."}
+            </p>
+          )}
+          {handle.status === "error" ? (
+            <Button block onClick={handle.prepare}>
+              Try again
+            </Button>
+          ) : (
+            <div className="flex flex-col gap-3 sm:flex-row-reverse">
+              {native && (
+                <Button block disabled={!ready} onClick={() => handle.share("share")}>
+                  Share
+                </Button>
+              )}
+              <Button variant={native ? "secondary" : "primary"} block disabled={!ready} onClick={() => handle.share("copy")}>
+                Copy link
+              </Button>
+            </div>
+          )}
+          {handle.isPublic && (
+            <Button variant="ghost" block onClick={() => void handle.stop()}>
+              Stop sharing
+            </Button>
+          )}
+        </div>
+      </Dialog>
+    </>
   );
 }
