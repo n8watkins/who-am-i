@@ -160,7 +160,8 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
                     </Button>
                   )
                 )}
-                <div className="flex items-center gap-2">
+                {/* In the narrow desktop side panel, I Guessed It gets its own full-width row. */}
+                <div className="flex flex-wrap items-center gap-2">
                   {hintsOn && (
                     <Button
                       variant="secondary"
@@ -180,7 +181,7 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
                   >
                     {trade ? "Pass" : "Give up"}
                   </Button>
-                  <Button size="lg" className="min-w-0 flex-1 whitespace-nowrap px-3" disabled={room.pending || (trade && !!pendingQuestion)} onClick={() => room.send("turn.correct.request")}>
+                  <Button size="lg" className="min-w-0 flex-1 whitespace-nowrap px-3 md:basis-full md:px-5" disabled={room.pending || (trade && !!pendingQuestion)} onClick={() => room.send("turn.correct.request")}>
                     I Guessed It
                   </Button>
                 </div>
@@ -244,7 +245,7 @@ function TopBar({ view, now, offset }: { view: RoomView; now: number; offset: nu
     </span>
   );
   return (
-    <div className="flex min-h-12 items-center gap-3 rounded-2xl border border-line bg-card px-3.5 text-sm font-bold shadow-sm md:col-span-2" role="group" aria-label="Round and scores">
+    <div className="flex min-h-12 items-center gap-2 rounded-2xl border border-line bg-card px-3.5 text-sm font-bold shadow-sm sm:gap-3 md:col-span-2" role="group" aria-label="Round and scores">
       <span className="font-black text-brand-ink" aria-hidden="true">R{view.roundIndex}</span>
       <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
         <span className="shrink-0">You</span>
@@ -474,7 +475,9 @@ function TurnTimer({ view, now, offset }: { view: RoomView; now: number; offset:
       }`}
     >
       <span aria-hidden="true">{paused ? "⏸" : "⏱"}</span>
-      {paused ? `${label} paused` : label}
+      {label}
+      {/* On phones the pause icon says it, leaving room for the opponent's name. */}
+      {paused && <span className="hidden sm:inline" aria-hidden="true">paused</span>}
     </span>
   );
 }

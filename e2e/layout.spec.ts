@@ -66,3 +66,37 @@ test(`the main screens fit a desktop window and pass accessibility checks (${col
   for (const c of [alice, bob]) await c.context.close();
 });
 }
+
+test("the phone top bar shows the opponent's whole name next to a paused timer", async ({ browser }) => {
+  const alice = await newPlayer(browser, { mobile: true });
+  const bob = await newPlayer(browser, { mobile: true });
+  const { link } = await createGame(alice.page, { nickname: "Alice", timer: "60 s" });
+  await joinGame(bob.page, link, "Bobby");
+  await startMatch(alice.page, bob.page);
+  await bob.page.close(); // a paused timer is the widest the bar gets
+  await expect(alice.page.getByTestId("turn-timer")).toHaveAttribute("aria-label", /Timer paused/);
+  const name = alice.page.getByRole("group", { name: "Round and scores" }).getByText("Bobby", { exact: true });
+  await expect(name).toBeVisible();
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  if (process.env.COMFORT_SHOTS) await alice.page.screenshot({ path: `${process.env.COMFORT_SHOTS}/topbar-paused-390.png` });
+  await alice.context.close();
+  await bob.context.close();
+});
+
+test("I Guessed It has room to breathe in the desktop side panel", async ({ browser }) => {
+  const alice = await newPlayer(browser);
+  const bob = await newPlayer(browser);
+  const { link } = await createGame(alice.page, { nickname: "Alice" });
+  await joinGame(bob.page, link, "Bob");
+  await startMatch(alice.page, bob.page);
+  const guess = alice.page.getByRole("button", { name: "I Guessed It" });
+  const room = await guess.evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return el.clientWidth - range.getBoundingClientRect().width;
+  });
+  expect(room).toBeGreaterThanOrEqual(40);
+  if (process.env.COMFORT_SHOTS) await alice.page.screenshot({ path: `${process.env.COMFORT_SHOTS}/guess-button-1280.png` });
+  await alice.context.close();
+  await bob.context.close();
+});
