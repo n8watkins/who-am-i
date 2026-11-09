@@ -1,3 +1,4 @@
+import { SoundToggle } from "../../kit/client/SoundToggle";
 import { AccountControl } from "./AccountControl";
 import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { navigate } from "../lib/router";
@@ -67,6 +68,7 @@ export function Shell({ children, wide = false, aside }: { children: ReactNode; 
         </a>
         <div className="flex items-center gap-1">
           <AccountControl />
+          <SoundToggle />
           {aside}
         </div>
       </header>
