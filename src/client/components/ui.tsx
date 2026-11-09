@@ -1,4 +1,6 @@
+import { KitFooter } from "../../kit/client/Footer";
 import { SoundToggle } from "../../kit/client/SoundToggle";
+import { APP_VERSION, CHANGELOG_URL } from "../lib/app";
 import { AccountControl } from "./AccountControl";
 import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { navigate } from "../lib/router";
@@ -72,12 +74,13 @@ export function Shell({ children, wide = false, aside }: { children: ReactNode; 
           {aside}
         </div>
       </header>
-      {/* On phones, reserve room for the sticky turn action bar (its height is published as --action-bar-h). */}
       <main
-        className={`mx-auto w-full flex-1 px-4 pb-[calc(2.5rem+var(--action-bar-h,0px))] pt-4 sm:px-6 sm:pb-10 ${wide ? "max-w-5xl" : "max-w-lg"}`}
+        className={`mx-auto w-full flex-1 px-4 pb-8 pt-4 sm:px-6 sm:pb-10 ${wide ? "max-w-5xl" : "max-w-lg"}`}
       >
         {children}
       </main>
+      {/* On phones the footer also reserves room for the sticky turn action bar (its height is published as --action-bar-h). */}
+      <KitFooter version={APP_VERSION} changelogUrl={CHANGELOG_URL} />
     </div>
   );
 }

@@ -62,6 +62,7 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 | `npm run typecheck` | `tsc` for the client, the Worker and the Node tooling |
 | `npm test` | Vitest unit and integration tests, running inside the Workers runtime via `@cloudflare/vitest-plugin` |
 | `npm run e2e` | Builds the client, checks the bundle for identity content, and runs Playwright against `wrangler dev` |
+| `npm run deploy` | Builds, applies D1 migrations to the live database and deploys, stamping the commit into `/api/version` |
 | `npm run build` | Builds the client, checks the bundle, and bundles the Worker with a Wrangler dry run |
 | `E2E_BASE_URL=https://whoami.n8builds.dev npx playwright test acceptance` | Runs the acceptance scenario against a deployed Worker |
 | `SCREENSHOTS=1 npx playwright test screenshots` | Regenerates `docs/screenshots` at 1280x800 and 390x844 (after `vite build`) |
@@ -137,6 +138,7 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
 - **Screen wake lock:** while a player is in a room, `src/kit/client/wake-lock.ts` keeps the phone's screen on, takes the lock again whenever the page becomes visible, and does nothing where the API is missing or refused.
 - **Sound and haptics:** `src/kit/client/feedback.ts` plays short synthesized cues (no sound files) with a matching vibration, and `src/client/lib/gameCues.ts` maps game moments to them: your turn, a question to answer or a guess to confirm, a correct guess, and winning, losing or a tie.
   Nothing plays before the first tap on the page, the speaker button in the header mutes sound and vibration and each device remembers it, and "reduce motion" turns vibration off.
+- **Version:** `GET /api/version` answers `{ ok, name, version, commit }` (`src/kit/worker/version.ts`), and the footer's "What's new · vX.Y.Z" links to [CHANGELOG.md](CHANGELOG.md).
 - **No external database:** room state lives in Durable Object storage and is deleted when the room expires.
 
 ```
