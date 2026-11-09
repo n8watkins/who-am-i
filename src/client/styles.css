@@ -6,16 +6,50 @@
   --color-muted: #5b5772;
   --color-paper: #fff8ef;
   --color-card: #ffffff;
+  /* Inputs and tiles that sit on the page or a card. */
+  --color-field: #ffffff;
   --color-line: #e7dfd3;
   --color-brand: #4c35b5;
   --color-brand-dark: #3a2790;
   --color-brand-soft: #ece8ff;
+  /* Brand-colored text and accents on surfaces (brand itself is the fill behind white text). */
+  --color-brand-ink: #4c35b5;
   --color-coral: #e5532f;
   --color-coral-soft: #ffe7df;
+  --color-coral-ink: #9b2c12;
   --color-mint: #0f7b5f;
   --color-mint-soft: #dcf5ec;
+  --color-mint-ink: #0f7b5f;
+  --color-mint-dark: #0a5a45;
   --color-amber: #8a5a00;
   --color-amber-soft: #fff1cc;
+  /* Behind dialogs. */
+  --color-scrim: #1d1a2e;
+}
+
+/* Dark theme: <html data-theme="dark">, set before first paint by public/theme-init.js and kept
+   in step by src/kit/client/theme.ts (Auto follows the phone's setting). */
+:root[data-theme="dark"] {
+  --color-ink: #f2eefb;
+  --color-muted: #b3adc9;
+  --color-paper: #16141f;
+  --color-card: #211d31;
+  --color-field: #1a1727;
+  --color-line: #3a3452;
+  --color-brand: #6d57e8;
+  --color-brand-dark: #4b37b8;
+  --color-brand-soft: #2d2752;
+  --color-brand-ink: #b3a6ff;
+  --color-coral: #ff8a6b;
+  --color-coral-soft: #3d2420;
+  --color-coral-ink: #ffb8a3;
+  --color-mint: #18936f;
+  --color-mint-soft: #173a30;
+  --color-mint-ink: #5ddcae;
+  --color-mint-dark: #0c5a44;
+  --color-amber: #f2b84b;
+  --color-amber-soft: #3a2f14;
+  --color-scrim: #000000;
 }
 
 @layer base {

@@ -14,13 +14,13 @@ export function Scoreboard({ view, compact = false }: { view: RoomView; compact?
             className={[
               "flex items-center justify-between gap-2 rounded-2xl border-2 px-3.5",
               compact ? "py-2" : "py-3",
-              active ? "border-brand bg-brand-soft/60" : "border-line bg-white",
+              active ? "border-brand bg-brand-soft/60" : "border-line bg-field",
             ].join(" ")}
           >
             <div className="min-w-0">
               <div className="truncate font-extrabold">{p.nickname}</div>
               <div className="text-xs font-bold text-muted">
-                {active ? <span className="text-brand">{you ? "You, guessing" : "Guessing now"}</span> : you ? "You" : "Opponent"}
+                {active ? <span className="text-brand-ink">{you ? "You, guessing" : "Guessing now"}</span> : you ? "You" : "Opponent"}
               </div>
             </div>
             <div className="text-right">

@@ -12,7 +12,7 @@ export function SoundToggle({ className = "" }: { className?: string }) {
       aria-label="Sound and vibration"
       title={muted ? "Sound and vibration are off" : "Sound and vibration are on"}
       data-testid="sound-toggle"
-      className={`grid min-h-11 min-w-11 place-items-center rounded-xl text-muted transition hover:bg-brand-soft hover:text-brand ${className}`}
+      className={`grid min-h-11 min-w-11 place-items-center rounded-xl text-muted transition hover:bg-brand-soft hover:text-brand-ink ${className}`}
     >
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" />

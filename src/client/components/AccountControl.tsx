@@ -82,7 +82,7 @@ function AccountMenu({ user }: { user: AccountUser }) {
         {user.avatarUrl ? (
           <img src={user.avatarUrl} alt="" className="size-9 rounded-full" referrerPolicy="no-referrer" />
         ) : (
-          <span className="grid size-9 place-items-center rounded-full bg-brand-soft font-black text-brand" aria-hidden="true">
+          <span className="grid size-9 place-items-center rounded-full bg-brand-soft font-black text-brand-ink" aria-hidden="true">
             {label.slice(0, 1).toUpperCase()}
           </span>
         )}
@@ -100,7 +100,7 @@ function AccountMenu({ user }: { user: AccountUser }) {
               await api.signOut().catch(() => undefined);
               location.reload();
             }}
-            className="min-h-11 w-full rounded-xl px-3 text-left font-bold text-[#9b2c12] hover:bg-coral-soft"
+            className="min-h-11 w-full rounded-xl px-3 text-left font-bold text-coral-ink hover:bg-coral-soft"
           >
             Sign out
           </button>

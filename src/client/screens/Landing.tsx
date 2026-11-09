@@ -12,7 +12,7 @@ export function Landing() {
           <h1 className="text-balance text-4xl font-extrabold leading-tight tracking-tight lg:text-6xl">
             Who are you?
             <br />
-            <span className="text-brand">Your friend knows.</span>
+            <span className="text-brand-ink">Your friend knows.</span>
           </h1>
           <p className="mt-4 max-w-md text-lg text-muted">
             A two-player guessing game. You each get a secret identity, and only your opponent can see yours.

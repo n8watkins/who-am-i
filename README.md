@@ -142,12 +142,14 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
   Tapping **Share** (Web Share API) or **Copy link** makes it public in the same tap; cancelling the share sheet makes it private again, and **Stop sharing** takes it down.
   The public page `/s/:id` carries the card in its link-preview tags, and the title and description are written by the server from the finished match (`src/worker/result-card.ts`).
   The party kit stores cards in D1 (`share_cards`, owner key hashed, 90-day expiry) and accepts only a 1200x630 PNG under 400 KB (`src/kit/worker/share-cards.ts`).
+- **Dark mode:** follows the phone's setting by default; the footer's Auto / Light / Dark switch overrides it per device (`src/kit/client/theme.ts`, key `kit:theme`).
+  `public/theme-init.js` applies the theme before first paint, and the colors are CSS tokens in `src/client/styles.css` (`brand` is a fill behind white text, `brand-ink` is brand-colored text on a surface). The QR code stays dark on white in both themes so every scanner reads it.
 - **Version:** `GET /api/version` answers `{ ok, name, version, commit }` (`src/kit/worker/version.ts`), and the footer's "What's new · vX.Y.Z" links to [CHANGELOG.md](CHANGELOG.md).
 - **No external database:** room state lives in Durable Object storage and is deleted when the room expires.
 
 ```
 src/
-  kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, sound and haptics, result cards, version) shared by every game in the collection
+  kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, sound and haptics, result cards, version, light and dark themes) shared by every game in the collection
   shared/    protocol types, Zod schemas, pack metadata (safe for the client)
   worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
   client/    React screens (landing, setup, join, lobby, game, round summary, match summary)

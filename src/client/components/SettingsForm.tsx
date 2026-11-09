@@ -92,16 +92,16 @@ function Option({
       className={[
         "relative flex min-h-11 cursor-pointer items-center gap-2.5 rounded-2xl border-2 px-3 py-2.5 transition sm:gap-3 sm:px-3.5",
         "has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand",
-        checked ? "border-brand bg-brand-soft/60" : "border-line bg-white hover:border-brand/40",
+        checked ? "border-brand bg-brand-soft/60" : "border-line bg-field hover:border-brand/40",
       ].join(" ")}
     >
       <input type="radio" name={name} checked={checked} onChange={onChange} className="absolute inset-0 z-10 m-0 size-full cursor-pointer appearance-none rounded-2xl opacity-0" />
       {!compact && (
         <span
           aria-hidden="true"
-          className={`grid size-5 shrink-0 place-items-center rounded-full border-2 ${checked ? "border-brand bg-brand" : "border-line bg-white"}`}
+          className={`grid size-5 shrink-0 place-items-center rounded-full border-2 ${checked ? "border-brand bg-brand" : "border-line bg-field"}`}
         >
-          {checked && <span className="size-2 rounded-full bg-white" />}
+          {checked && <span className="size-2 rounded-full bg-field" />}
         </span>
       )}
       <span className={compact ? "flex-1 text-center" : "flex-1"}>{children}</span>
@@ -128,7 +128,7 @@ export function PackPicker({ value, onChange }: SettingsProps) {
                 "relative flex min-h-12 cursor-pointer items-center gap-2.5 rounded-2xl border-2 p-1.5 transition md:flex-col md:items-stretch md:p-2.5",
                 id === "mixed" ? "col-span-2" : "",
                 "has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand",
-                checked ? "border-brand bg-brand-soft/60" : "border-line bg-white hover:border-brand/40",
+                checked ? "border-brand bg-brand-soft/60" : "border-line bg-field hover:border-brand/40",
               ].join(" ")}
             >
               <input type="radio" name="pack" checked={checked} onChange={() => onChange({ ...value, packId: id })} aria-label={PACK_META[id].name} className="absolute inset-0 z-10 m-0 size-full cursor-pointer appearance-none opacity-0" />

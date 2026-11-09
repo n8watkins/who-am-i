@@ -61,7 +61,7 @@ export function Invite({
           {pin ? (
             <>
               <p className="text-sm font-extrabold uppercase tracking-wide text-muted">PIN</p>
-              <p className="font-mono text-5xl font-black tracking-[0.1em] text-brand" data-testid="room-pin" aria-label={`PIN ${spaced(pin)}`}>
+              <p className="font-mono text-5xl font-black tracking-[0.1em] text-brand-ink" data-testid="room-pin" aria-label={`PIN ${spaced(pin)}`}>
                 {pin}
               </p>
               <p className="mt-2 text-sm font-semibold text-muted">
@@ -74,7 +74,7 @@ export function Invite({
           ) : (
             <>
               <p className="text-sm font-extrabold uppercase tracking-wide text-muted">Room code</p>
-              <p className="font-mono text-4xl font-black tracking-[0.1em] text-brand" data-testid="room-code" aria-label={`Room code ${spaced(code)}`}>
+              <p className="font-mono text-4xl font-black tracking-[0.1em] text-brand-ink" data-testid="room-code" aria-label={`Room code ${spaced(code)}`}>
                 {code}
               </p>
             </>

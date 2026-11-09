@@ -28,11 +28,15 @@ test("no label or button is clipped on a phone", async ({ browser }) => {
   await context.close();
 });
 
-test("the main screens fit a desktop window and pass accessibility checks", async ({ browser }) => {
+for (const colorScheme of ["light", "dark"] as const) {
+test(`the main screens fit a desktop window and pass accessibility checks (${colorScheme})`, async ({ browser }) => {
   const alice = await newPlayer(browser);
   const bob = await newPlayer(browser);
   const A = alice.page;
   const B = bob.page;
+  // The theme follows the system setting by default; axe checks contrast in both.
+  await A.emulateMedia({ colorScheme });
+  await B.emulateMedia({ colorScheme });
 
   await A.goto("/");
   await expect(A.getByRole("button", { name: "Create game" })).toBeVisible();
@@ -61,3 +65,4 @@ test("the main screens fit a desktop window and pass accessibility checks", asyn
   await checkScreen(A, "reveal");
   for (const c of [alice, bob]) await c.context.close();
 });
+}
