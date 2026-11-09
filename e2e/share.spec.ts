@@ -1,6 +1,6 @@
 // The shareable result card: private until the player taps Share or Copy link, a real link preview
 // once shared, private again if the share sheet is cancelled or the player stops sharing.
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createGame, joinGame, newPlayer, startMatch } from "./support";
 
 const SHOTS = process.env.COMFORT_SHOTS;
@@ -19,11 +19,15 @@ async function playToTheEnd(alice: Page, bob: Page) {
   const confirm = bob.getByRole("button", { name: "Yes, correct" });
   const giveUp = bob.getByRole("button", { name: "Give up" });
   const next = alice.getByRole("button", { name: /Next round|See final results/ });
-  for (let step = 0; step < 80 && !(await headline.isVisible()); step++) {
-    if (await next.isVisible()) await next.click();
-    else if (await confirm.isVisible()) await confirm.click();
-    else if ((await guess.isVisible()) && (await guess.isEnabled())) await guess.click();
-    else if (await giveUp.isVisible()) await giveUp.click();
+  // Each pass acts on whatever the two screens show now. A button can turn disabled or go away
+  // between the check and the tap while a command is in flight, so taps are short and retried.
+  const tap = (button: Locator) => button.click({ timeout: 2_000 }).catch(() => undefined);
+  const ready = async (button: Locator) => (await button.isVisible()) && (await button.isEnabled().catch(() => false));
+  for (let step = 0; step < 120 && !(await headline.isVisible()); step++) {
+    if (await ready(next)) await tap(next);
+    else if (await ready(confirm)) await tap(confirm);
+    else if (await ready(guess)) await tap(guess);
+    else if (await ready(giveUp)) await tap(giveUp);
     await alice.waitForTimeout(100);
   }
   await expect(headline).toHaveText("You win!");
