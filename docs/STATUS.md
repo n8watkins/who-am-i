@@ -85,3 +85,13 @@ Later, and blocking nothing yet:
 - A Sentry DSN is reserved for this app in `~/projects/ops/MAINTENANCE.md`, section 4, for when its code lands.
 - Other agent sessions have also worked on this repo, so check for open PRs and for worktrees before resuming.
 - `npm audit` reports moderate issues in dev tooling, blocked upstream by `eslint`, and the `minimatch` alert was dismissed for that reason.
+
+## Keys
+
+Checked 2026-11-09 against the secret names on the Worker and in GitHub Actions (names only, no values).
+New values go into the owner's pass-env store and are sent with `pass-env pipe <entry> -- <command>`; never commit or paste a value.
+
+- [ ] `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (missing): create the GitHub OAuth app (Owner steps above), then set both on the Worker.
+- [ ] `CLOUDFLARE_API_TOKEN` Actions secret (missing): Deploy runs pass without deploying. Rerun `set-cloudflare-deploy-token`.
+- [ ] `GEMINI_API_KEY` (later): for AI mode, when that work resumes.
+- [x] `SESSION_SECRET`: set on the Worker.
