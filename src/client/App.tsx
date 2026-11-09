@@ -4,6 +4,7 @@ import { Create } from "./screens/Create";
 import { JoinCode } from "./screens/JoinCode";
 import { Landing } from "./screens/Landing";
 import { RoomPage } from "./screens/Room";
+import { SharedResult } from "./screens/SharedResult";
 
 export function App() {
   const route = useRoute();
@@ -14,6 +15,8 @@ export function App() {
       return <Create />;
     case "join":
       return <JoinCode />;
+    case "share":
+      return <SharedResult key={route.id} id={route.id} />;
     case "room":
       return <RoomPage key={route.code} code={route.code} />;
     default:

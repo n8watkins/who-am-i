@@ -138,12 +138,16 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
 - **Screen wake lock:** while a player is in a room, `src/kit/client/wake-lock.ts` keeps the phone's screen on, takes the lock again whenever the page becomes visible, and does nothing where the API is missing or refused.
 - **Sound and haptics:** `src/kit/client/feedback.ts` plays short synthesized cues (no sound files) with a matching vibration, and `src/client/lib/gameCues.ts` maps game moments to them: your turn, a question to answer or a guess to confirm, a correct guess, and winning, losing or a tie.
   Nothing plays before the first tap on the page, the speaker button in the header mutes sound and vibration and each device remembers it, and "reduce motion" turns vibration off.
+- **Shareable result card:** at the end of a match, **Share result** paints a 1200x630 card in the browser (`src/client/lib/resultCard.ts`: names, scores, category and rounds, never an identity) and uploads it private (`POST /api/rooms/:code/share`).
+  Tapping **Share** (Web Share API) or **Copy link** makes it public in the same tap; cancelling the share sheet makes it private again, and **Stop sharing** takes it down.
+  The public page `/s/:id` carries the card in its link-preview tags, and the title and description are written by the server from the finished match (`src/worker/result-card.ts`).
+  The party kit stores cards in D1 (`share_cards`, owner key hashed, 90-day expiry) and accepts only a 1200x630 PNG under 400 KB (`src/kit/worker/share-cards.ts`).
 - **Version:** `GET /api/version` answers `{ ok, name, version, commit }` (`src/kit/worker/version.ts`), and the footer's "What's new · vX.Y.Z" links to [CHANGELOG.md](CHANGELOG.md).
 - **No external database:** room state lives in Durable Object storage and is deleted when the room expires.
 
 ```
 src/
-  kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, sound and haptics, ...) shared by every game in the collection
+  kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, sound and haptics, result cards, version) shared by every game in the collection
   shared/    protocol types, Zod schemas, pack metadata (safe for the client)
   worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
   client/    React screens (landing, setup, join, lobby, game, round summary, match summary)

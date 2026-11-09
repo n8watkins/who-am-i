@@ -27,6 +27,7 @@ import {
 } from "./engine";
 import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
+import { resultCardText } from "./result-card";
 import { previewOf, viewFor } from "./view";
 
 /** Rooms are deleted after this long without any player activity. */
@@ -52,6 +53,7 @@ export type CreateResult = { ok: true; roomId: string; playerId: string; view: R
 export type JoinResult = { ok: true; playerId: string; view: RoomView } | RpcFailure;
 export type CommandResult = { ok: true; duplicate: boolean; view: RoomView } | RpcFailure;
 export type ViewResult = { ok: true; view: RoomView } | RpcFailure;
+export type ShareTextResult = { ok: true; title: string; description: string } | RpcFailure;
 
 function engineContext(): EngineContext {
   return {
@@ -115,6 +117,14 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!room) return this.denied(roomId, playerId);
     await this.expireIfDue();
     return { ok: true, view: viewFor(this.room!, playerId, Date.now()) };
+  }
+
+  /** The words for a shared result card, once the match is over. */
+  async shareText(roomId: string, playerId: string): Promise<ShareTextResult> {
+    if (!this.authorized(roomId, playerId)) return this.denied(roomId, playerId);
+    const text = resultCardText(this.room!);
+    if (!text) return { ok: false, error: "invalid_transition", message: "You can share a result once the match is over." };
+    return { ok: true, ...text };
   }
 
   /** The host swaps the PIN, for example after someone unwanted saw it. */
