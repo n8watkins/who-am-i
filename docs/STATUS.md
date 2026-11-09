@@ -1,6 +1,6 @@
 # Who Am I? status
 
-Last updated 2026-11-04.
+Last updated 2026-11-09.
 Paused by the owner on 2026-11-04.
 Read this first when work resumes, then `docs/V2_PLAN.md` sections 2a and 2b, which override older plan text.
 The owner's master list mirrors a short summary of this file: `~/projects/ops/MAINTENANCE.md`, section 4.
@@ -19,10 +19,12 @@ Shipped:
 - Easy, Medium and Hard, and each player's own difficulty as a handicap.
 - GitHub sign-in, which stays hidden until the owner's setup below is done.
 - Difficulty tracking: every finished round writes to the `identity_plays` table in D1, with no player data.
+- v0.2.0 (2026-11-09), phone comforts: screen wake lock, an "away" state when a phone locks (pauses the timer, counts for the host override), sound and haptic cues with a remembered mute, a shareable result card (`/s/:id`, private until shared, revocable, 90-day expiry), and `/api/version` with a "What's new" footer link.
+- The party kit in `src/kit`: game-agnostic pieces for the planned game collection (wake lock, presence, feedback, share cards, version, theme). Lint keeps it free of Who Am I? code.
 
 ## Parked branches and PRs
 
-None: no PRs are open and no work is waiting on a branch.
+- #32, dark mode with an Auto / Light / Dark switch: green and ready, held for the owner's look at the dark screenshots (his rule for sweeping visual changes). Merge it, then release and deploy.
 Other agent sessions left worktrees at `~/projects/who-am-i-domain` and `~/n8builds/worktrees/whoami-og`, and their work is merged.
 
 ## Owner steps
@@ -58,7 +60,7 @@ Later, and blocking nothing yet:
    Played live by taking turns placing events in order, or as a challenge where you pick a period and send it to a friend.
 4. **Measured difficulty**: turn the `identity_plays` data into each identity's level once it has enough plays.
 5. **Catalog**: grow to about 1,000 identities (400 easy, 400 medium, 200 hard, starting with hard), and stop repeats per account.
-6. **Finish the friend game**: Pass and play, the big-screen view, dark mode, and the build-version handshake.
+6. **Finish the friend game**: Pass and play, the big-screen view, and the client half of the build-version handshake (compare the bundle's version with `/api/version` and offer a reload).
 7. **Friends and rivalry**: friend list, Slow Duel with friends answering, points, forfeits, per-game ratings and Auto difficulty.
 8. **More games**: Know Your Friend and Voice Clues, then rooms for 3 or more, then Bluff Facts and Sketch Relay.
 9. **Signature and revenue**: skins, live voice and the party pass.
