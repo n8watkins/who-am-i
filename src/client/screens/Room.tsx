@@ -6,6 +6,7 @@ import { useWakeLock } from "../../kit/client/wake-lock";
 import { Banner, Button, Card, Dialog, Shell, Spinner, TextField } from "../components/ui";
 import { api, ApiRequestError, clearSession, loadNickname, loadSession, saveNickname, saveSession, type StoredSession } from "../lib/api";
 import { navigate } from "../lib/router";
+import { useGameCues } from "../lib/useGameCues";
 import { useRoom } from "../lib/useRoom";
 import { Game } from "./Game";
 import { Lobby } from "./Lobby";
@@ -163,6 +164,8 @@ function RoomScreen({ code, session, onSessionInvalid }: { code: string; session
   const [leaveOpen, setLeaveOpen] = useState(false);
   // Keep the screen on for the whole room (lobby QR, opponent turns, reveals), not just your turn.
   useWakeLock(!!view && !fatal);
+  // Sound and a buzz for your turn, a correct guess and the match end.
+  useGameCues(fatal ? null : view);
 
   useEffect(() => {
     if (!error) return;

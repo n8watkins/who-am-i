@@ -135,11 +135,13 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
   A player with two tabs is away only while every tab is hidden.
   Leaving frees the seat and returns the room to the lobby.
 - **Screen wake lock:** while a player is in a room, `src/kit/client/wake-lock.ts` keeps the phone's screen on, takes the lock again whenever the page becomes visible, and does nothing where the API is missing or refused.
+- **Sound and haptics:** `src/kit/client/feedback.ts` plays short synthesized cues (no sound files) with a matching vibration, and `src/client/lib/gameCues.ts` maps game moments to them: your turn, a question to answer or a guess to confirm, a correct guess, and winning, losing or a tie.
+  Nothing plays before the first tap on the page, the speaker button in the header mutes sound and vibration and each device remembers it, and "reduce motion" turns vibration off.
 - **No external database:** room state lives in Durable Object storage and is deleted when the room expires.
 
 ```
 src/
-  kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, ...) shared by every game in the collection
+  kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, sound and haptics, ...) shared by every game in the collection
   shared/    protocol types, Zod schemas, pack metadata (safe for the client)
   worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
   client/    React screens (landing, setup, join, lobby, game, round summary, match summary)
