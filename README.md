@@ -72,6 +72,7 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 - **Worker and Durable Object tests** (`test/worker.test.ts`) exercise the real HTTP API, signed sessions, WebSockets, rate limiting and alarms in `workerd`.
 - **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, start, ask an in-app question, request hints, guess, confirm, skip, reveal, five rounds with alternating first guessers to a winner, then a one-tap rematch started by the loser.
   While doing so they record every HTTP response body and WebSocket frame each browser receives, plus the page HTML and localStorage, and assert that a player's own identity (name and id) never appears before the round summary, and that each hint arrives only after it was requested.
+  Phone tests run at 390x844 with a fake Screen Wake Lock API and a controllable page visibility (`e2e/phone.ts`), so they can lock and unlock a "phone" the way a real one hides and shows the page.
   Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, every main desktop screen fitting 1280x800 with no accessibility violations, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
 
 ## Secrecy model
@@ -131,10 +132,12 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
   The clock pauses while a guess awaits confirmation or a player is disconnected, and each turn has a unique id so a timeout ends it exactly once.
 - **Disconnects:** the opponent sees a banner and the timer pauses; if the confirming player is gone for 30 seconds, the host may confirm their own guess.
   Leaving frees the seat and returns the room to the lobby.
+- **Screen wake lock:** while a player is in a room, `src/kit/client/wake-lock.ts` keeps the phone's screen on, takes the lock again whenever the page becomes visible, and does nothing where the API is missing or refused.
 - **No external database:** room state lives in Durable Object storage and is deleted when the room expires.
 
 ```
 src/
+  kit/       the party kit: game-agnostic phone comforts (wake lock, ...) shared by every game in the collection
   shared/    protocol types, Zod schemas, pack metadata (safe for the client)
   worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
   client/    React screens (landing, setup, join, lobby, game, round summary, match summary)
