@@ -6,6 +6,7 @@ import {
   PIN_SPACE,
   PIN_TTL_MS,
   pickFreePin,
+  randomIndex,
   type PinDirectoryDurableObject,
 } from "../src/worker/pin-directory";
 import { clientKey } from "../src/worker/rate-limiter";
@@ -24,16 +25,30 @@ const occupiedExcept = (...free: string[]) => {
 };
 
 describe("pickFreePin", () => {
-  it("only picks free PINs, and is uniform across them", () => {
+  it("only picks free PINs, and gives each one the same chance", () => {
     const free = ["0007", "1234", "5000", "9999"];
     const occupied = occupiedExcept(...free);
-    const counts = new Map<string, number>();
-    for (let i = 0; i < 4000; i++) {
-      const pin = pickFreePin(occupied)!;
-      counts.set(pin, (counts.get(pin) ?? 0) + 1);
-    }
-    expect([...counts.keys()].sort()).toEqual(free);
-    for (const count of counts.values()) expect(Math.abs(count - 1000)).toBeLessThan(200);
+    // Every free PIN is one equally likely index into the free list: the uniform random index
+    // picks among exactly the free PINs, in order.
+    free.forEach((pin, k) => {
+      expect(
+        pickFreePin(occupied, (size) => {
+          expect(size).toBe(free.length);
+          return k;
+        }),
+      ).toBe(pin);
+    });
+    // With the real random index, every draw is free and all of them come up. (Each scan walks
+    // all 10,000 PINs, so this stays small enough to be quick on a slow runner.)
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) seen.add(pickFreePin(occupied)!);
+    expect([...seen].sort()).toEqual(free);
+  });
+
+  it("draws a uniform random index", () => {
+    const counts = [0, 0, 0, 0];
+    for (let i = 0; i < 4000; i++) counts[randomIndex(4)]! += 1;
+    for (const count of counts) expect(Math.abs(count - 1000)).toBeLessThan(200);
   });
 
   it("returns null when nothing is free", () => {

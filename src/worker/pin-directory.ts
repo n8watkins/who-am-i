@@ -23,7 +23,7 @@ export interface PinTarget {
   roomId: string;
 }
 
-function randomIndex(size: number): number {
+export function randomIndex(size: number): number {
   // Rejection sampling keeps every index equally likely.
   const limit = 2 ** 32 - (2 ** 32 % size);
   const buf = new Uint32Array(1);
