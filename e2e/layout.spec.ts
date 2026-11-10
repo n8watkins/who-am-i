@@ -52,6 +52,10 @@ test(`the main screens fit a desktop window and pass accessibility checks (${col
   await checkScreen(B, "join");
   await joinGame(B, link, "Bob");
   await expect(A.getByTestId("slot-B")).toContainText("Bob");
+  // Start game turns on once Bob's connection opens, a moment after his name shows; checking
+  // contrast mid-fade would read a half-faded button.
+  await expect(A.getByRole("button", { name: "Start game" })).toBeEnabled();
+  await A.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
   await checkScreen(A, "lobby full");
 
   await startMatch(A, B);
