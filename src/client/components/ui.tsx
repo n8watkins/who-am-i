@@ -1,5 +1,6 @@
 import { KitFooter } from "../../kit/client/Footer";
 import { SoundToggle } from "../../kit/client/SoundToggle";
+import { ThemeSwitch } from "../../kit/client/ThemeSwitch";
 import { APP_VERSION, CHANGELOG_URL } from "../lib/app";
 import { AccountControl } from "./AccountControl";
 import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
@@ -10,9 +11,9 @@ type Variant = "primary" | "secondary" | "ghost" | "danger" | "success";
 const VARIANTS: Record<Variant, string> = {
   primary: "bg-brand text-white shadow-[0_3px_0_var(--color-brand-dark)] hover:bg-brand-dark active:translate-y-px",
   secondary: "bg-card text-ink border-2 border-line hover:border-brand/50 hover:bg-brand-soft/40",
-  ghost: "bg-transparent text-brand hover:bg-brand-soft",
+  ghost: "bg-transparent text-brand-ink hover:bg-brand-soft",
   danger: "bg-card text-coral border-2 border-coral/40 hover:bg-coral-soft",
-  success: "bg-mint text-white shadow-[0_3px_0_#0a5a45] hover:brightness-95 active:translate-y-px",
+  success: "bg-mint text-white shadow-[0_3px_0_var(--color-mint-dark)] hover:brightness-95 active:translate-y-px",
 };
 
 export function Button({
@@ -80,7 +81,9 @@ export function Shell({ children, wide = false, aside }: { children: ReactNode; 
         {children}
       </main>
       {/* On phones the footer also reserves room for the sticky turn action bar (its height is published as --action-bar-h). */}
-      <KitFooter version={APP_VERSION} changelogUrl={CHANGELOG_URL} />
+      <KitFooter version={APP_VERSION} changelogUrl={CHANGELOG_URL}>
+        <ThemeSwitch />
+      </KitFooter>
     </div>
   );
 }
@@ -103,7 +106,7 @@ export function TextField({
         {...props}
         aria-invalid={error ? true : undefined}
         aria-describedby={hint || error ? `${id}-hint` : undefined}
-        className={`min-h-12 rounded-2xl border-2 border-line bg-white px-4 text-lg font-semibold text-ink placeholder:font-normal placeholder:text-muted/70 focus:border-brand focus:outline-none ${className}`}
+        className={`min-h-12 rounded-2xl border-2 border-line bg-field px-4 text-lg font-semibold text-ink placeholder:font-normal placeholder:text-muted/70 focus:border-brand focus:outline-none ${className}`}
       />
       {(hint || error) && (
         <p id={`${id}-hint`} className={`text-sm ${error ? "font-semibold text-coral" : "text-muted"}`}>
@@ -116,10 +119,10 @@ export function TextField({
 
 type Tone = "info" | "warn" | "error" | "success";
 const TONES: Record<Tone, string> = {
-  info: "bg-brand-soft text-brand-dark border-brand/20",
+  info: "bg-brand-soft text-brand-ink border-brand/20",
   warn: "bg-amber-soft text-amber border-amber/20",
-  error: "bg-coral-soft text-[#9b2c12] border-coral/30",
-  success: "bg-mint-soft text-mint border-mint/20",
+  error: "bg-coral-soft text-coral-ink border-coral/30",
+  success: "bg-mint-soft text-mint-ink border-mint/20",
 };
 const TONE_ICONS: Record<Tone, string> = { info: "i", warn: "!", error: "!", success: "✓" };
 
@@ -154,9 +157,9 @@ export function Banner({
 export function Pill({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "brand" | "mint" | "coral" | "amber" }) {
   const tones = {
     neutral: "bg-paper text-muted border-line",
-    brand: "bg-brand-soft text-brand-dark border-brand/20",
-    mint: "bg-mint-soft text-mint border-mint/25",
-    coral: "bg-coral-soft text-[#9b2c12] border-coral/25",
+    brand: "bg-brand-soft text-brand-ink border-brand/20",
+    mint: "bg-mint-soft text-mint-ink border-mint/25",
+    coral: "bg-coral-soft text-coral-ink border-coral/25",
     amber: "bg-amber-soft text-amber border-amber/25",
   };
   return <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-bold ${tones[tone]}`}>{children}</span>;
@@ -187,7 +190,7 @@ export function Dialog({ open, onClose, title, children }: { open: boolean; onCl
       aria-labelledby={titleId}
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-3xl bg-card p-0 text-ink shadow-2xl backdrop:bg-ink/50"
+      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-3xl bg-card p-0 text-ink shadow-2xl backdrop:bg-scrim/60"
     >
       <div className="p-6">
         <div className="mb-4 flex items-center justify-between gap-4">
@@ -217,7 +220,7 @@ export function HowToPlay() {
           ["Win the match.", "First to 5 points, or the best score after 10 rounds, depending on the room's settings."],
         ].map(([title, body], i) => (
           <li key={title} className="flex gap-3">
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft font-extrabold text-brand" aria-hidden="true">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft font-extrabold text-brand-ink" aria-hidden="true">
               {i + 1}
             </span>
             <p>

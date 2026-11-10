@@ -42,7 +42,7 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
               <li key={seat} data-testid={`slot-${seat}`} className="flex min-h-14 items-center gap-3 py-1.5 first:pt-0 last:pb-0">
                 {p ? (
                   <>
-                    <span className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-soft text-lg font-black text-brand" aria-hidden="true">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-soft text-lg font-black text-brand-ink" aria-hidden="true">
                       {p.nickname.slice(0, 1).toUpperCase()}
                     </span>
                     <span className="min-w-0 flex-1 truncate font-extrabold">
@@ -95,7 +95,7 @@ export function Lobby({ room, view }: { room: RoomHandle; view: RoomView }) {
             value={me.difficulty ?? ""}
             disabled={room.pending}
             onChange={(e) => room.send("player.difficulty", { difficulty: (e.target.value || null) as Difficulty | null })}
-            className="min-h-11 rounded-xl border-2 border-line bg-white px-2.5 font-bold"
+            className="min-h-11 rounded-xl border-2 border-line bg-field px-2.5 font-bold"
           >
             <option value="">Same as room ({DIFFICULTY_LABELS[view.settings.difficulty]})</option>
             {DIFFICULTIES.map((level) => (

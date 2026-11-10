@@ -9,7 +9,7 @@ export function KitFooter({ version, changelogUrl, children }: { version: string
         href={changelogUrl}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 hover:text-brand"
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 hover:text-brand-ink"
         data-testid="whats-new"
       >
         What's new <span aria-hidden="true">·</span> <span className="tabular-nums">v{version}</span>

@@ -209,7 +209,7 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
             {!myTurn && pendingConfirm && (
               <div className="space-y-2.5">
                 <p className="text-lg font-bold">
-                  {opponent.nickname} thinks they got it. Did they say <span className="text-brand">{identityName}</span>?
+                  {opponent.nickname} thinks they got it. Did they say <span className="text-brand-ink">{identityName}</span>?
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <Button variant="secondary" size="lg" disabled={room.pending} onClick={() => room.send("turn.correct.reject")}>
@@ -246,7 +246,7 @@ function TopBar({ view, now, offset }: { view: RoomView; now: number; offset: nu
   );
   return (
     <div className="flex min-h-12 items-center gap-2 rounded-2xl border border-line bg-card px-3.5 text-sm font-bold shadow-sm sm:gap-3 md:col-span-2" role="group" aria-label="Round and scores">
-      <span className="font-black text-brand" aria-hidden="true">R{view.roundIndex}</span>
+      <span className="font-black text-brand-ink" aria-hidden="true">R{view.roundIndex}</span>
       <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
         <span className="shrink-0">You</span>
         {points(me.seat, me.score, "You")}
@@ -370,7 +370,7 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
   };
   if (waitingFor) {
     return (
-      <p className="rounded-2xl bg-brand-soft/60 px-4 py-3 font-semibold text-brand-dark" role="status">
+      <p className="rounded-2xl bg-brand-soft/60 px-4 py-3 font-semibold text-brand-ink" role="status">
         Waiting for {waitingFor} to answer...
       </p>
     );
@@ -384,7 +384,7 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
             type="button"
             disabled={room.pending}
             onClick={() => send(q)}
-            className="min-h-11 shrink-0 whitespace-nowrap rounded-full border-2 border-brand/25 bg-brand-soft/50 px-3 text-sm font-bold text-brand-dark hover:border-brand disabled:opacity-50"
+            className="min-h-11 shrink-0 whitespace-nowrap rounded-full border-2 border-brand/25 bg-brand-soft/50 px-3 text-sm font-bold text-brand-ink hover:border-brand disabled:opacity-50"
           >
             {q}
           </button>
@@ -410,7 +410,7 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
           enterKeyHint="send"
           aria-invalid={error ? true : undefined}
           aria-describedby="ask-help"
-          className="min-h-11 min-w-0 flex-1 rounded-2xl border-2 border-line bg-white px-3.5 font-semibold focus:border-brand focus:outline-none"
+          className="min-h-11 min-w-0 flex-1 rounded-2xl border-2 border-line bg-field px-3.5 font-semibold focus:border-brand focus:outline-none"
         />
         <Button type="submit" disabled={room.pending || text.trim().length === 0}>
           Send
@@ -428,7 +428,7 @@ function AskPanel({ room, waitingFor }: { room: RoomHandle; waitingFor: string |
 function AnswerPanel({ room, asker, questionId, text }: { room: RoomHandle; asker: string; questionId: string; text: string }) {
   return (
     <div className="space-y-2.5" data-testid="answer-panel">
-      <p className="text-sm font-extrabold uppercase tracking-wide text-brand-dark">{asker} asks</p>
+      <p className="text-sm font-extrabold uppercase tracking-wide text-brand-ink">{asker} asks</p>
       <p className="break-words text-xl font-black" data-testid="pending-question">
         {text}
       </p>
@@ -471,7 +471,7 @@ function TurnTimer({ view, now, offset }: { view: RoomView; now: number; offset:
       aria-label={paused ? `Timer paused at ${seconds} seconds` : `${seconds} seconds left`}
       data-testid="turn-timer"
       className={`inline-flex min-w-20 items-center justify-center gap-1.5 rounded-full border-2 px-3 py-1 font-mono text-sm font-black tabular-nums ${
-        low ? "border-coral bg-coral-soft text-[#9b2c12]" : "border-line bg-white text-ink"
+        low ? "border-coral bg-coral-soft text-coral-ink" : "border-line bg-field text-ink"
       }`}
     >
       <span aria-hidden="true">{paused ? "⏸" : "⏱"}</span>
