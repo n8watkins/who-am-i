@@ -20,11 +20,12 @@ Shipped:
 - GitHub sign-in, which stays hidden until the owner's setup below is done.
 - Difficulty tracking: every finished round writes to the `identity_plays` table in D1, with no player data.
 - v0.2.0 (2026-11-09), phone comforts: screen wake lock, an "away" state when a phone locks (pauses the timer, counts for the host override), sound and haptic cues with a remembered mute, a shareable result card (`/s/:id`, private until shared, revocable, 90-day expiry), and `/api/version` with a "What's new" footer link.
+- v0.3.0 (2026-11-09): dark mode following the phone, with an Auto / Light / Dark switch in the footer (owner approved), and two layout fixes (whole opponent name in the phone top bar next to a timer, a roomier I Guessed It on desktop).
 - The party kit in `src/kit`: game-agnostic pieces for the planned game collection (wake lock, presence, feedback, share cards, version, theme). Lint keeps it free of Who Am I? code.
 
 ## Parked branches and PRs
 
-- #32, dark mode with an Auto / Light / Dark switch: green and ready, held for the owner's look at the dark screenshots (his rule for sweeping visual changes). Merge it, then release and deploy.
+None: no PRs are open and no work is waiting on a branch.
 Other agent sessions left worktrees at `~/projects/who-am-i-domain` and `~/n8builds/worktrees/whoami-og`, and their work is merged.
 
 ## Owner steps
