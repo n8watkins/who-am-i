@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 - 2026-11-09
+
+Dark mode, and two layout fixes.
+
+### New
+
+- Dark mode that follows your phone, with an Auto, Light and Dark switch ([#32](https://github.com/n8watkins/who-am-i/pull/32))
+
+### Fixed
+
+- Your opponent's name fits in the phone top bar, and I Guessed It is roomier on desktop ([#36](https://github.com/n8watkins/who-am-i/pull/36))
+
 ## 0.2.0 - 2026-11-09
 
 Phone comforts: the screen stays on, you can see when your opponent steps away, sounds for the big moments, and a result card to share.
