@@ -8,7 +8,7 @@ When this file changes in a way that matters there, update that summary too.
 
 ## Current state
 
-Live at https://whoami.n8builds.dev, and the old workers.dev address still works.
+Live at https://whoami.n8builds.dev; the old workers.dev address is off.
 
 Shipped:
 
@@ -52,7 +52,7 @@ Later, and blocking nothing yet:
 
 1. **Finish sign-in** once the owner's steps are done.
    - Add `GITHUB_CLIENT_ID` to `wrangler.jsonc` vars and test a real sign-in on the live site.
-   - GitHub allows one callback URL, so redirect the workers.dev address to `whoami.n8builds.dev`, or sign-in will fail there.
+   - Register `https://whoami.n8builds.dev` as the GitHub callback URL (the workers.dev address is off).
    - Add Google soon after.
 2. **Lobby avatars** (owner priority).
    Small original characters players can move around the waiting room, bumping and jumping on each other.
@@ -69,7 +69,7 @@ Later, and blocking nothing yet:
 
 ## Links
 
-- Live site: https://whoami.n8builds.dev (the old workers.dev address still works)
+- Live site: https://whoami.n8builds.dev (the old workers.dev address is off)
 - Repo: https://github.com/n8watkins/who-am-i
 - Plan of record: `docs/V2_PLAN.md`
 - Reasoning and game ideas: https://claude.ai/artifact/FD3rWDr5kRWZMKPDLrx7jb
