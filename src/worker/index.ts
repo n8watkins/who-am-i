@@ -20,6 +20,7 @@ import pkg from "../../package.json";
 import { CARD_MAX_BYTES, SHARE_PATH_PREFIX } from "../kit/shared/share-cards";
 import { checkCardPng, createCard, handleShareApi, shareCardPage } from "../kit/worker/share-cards";
 import { versionResponse, type VersionEnv } from "../kit/worker/version";
+import { healthCheck } from "./health";
 import { finishGitHubSignIn, me, signOut, startGitHubSignIn } from "./auth";
 import { packInfo } from "./content";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
@@ -276,6 +277,8 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
 export default {
   async fetch(request, env): Promise<Response> {
+    const health = healthCheck(request);
+    if (health) return health;
     const url = new URL(request.url);
     if (url.pathname.startsWith(SHARE_PATH_PREFIX) && request.method === "GET") {
       try {
