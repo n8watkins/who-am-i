@@ -147,7 +147,7 @@ The result screen offers **Share** with a spoiler-free grid, for example:
 Who Am I? #42
 Solved in 9 questions, 1 hint
 🟩🟥🟥🟩🟨🟩🟥💡🟩✅
-https://who-am-i-game.nathancwatkins23.workers.dev/daily
+https://whoami.n8builds.dev/daily
 ```
 
 Green is Yes, red No, yellow Sort of, white Don't know, a bulb a hint, a cross a wrong guess, and a tick the solve.
