@@ -1,5 +1,2 @@
 # Copy to .dev.vars (never commit it). `npm run setup` generates one with a random secret.
 SESSION_SECRET=replace-with-a-long-random-string
-# Optional: GitHub sign-in stays hidden until both are set. Production uses wrangler vars and secrets.
-# GITHUB_CLIENT_ID=
-# GITHUB_CLIENT_SECRET=

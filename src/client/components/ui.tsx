@@ -2,7 +2,6 @@ import { KitFooter } from "../../kit/client/Footer";
 import { SoundToggle } from "../../kit/client/SoundToggle";
 import { ThemeSwitch } from "../../kit/client/ThemeSwitch";
 import { APP_VERSION, CHANGELOG_URL } from "../lib/app";
-import { AccountControl } from "./AccountControl";
 import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { navigate } from "../lib/router";
 
@@ -70,7 +69,6 @@ export function Shell({ children, wide = false, aside }: { children: ReactNode; 
           <span>Who Am I?</span>
         </a>
         <div className="flex items-center gap-1">
-          <AccountControl />
           <SoundToggle />
           {aside}
         </div>

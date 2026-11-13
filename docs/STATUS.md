@@ -1,6 +1,6 @@
 # Who Am I? status
 
-Last updated 2026-11-09.
+Last updated 2026-11-12.
 Paused by the owner on 2026-11-04.
 Read this first when work resumes, then `docs/V2_PLAN.md` sections 2a and 2b, which override older plan text.
 The owner's master list mirrors a short summary of this file: `~/projects/ops/MAINTENANCE.md`, section 4.
@@ -17,8 +17,6 @@ Shipped:
 - Ask and Clues, with no 20 question limit and no Ready step.
 - Trade turns as the default, with Keep going as a setting, plus Give up and Pass.
 - Easy, Medium and Hard, and each player's own difficulty as a handicap.
-- GitHub sign-in, which stays hidden until the owner's setup below is done.
-- Difficulty tracking: every finished round writes to the `identity_plays` table in D1, with no player data.
 - v0.2.0 (2026-11-09), phone comforts: screen wake lock, an "away" state when a phone locks (pauses the timer, counts for the host override), sound and haptic cues with a remembered mute, a shareable result card (`/s/:id`, private until shared, revocable, 90-day expiry), and `/api/version` with a "What's new" footer link.
 - v0.3.0 (2026-11-09): dark mode following the phone, with an Auto / Light / Dark switch in the footer (owner approved), and two layout fixes (whole opponent name in the phone top bar next to a timer, a roomier I Guessed It on desktop).
 - The party kit in `src/kit`: game-agnostic pieces for the planned game collection (wake lock, presence, feedback, share cards, version, theme). Lint keeps it free of Who Am I? code.
@@ -30,42 +28,26 @@ Other agent sessions left worktrees at `~/projects/who-am-i-domain` and `~/n8bui
 
 ## Owner steps
 
-Sign-in cannot go live until these are done.
-
-1. Create a GitHub OAuth app at https://github.com/settings/developers.
-   - Application name: `Who Am I?`
-   - Homepage URL: `https://whoami.n8builds.dev`
-   - Authorization callback URL: `https://whoami.n8builds.dev/api/auth/github/callback`
-2. Give the agent the Client ID, which is public.
-3. Generate a client secret and set it yourself with `npx wrangler secret put GITHUB_CLIENT_SECRET`.
-   Never paste the secret into a chat.
-
-Later, and blocking nothing yet:
+Blocking nothing yet:
 
 - A Gemini API key, needed only for AI-written content or AI answers.
-- Google sign-in setup, so friends without GitHub can sign in.
 - Payments and a legal review, before anything costs money.
 - Branch protection on `main`, which is optional but stops a failing PR from being merged.
 - Rerun `set-cloudflare-deploy-token`, which adds the `CLOUDFLARE_API_TOKEN` repo secret here (`~/projects/ops/MAINTENANCE.md`, section 7).
 
 ## Open work, in order
 
-1. **Finish sign-in** once the owner's steps are done.
-   - Add `GITHUB_CLIENT_ID` to `wrangler.jsonc` vars and test a real sign-in on the live site.
-   - Register `https://whoami.n8builds.dev` as the GitHub callback URL (the workers.dev address is off).
-   - Add Google soon after.
-2. **Lobby avatars** (owner priority).
+1. **Lobby avatars** (owner priority).
    Small original characters players can move around the waiting room, bumping and jumping on each other.
    This is a sweeping visual change, so show a desktop preview first, then mobile, and get approval.
-3. **Timeline** (first new game).
+2. **Timeline** (first new game).
    Played live by taking turns placing events in order, or as a challenge where you pick a period and send it to a friend.
-4. **Measured difficulty**: turn the `identity_plays` data into each identity's level once it has enough plays.
-5. **Catalog**: grow to about 1,000 identities (400 easy, 400 medium, 200 hard, starting with hard), and stop repeats per account.
-6. **Finish the friend game**: Pass and play, the big-screen view, and the client half of the build-version handshake (compare the bundle's version with `/api/version` and offer a reload).
-7. **Friends and rivalry**: friend list, Slow Duel with friends answering, points, forfeits, per-game ratings and Auto difficulty.
-8. **More games**: Know Your Friend and Voice Clues, then rooms for 3 or more, then Bluff Facts and Sketch Relay.
-9. **Signature and revenue**: skins, live voice and the party pass.
-10. **Only if usage justifies it**: Solo, Daily, and matchmaking with strangers.
+3. **Catalog**: grow to about 1,000 identities (400 easy, 400 medium, 200 hard, starting with hard).
+4. **Finish the friend game**: Pass and play, the big-screen view, and the client half of the build-version handshake (compare the bundle's version with `/api/version` and offer a reload).
+5. **Friends and rivalry**: friend list, Slow Duel with friends answering, points, forfeits, per-game ratings and Auto difficulty.
+6. **More games**: Know Your Friend and Voice Clues, then rooms for 3 or more, then Bluff Facts and Sketch Relay.
+7. **Signature and revenue**: skins, live voice and the party pass.
+8. **Only if usage justifies it**: Solo, Daily, and matchmaking with strangers.
 
 ## Links
 
@@ -84,6 +66,9 @@ Later, and blocking nothing yet:
   That delay does not happen in CI.
 - PIN lookups are limited to 10 per 10 minutes per address, so repeating the join tests against the live site ends in "Too many tries".
   That is the limit working, not a bug.
+- GitHub sign-in and the difficulty tracking were removed on 2026-11-12, before either was switched on.
+  The D1 database still holds their `users` and `identity_plays` tables (migration `0001`), which nothing reads or writes now.
+  Dropping them would be a destructive migration, so it waits for the owner; `share_cards` stays, because every shared `/s/<id>` link depends on it.
 - A Sentry DSN is reserved for this app in `~/projects/ops/MAINTENANCE.md`, section 4, for when its code lands.
 - Other agent sessions have also worked on this repo, so check for open PRs and for worktrees before resuming.
 - `npm audit` reports moderate issues in dev tooling, blocked upstream by `eslint`, and the `minimatch` alert was dismissed for that reason.
@@ -93,7 +78,6 @@ Later, and blocking nothing yet:
 Checked 2026-11-09 against the secret names on the Worker and in GitHub Actions (names only, no values).
 New values go into the owner's pass-env store and are sent with `pass-env pipe <entry> -- <command>`; never commit or paste a value.
 
-- [ ] `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (missing): create the GitHub OAuth app (Owner steps above), then set both on the Worker.
 - [ ] `CLOUDFLARE_API_TOKEN` Actions secret (missing): Deploy runs pass without deploying. Rerun `set-cloudflare-deploy-token`.
 - [ ] `GEMINI_API_KEY` (later): for AI mode, when that work resumes.
 - [x] `SESSION_SECRET`: set on the Worker.

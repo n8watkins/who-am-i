@@ -100,12 +100,26 @@ export async function assertNoLeakBeforeReveal(capture: Capture, roundIndex: num
   return before.length;
 }
 
+let playerCount = 0;
+
+/**
+ * Locally, each player gets an address of their own (wrangler dev keeps a client-sent
+ * CF-Connecting-IP), as real players have, so parallel tests never share one rate-limit window.
+ * A deployed Worker ignores the header and sees the real address.
+ */
+function playerAddress(): Record<string, string> {
+  if (process.env.E2E_BASE_URL) return {};
+  const n = ++playerCount;
+  return { "CF-Connecting-IP": `10.${process.pid % 256}.${(n >> 8) % 256}.${n % 256}` };
+}
+
 export async function newPlayer(browser: Browser, opts: { mobile?: boolean } = {}): Promise<{ context: BrowserContext; page: Page; capture: Capture }> {
-  const context = await browser.newContext(
-    opts.mobile
+  const context = await browser.newContext({
+    ...(opts.mobile
       ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
-      : { viewport: { width: 1280, height: 800 } },
-  );
+      : { viewport: { width: 1280, height: 800 } }),
+    extraHTTPHeaders: playerAddress(),
+  });
   const page = await context.newPage();
   const capture = new Capture(page);
   return { context, page, capture };
