@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 8788;
+/** Set E2E_PORT to run the local stack on another port, for example beside a second checkout. */
+const PORT = Number(process.env.E2E_PORT ?? 8788);
 /** Set E2E_BASE_URL to run against a deployed Worker instead of a local `wrangler dev`. */
 const REMOTE = process.env.E2E_BASE_URL;
 
