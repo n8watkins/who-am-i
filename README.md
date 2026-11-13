@@ -121,6 +121,8 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
 - **One Worker** serves the Vite-built React SPA as static assets and the JSON API under `/api`.
 - **One Durable Object per room** (`src/worker/room.ts`) is the authoritative game server.
   It loads the room from Durable Object storage, applies commands through a pure state machine (`src/worker/engine.ts`), persists before acknowledging, and pushes a filtered view to every connected socket using the WebSocket Hibernation API.
+- **One edge for the rules:** the room reaches the engine and the views only through `src/party/game.ts`, which also offers them in the shape the shared party kit will host (`docs/PARTY-KIT-MIGRATION.md`).
+  It imports nothing from Cloudflare, so its tests run in plain Node.
 - **State machine:** `lobby -> assigning -> guessing_first -> guessing_second -> round_summary -> assigning ... -> match_summary`, and `match_summary -> assigning` when both players tap Rematch.
 - **Turn order:** the first guesser alternates every round.
   Round 1 follows the host's lobby choice (me, my opponent, or random); a rematch starts with the loser of the previous match, or after a tie with whoever went second in its round 1.
@@ -147,6 +149,7 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
 ```
 src/
   kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, sound and haptics, result cards, version, light and dark themes) shared by every game in the collection
+  party/     the game adapter: the rules by player id for the room, and by seat for the party kit
   shared/    protocol types, Zod schemas, pack metadata (safe for the client)
   worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
   client/    React screens (landing, setup, join, lobby, game, round summary, match summary)

@@ -11,27 +11,13 @@ import {
   type ServerMessage,
   type Settings,
 } from "../shared/protocol";
-import {
-  applyCommand,
-  createRoom,
-  expireTurn,
-  joinRoom,
-  nextDeadline,
-  pinWanted,
-  playerById,
-  setAway,
-  setPresence,
-  withPin,
-  type EngineContext,
-  type RoomState,
-} from "./engine";
 import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence";
+import { ROOM_IDLE_MS, rules, type RoomState } from "../party/game";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { resultCardText } from "./result-card";
-import { previewOf, viewFor } from "./view";
 
 /** Rooms are deleted after this long without any player activity. */
-export const ROOM_IDLE_TTL_MS = 60 * 60 * 1000;
+export const ROOM_IDLE_TTL_MS = ROOM_IDLE_MS;
 const STORAGE_KEY = "room";
 const CLOSE_ROOM_EXPIRED = 4000;
 const CLOSE_LEFT_ROOM = 4001;
@@ -55,18 +41,6 @@ export type CommandResult = { ok: true; duplicate: boolean; view: RoomView } | R
 export type ViewResult = { ok: true; view: RoomView } | RpcFailure;
 export type ShareTextResult = { ok: true; title: string; description: string } | RpcFailure;
 
-function engineContext(): EngineContext {
-  return {
-    now: Date.now(),
-    random: () => {
-      const buf = new Uint32Array(1);
-      crypto.getRandomValues(buf);
-      return buf[0]! / 2 ** 32;
-    },
-    newId: () => crypto.randomUUID(),
-  };
-}
-
 export class RoomDurableObject extends DurableObject<Env> {
   private room: RoomState | null = null;
   /** Calling the directory yields to other events, so PIN work runs strictly one job at a time. */
@@ -85,16 +59,16 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   async create(input: { code: string; nickname: string; settings: Settings }): Promise<CreateResult> {
     if (this.room) return { ok: false, error: "bad_request", message: "Room code already in use." };
-    const ctx = engineContext();
-    const { room, playerId } = createRoom({ roomId: crypto.randomUUID(), ...input }, ctx);
+    const now = Date.now();
+    const { room, playerId } = rules.open({ roomId: crypto.randomUUID(), ...input }, now);
     await this.commit(room);
     // The host has no socket yet, but their lobby is about to open.
     await this.enqueuePinWork(() => this.reconcilePin(true));
-    return { ok: true, roomId: room.roomId, playerId, view: viewFor(this.room!, playerId, ctx.now) };
+    return { ok: true, roomId: room.roomId, playerId, view: rules.view(this.room!, playerId, now) };
   }
 
   async preview(): Promise<RoomPreview | null> {
-    return this.room ? previewOf(this.room) : null;
+    return this.room ? rules.preview(this.room) : null;
   }
 
   /** The room id is checked so tokens from an expired room with a reused code are rejected. */
@@ -105,18 +79,18 @@ export class RoomDurableObject extends DurableObject<Env> {
   async join(nickname: string): Promise<JoinResult> {
     const room = this.room;
     if (!room) return notFound();
-    const ctx = engineContext();
-    const result = joinRoom(room, nickname, ctx);
+    const now = Date.now();
+    const result = rules.join(room, nickname, now);
     if (!result.ok) return result;
     await this.commit(result.room);
-    return { ok: true, playerId: result.playerId, view: viewFor(this.room!, result.playerId, ctx.now) };
+    return { ok: true, playerId: result.playerId, view: rules.view(this.room!, result.playerId, now) };
   }
 
   async getView(roomId: string, playerId: string): Promise<ViewResult> {
     const room = this.authorized(roomId, playerId);
     if (!room) return this.denied(roomId, playerId);
     await this.expireIfDue();
-    return { ok: true, view: viewFor(this.room!, playerId, Date.now()) };
+    return { ok: true, view: rules.view(this.room!, playerId, Date.now()) };
   }
 
   /** The words for a shared result card, once the match is over. */
@@ -132,34 +106,34 @@ export class RoomDurableObject extends DurableObject<Env> {
     const room = this.authorized(roomId, playerId);
     if (!room) return unauthorized();
     if (room.hostPlayerId !== playerId) return { ok: false, error: "forbidden", message: "Only the host can change the PIN." };
-    if (!pinWanted(room)) return { ok: false, error: "invalid_transition", message: "PINs are for lobbies with a free seat." };
+    if (!rules.pinWanted(room)) return { ok: false, error: "invalid_transition", message: "PINs are for lobbies with a free seat." };
     await this.enqueuePinWork(async () => {
       if (!this.room?.pin) return;
       await this.pinDirectory().release(this.room.code);
       await this.storePin(null);
       await this.reconcilePin(true);
     });
-    return { ok: true, view: viewFor(this.room!, playerId, Date.now()) };
+    return { ok: true, view: rules.view(this.room!, playerId, Date.now()) };
   }
 
   async command(roomId: string, playerId: string, command: Command): Promise<CommandResult> {
     if (!this.authorized(roomId, playerId)) return this.denied(roomId, playerId);
     // A turn whose deadline passed ends before any command is considered (first valid transition wins).
     await this.expireIfDue();
-    const ctx = engineContext();
-    const result = applyCommand(this.room!, playerId, command, ctx);
+    const now = Date.now();
+    const result = rules.command(this.room!, playerId, command, now);
     if (!result.ok) {
-      const stillPlayer = playerById(this.room!, playerId);
-      return stillPlayer ? { ...result, view: viewFor(this.room!, playerId, ctx.now) } : result;
+      const stillPlayer = rules.player(this.room!, playerId);
+      return stillPlayer ? { ...result, view: rules.view(this.room!, playerId, now) } : result;
     }
     if (!result.duplicate) await this.commit(result.room, command.type === "player.remove" ? CLOSE_REMOVED : CLOSE_LEFT_ROOM);
     if (command.type === "player.leave") {
       this.closeSockets(playerId, CLOSE_LEFT_ROOM, "left_room");
       if (result.room.players.length === 0) await this.destroy();
       // The leaver gets no further view of the room.
-      return { ok: true, duplicate: result.duplicate, view: leftView(result.room, playerId, ctx.now) };
+      return { ok: true, duplicate: result.duplicate, view: leftView(result.room, playerId, now) };
     }
-    return { ok: true, duplicate: result.duplicate, view: viewFor(this.room!, playerId, ctx.now) };
+    return { ok: true, duplicate: result.duplicate, view: rules.view(this.room!, playerId, now) };
   }
 
   // -------------------------------------------------------------------------
@@ -179,7 +153,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     server.serializeAttachment({ playerId } satisfies SocketAttachment);
 
     await this.expireIfDue();
-    const updated = setPresence(this.room!, playerId, true, engineContext());
+    // Connecting never changes away by itself: a new page starts visible and reports otherwise.
+    const away = rules.player(this.room!, playerId)?.away ?? false;
+    const updated = rules.presence(this.room!, playerId, { connected: true, away }, Date.now());
     if (updated) await this.commit(updated);
     else {
       // Another tab was already connected: this visible one may end their away state.
@@ -193,7 +169,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const attachment = ws.deserializeAttachment() as SocketAttachment;
     const { playerId } = attachment;
-    if (!this.room || !playerById(this.room, playerId)) return;
+    if (!this.room || !rules.player(this.room, playerId)) return;
     if (message === "sync") {
       this.sendView(ws, playerId);
       return;
@@ -211,8 +187,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       .getWebSockets(playerId)
       .filter((s) => s !== except && s.readyState === WebSocket.OPEN)
       .map((s) => ({ away: (s.deserializeAttachment() as SocketAttachment).away ?? false }));
-    if (sockets.length === 0) return;
-    const updated = setAway(this.room, playerId, allAway(sockets), engineContext());
+    if (sockets.length === 0 || !rules.player(this.room, playerId)?.connected) return;
+    const updated = rules.presence(this.room, playerId, { connected: true, away: allAway(sockets) }, Date.now());
     if (updated) await this.commit(updated);
   }
 
@@ -227,12 +203,12 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   private async socketGone(ws: WebSocket): Promise<void> {
     const { playerId } = ws.deserializeAttachment() as SocketAttachment;
-    if (!this.room || !playerById(this.room, playerId)) return;
+    if (!this.room || !rules.player(this.room, playerId)) return;
     const stillOpen = this.ctx
       .getWebSockets(playerId)
       .some((s) => s !== ws && s.readyState === WebSocket.OPEN);
     if (stillOpen) return this.syncAway(playerId, ws);
-    const updated = setPresence(this.room, playerId, false, engineContext());
+    const updated = rules.presence(this.room, playerId, { connected: false, away: false }, Date.now());
     if (updated) await this.commit(updated);
   }
 
@@ -254,7 +230,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   /** Applies a due turn timeout exactly once. Returns true if the state changed. */
   private async expireIfDue(): Promise<boolean> {
     if (!this.room) return false;
-    const updated = expireTurn(this.room, engineContext());
+    const updated = rules.tick(this.room, Date.now());
     if (!updated) return false;
     await this.commit(updated);
     return true;
@@ -263,7 +239,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   private async scheduleAlarm(): Promise<void> {
     if (!this.room) return;
     const expiry = this.room.lastActivityAt + ROOM_IDLE_TTL_MS;
-    const deadline = nextDeadline(this.room);
+    const deadline = rules.nextDeadline(this.room);
     const pinAt = this.nextPinCheck();
     await this.ctx.storage.setAlarm(Math.min(expiry, deadline ?? Infinity, pinAt ?? Infinity));
   }
@@ -296,8 +272,8 @@ export class RoomDurableObject extends DurableObject<Env> {
   private updatePin(): Promise<void> {
     const room = this.room;
     if (!room) return this.pinWork;
-    const hostConnected = playerById(room, room.hostPlayerId)?.connected ?? false;
-    const settled = pinWanted(room)
+    const hostConnected = rules.player(room, room.hostPlayerId)?.connected ?? false;
+    const settled = rules.pinWanted(room)
       ? room.pin
         ? Date.now() < room.pin.expiresAt - PIN_REFRESH_MARGIN_MS
         : !hostConnected
@@ -311,14 +287,14 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!room) return;
     const directory = this.pinDirectory();
     const { code, roomId, pin } = room;
-    if (!pinWanted(room)) {
+    if (!rules.pinWanted(room)) {
       if (pin) {
         await directory.release(code);
         await this.storePin(null);
       }
       return;
     }
-    const hostConnected = playerById(room, room.hostPlayerId)?.connected ?? false;
+    const hostConnected = rules.player(room, room.hostPlayerId)?.connected ?? false;
     if (pin) {
       const now = Date.now();
       if (now < pin.expiresAt - PIN_REFRESH_MARGIN_MS) return;
@@ -339,7 +315,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private async storePin(pin: RoomState["pin"]): Promise<void> {
-    if (this.room) await this.store(withPin(this.room, pin, engineContext()));
+    if (this.room) await this.store(rules.withPin(this.room, pin, Date.now()));
   }
 
   // -------------------------------------------------------------------------
@@ -362,7 +338,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!this.room) return;
     for (const ws of this.ctx.getWebSockets()) {
       const { playerId } = ws.deserializeAttachment() as SocketAttachment;
-      if (playerById(this.room, playerId)) this.sendView(ws, playerId);
+      if (rules.player(this.room, playerId)) this.sendView(ws, playerId);
       else ws.close(departedCloseCode, "left_room");
     }
   }
@@ -370,7 +346,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   /** Each socket receives only its own player's filtered view. */
   private sendView(ws: WebSocket, playerId: string): void {
     if (!this.room) return;
-    const message: ServerMessage = { type: "state", view: viewFor(this.room, playerId, Date.now()) };
+    const message: ServerMessage = { type: "state", view: rules.view(this.room, playerId, Date.now()) };
     try {
       ws.send(JSON.stringify(message));
     } catch {
@@ -414,7 +390,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   private authorized(roomId: string, playerId: string): RoomState | null {
     const room = this.room;
-    if (!room || room.roomId !== roomId || !playerById(room, playerId)) return null;
+    if (!room || room.roomId !== roomId || !rules.player(room, playerId)) return null;
     return room;
   }
 }
