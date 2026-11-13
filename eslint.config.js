@@ -39,6 +39,26 @@ export default tseslint.config(
     },
   },
   {
+    // The party adapter (src/party) is the game's edge for the party kit: plain TypeScript over the
+    // pure rules, with no Cloudflare runtime and no room, so any host (and plain Vitest) can run it.
+    files: ["src/party/**/*.ts", "test/party/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["cloudflare:*"], message: "The party adapter must run outside the Workers runtime." },
+            {
+              group: ["**/worker/*", "!**/worker/engine", "!**/worker/view", "!**/worker/content"],
+              message: "The party adapter wraps only the pure rules: engine, view and content.",
+            },
+            { group: ["**/kit/worker/**", "**/kit/client/**"], message: "The party adapter uses no host or browser code." },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["scripts/**/*.mjs", "e2e/**/*.ts", "*.config.{ts,js}"],
     languageOptions: { globals: globals.node },
   },
