@@ -265,7 +265,8 @@ describe("snapshot", () => {
     for (const viewer of [{ role: "player", seat: 0 }, { role: "player", seat: 2 }, { role: "screen" }, { role: "screen", seat: 1 }, { role: "judge", seat: 1 }, {}, null, undefined]) {
       const text = JSON.stringify(game.snapshot(state, START, viewer));
       expect(text, JSON.stringify(viewer)).not.toMatch(/"(role":"audience|identities|reveal|scores)"/);
-      const own = viewer && "seat" in viewer && viewer.role === "player" ? [assignment(state, viewer.seat)!] : [assignment(state, 0)!, assignment(state, 2)!];
+      const seat = viewer?.role === "player" && "seat" in viewer ? viewer.seat : null;
+      const own = seat !== null && seat !== undefined ? [assignment(state, seat)!] : [assignment(state, 0)!, assignment(state, 2)!];
       for (const id of own) expect(text, JSON.stringify(viewer)).not.toContain(id);
     }
     const audience = game.snapshot(state, START, { role: "audience" });
