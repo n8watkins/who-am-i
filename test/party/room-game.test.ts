@@ -3,7 +3,9 @@
 // party room would run them (each input applied to restore(serialize(state)), every viewer's
 // snapshot and every event scanned).
 import { describe, expect, it } from "vitest";
-import { game, manifest } from "../../party";
+// The source (party.ts's two names). "../../party" would resolve to the built party.js beside it.
+import { game } from "../../src/party/room-game";
+import { manifest } from "../../src/party/manifest";
 // The built module a party site imports (the package's "." export): it must be the source.
 import * as built from "../../party.js";
 import { CARRY_MAX_BYTES, RoomSettingsSchema, type RoomGameState, type RoomSnapshot, type Sources } from "../../src/party/room-game";
