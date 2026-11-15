@@ -118,7 +118,13 @@ describe("the contract surface", () => {
   it("names its room view and nothing else as public files", () => {
     expect(manifest).toMatchObject({ id: "who-am-i", path: "/who-am-i/", players: { min: 2, max: 2, solo: false }, lobby: { view: "party-view/view.js" } });
     expect(manifest.public).toEqual([{ from: "party-view", to: "party-view" }]);
-    expect(manifest.devices).toMatchObject({ phone: true, sharedScreen: true });
+  });
+
+  it("plays in a party of up to four, two playing and the rest watching, on phones held upright", () => {
+    // A larger party may vote for it: its two players stand on spots and the others are its audience.
+    expect(manifest.audience).toBe(true);
+    // A phone each (the room's badge), a big screen that may join, and laid out upright.
+    expect(manifest.devices).toEqual({ phone: true, desktop: false, sharedScreen: true, sideways: false, upright: true });
   });
 });
 

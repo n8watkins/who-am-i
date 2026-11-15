@@ -4106,11 +4106,17 @@ var manifest = {
 		max: 2,
 		solo: false
 	},
+	/**
+	* A party larger than two may vote for it: the room chooses its two players on spots, and
+	* everyone else in the party watches as its audience, who see both identities (KR-12).
+	*/
+	audience: true,
 	devices: {
 		phone: true,
-		desktop: true,
+		desktop: false,
 		sharedScreen: true,
-		sideways: false
+		sideways: false,
+		upright: true
 	},
 	/**
 	* For a party room: the module, under `path`, whose mount() shows a match the room has already

@@ -78,10 +78,16 @@ export const manifest = {
   /** The same on every site, so a link works on any host. */
   path: "/who-am-i/",
   players: { min: 2, max: 2, solo: false },
-  // A big screen may join: it only ever shows whose turn it is, the timer and the question count.
-  // The game is designed for a phone held upright; the contract cannot say so yet (`sideways`
-  // has no "upright"), so it says it does not need sideways (docs/PARTY-KIT-MIGRATION.md, KR-14).
-  devices: { phone: true, desktop: true, sharedScreen: true, sideways: false },
+  /**
+   * A party larger than two may vote for it: the room chooses its two players on spots, and
+   * everyone else in the party watches as its audience, who see both identities (KR-12).
+   */
+  audience: true,
+  // A phone each: your phone holds the other player's identity, so it is not a game for one
+  // shared laptop (the room's badge says "A phone each"; a laptop's browser still plays). A big
+  // screen may join: it only ever shows whose turn it is, the timer and the question count. Laid
+  // out for a phone held upright: the room stops asking for sideways while it is played (KR-14).
+  devices: { phone: true, desktop: false, sharedScreen: true, sideways: false, upright: true },
   /**
    * For a party room: the module, under `path`, whose mount() shows a match the room has already
    * started for its two seats. It shows the game's own page (index.html beside it) in a frame.

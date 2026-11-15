@@ -21,8 +21,9 @@ export type PlayerSnapshot = RoomView & { role: "player"; seat: number; match: M
 export type RoomScreenView = ScreenView & { match: MatchLength };
 
 /**
- * What a watching phone in the audience may see, once the room can say so (`{role: "audience"}`):
- * the screen's view and both identities while a round is on. Never sent to a player or a screen.
+ * What a watching phone in the audience sees (the room's `{role: "audience", seat}`, for a member
+ * of a larger party who is not playing): the screen's view, both identities while a round is on,
+ * the reveal between rounds and the scores. Never sent to a player or a screen.
  */
 export type AudienceView = Omit<ScreenView, "role"> & {
   role: "audience";

@@ -2,15 +2,18 @@
 // the `game` a party site imports from this package (party.ts) and runs in its party room.
 //
 // It is built on the adapter (./game.ts), which is built on the rules engine
-// (src/worker/engine.ts); neither changes. What this layer adds is what the party room needs and
-// the adapter did not have: the room's settings (first to 3 by default), a viewer the room may
-// pass that the adapter does not know (a watcher's seat, a future audience), ending early when a
-// player leaves, a carry the room can keep, and a save that holds all of it.
+// (src/worker/engine.ts); the engine does not change. What this layer adds is what the party
+// room needs and the adapter did not have: the room's settings (first to 3 by default), the
+// viewers the room passes that the adapter does not know (the audience: the members of a larger
+// party who are not playing, and a watcher's seat), ending early when a player leaves or their
+// phone does not come back, a carry the room can keep, and a save that holds all of it.
 //
 // Secrecy is the point of the game, and holds here too:
 // - A player's snapshot never names their own identity, or a hint for it they did not ask for,
-//   until their round is over. The screen, a member who is watching, and anyone the game does
-//   not recognise get the screen's view: whose turn, the timer and the question count.
+//   until their round is over, whatever role the room names their seat by.
+// - The audience sees both identities, the reveal and the scores, never a hint or a question.
+// - The screen, a member watching as a screen, and anyone the game does not recognise get the
+//   screen's view: whose turn, the timer and the question count.
 // - Identities are drawn with crypto.getRandomValues inside the adapter. The room's `seed` is
 //   never read.
 // - `result`, `standings` and events go to everyone, so none of them names an identity. `carry`
