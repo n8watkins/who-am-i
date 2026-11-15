@@ -165,7 +165,7 @@ e2e/         Playwright tests
 
 Who Am I? can also be played inside the shared party room at partygames.n8builds.dev ([n8watkins/n8-party-games](https://github.com/n8watkins/n8-party-games)), as one of the games a party votes for.
 Nothing about this site changes: whoami.n8builds.dev keeps its own rooms, routes and lobby.
-The party room needs its turn-based stack (n8-party-games #23 to #29) merged first; until then the party site lists Who Am I? as a link here.
+The party room needs its turn-based stack (n8-party-games #23 to #30 and #32) merged first; until then the party site lists Who Am I? as a link here.
 
 The package keeps the party kit's game contract (`party-kit/GAME-CONTRACT.md` in that repository).
 Its `.` export is `party.js`, which exports `game` and `manifest`:
@@ -173,7 +173,7 @@ Its `.` export is `party.js`, which exports `game` and `manifest`:
 | Part | Where | What it is |
 | --- | --- | --- |
 | `game` | `src/party/room-game.ts` | The match for the party room, on the adapter (`src/party/game.ts`) and the unchanged engine. Turn-based (`tickHz: 0`), two humans, saved after every input. |
-| `manifest` | `src/party/manifest.ts` | Id, name, `/who-am-i/` path, two players, the room view (`lobby.view`), the settings fields and the public files. |
+| `manifest` | `src/party/manifest.ts` | Id, name, `/who-am-i/` path, two players with an audience (`audience: true`), a phone each held upright (`devices.upright`), the room view (`lobby.view`), the settings fields and the public files. |
 | Room view | `src/party-view/` | `view.js`, the module the room mounts, shows the game's own React screens (`Game`, `RoundSummary`) on a page in a frame. |
 
 To host it, a party site adds the package as a pinned git dependency (`"who-am-i": "github:n8watkins/who-am-i#<commit>"`), imports it in its `games.js`, and takes Who Am I? off its list of outside games.
@@ -190,25 +190,28 @@ The room view is committed built for the same reason: a party site runs no build
 | Who | Sees |
 | --- | --- |
 | A player's phone | The match as on this site: the other player's identity, the questions and answers, the guesser's controls, hints, the log and the timer. Never their own identity before their round is over. |
-| The big screen, and a phone in the party that is not playing | Whose turn it is, the timer, the question count and "Checking a guess". No identity, hint, question or log. |
-| An audience phone (only once the party room sends `{role: "audience"}`) | The same, and both identities. |
+| A phone in the party that is not playing (the audience) | Whose turn it is, the timer, the question count, both identities while a round is on, the round's reveal and the scores. No hint, question or log. |
+| The big screen | Whose turn it is, the timer, the question count and "Checking a guess", across its width in larger type. No identity, hint, question or log. |
 
 **How a match runs there.**
 
-- The party's two players start the match the moment the vote ends; the first guesser is random, and a rematch (once the party room keeps a carry) starts with the loser and avoids the last match's identities.
-- The host's choices are the game's own (category, mode, turns, questions, timer, hints, difficulty) and the match length, which adds first to 3, the default there.
-  Until the party room has its settings step, every match uses the defaults.
+- In a party of two, both play; in a party of three or four, two take the spots on the wall and the others watch.
+- After the vote the party's host picks the settings: the game's own (category, mode, turns, questions, timer, hints, difficulty) and the match length, which adds first to 3, the default there.
+- The first guesser is random, and a rematch between the same two players starts with the loser and avoids the last match's identities.
 - Every tap is an answered input with an id: the room applies it once however often it arrives, and a tap made against an old view is refused.
-- A locked or dropped phone keeps its seat while the room lives and pauses the timer.
-  The host override works as here (confirm your own guess once the other phone has been gone 30 seconds); the match's host is the player in the lower seat.
-- A player who leaves the party ends the match, and the one who stayed wins it.
+- A locked or dropped phone pauses the timer and keeps its seat for ten minutes; one that does not come back by then is given up on, and the player who stayed wins.
+  Either guesser may confirm their own guess once the other phone has been gone 30 seconds.
+- A player who leaves the party ends the match, and the one who stayed wins it, unless they have been gone a while themselves; then nobody places.
+  Once the last round's summary says who won, the match is decided, whoever leaves.
+- The end card shows each player's score beside their place.
 - The room may sleep between taps, and is closed only after an hour with nobody doing anything.
-- The game is designed upright and the room is held sideways, so the view is an upright column at most 480 pixels wide, letterboxed on a sideways phone.
+- The game is laid out upright: the room stops asking for sideways while it is played, and on a phone held sideways the room letterboxes it in the middle.
+  The view keeps each phone's screen awake.
 
 **Tests.**
-`test/party/room-game.test.ts` covers every function of the contract and plays whole matches the way the room runs them (each input on `restore(serialize(state))`), scanning every snapshot and event sent to both players, the screen and a watcher for each player's own identity, its aliases and unrequested hints.
-`test/party/party-view.test.ts` covers the module the room mounts.
-`test/party-room/harness.test.ts` runs the built `party.js` in the party room's real room class, fetched at a pinned commit into `.cache/` (`scripts/party-room-checkout.mjs`), through a whole match with a rebuild of the room in the middle, the turn timer on the room's alarm, presence and a player leaving, checking every frame every socket is sent.
+`test/party/room-game.test.ts` covers every function of the contract and plays whole matches the way the room runs them (each input on `restore(serialize(state))`), scanning every snapshot and event sent to both players, the screen, a watcher and the audience for each player's own identity, its aliases and unrequested hints.
+`test/party/party-view.test.ts` covers the module the room mounts, and `test/party/party-app.test.ts` the page it shows, rendered from real snapshots.
+`test/party-room/harness.test.ts` runs the built `party.js` with its manifest in the party room's real room class, fetched at a pinned commit into `.cache/` (`scripts/party-room-checkout.mjs`; `PARTY_ROOM_COMMIT=<sha>` tries another), through the vote and the settings step, whole matches with a rebuild of the room in the middle, the turn timer on the room's alarm, presence, a phone that never comes back, a player leaving, and a party of four with spots and an audience, checking every frame every socket is sent.
 `scripts/check-bundle.mjs` also scans `party-view/` for identity content.
 
 ## Content
