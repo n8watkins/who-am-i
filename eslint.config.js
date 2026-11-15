@@ -41,7 +41,7 @@ export default tseslint.config(
   {
     // The party adapter (src/party) is the game's edge for the party kit: plain TypeScript over the
     // pure rules, with no Cloudflare runtime and no room, so any host (and plain Vitest) can run it.
-    files: ["src/party/**/*.ts", "test/party/**/*.ts"],
+    files: ["party.ts", "src/party/**/*.ts", "test/party/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

@@ -46,6 +46,7 @@ import {
   type RoomState,
 } from "../worker/engine";
 import { previewOf, viewFor } from "../worker/view";
+import { manifest } from "./manifest";
 
 export type { RoomState };
 
@@ -234,17 +235,7 @@ function sameSeats(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((s) => b.includes(s));
 }
 
-export const manifest = {
-  id: "who-am-i",
-  name: "Who Am I?",
-  blurb: "Guess the secret identity only your friend can see",
-  path: "/who-am-i/",
-  players: { min: 2, max: 2, solo: false },
-  // Phones upright. A big screen may join, and it only ever shows turn, timer and question count.
-  devices: { phone: true, desktop: true, sharedScreen: true, sideways: false },
-  // The client is not packaged for the party site yet (docs/PARTY-KIT-MIGRATION.md).
-  public: [] as { from: string; to: string }[],
-} as const;
+export { manifest };
 
 export const game = {
   id: manifest.id,
