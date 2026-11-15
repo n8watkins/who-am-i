@@ -536,6 +536,24 @@ describe("Who Am I? in the party room", () => {
     secrecy.finalCheck();
   });
 
+  it("gives the one who stayed the win when the other forfeits, though the stayer's page was hidden meanwhile", async () => {
+    const { ctx, say, ws, secrecy } = await party();
+    ctx.room.webSocketClose(ws.bo, 1006, "");
+    await fake.settle();
+    // Ann waits a little, then switches to another app; her socket stays open and keeps its keep-alive.
+    await vi.advanceTimersByTimeAsync(5_000);
+    say(ws.ann, { t: "away" });
+    await fake.settle();
+    expect(ctx.room.core.members[0]).toMatchObject({ connected: true, away: true });
+    await vi.advanceTimersByTimeAsync(56_000);
+    expect(ctx.room.core.activity.kind).toBe("lobby");
+    const end = ws.screen.messages().find((m: Msg) => m.t === "end");
+    expect(end.last.early).toMatchObject({ seat: 1, why: "gone" });
+    expect(end.last.rows).toEqual([expect.objectContaining({ seat: 0, place: 1, points: 3 })]);
+    expect(ctx.room.core.members[0].points).toBe(3);
+    secrecy.finalCheck();
+  });
+
   it("gives nobody the win when a player leaves while the other's phone has been gone a while", async () => {
     const { ctx, say, ws, secrecy } = await party();
     ctx.room.webSocketClose(ws.bo, 1006, "");

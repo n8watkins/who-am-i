@@ -328,11 +328,15 @@ export const game = {
   },
 
   /**
-   * A player left the party, or their phone's grace ran out: the match ends. A match already
-   * decided (its last round's summary is up) ends as it was decided, whoever leaves. Otherwise the
-   * player who stayed wins it and the one who left gets no place, unless the one who stayed is
-   * not here either (dropped, or their page hidden, for 30 seconds or more): then nobody wins,
-   * so leaving a match whose other phone vanished does not hand the vanished player the win.
+   * A seat is gone for good: the match ends. A match already decided (its last round's summary is
+   * up) ends as it was decided, whoever goes. Otherwise the player who stayed wins it and the one
+   * who went gets no place, except:
+   * - A player who leaves the party (their page here when they go) while the one who stayed has
+   *   been gone (dropped, or their page hidden) 30 seconds or more: nobody wins, so leaving a
+   *   match whose other phone vanished does not hand the vanished player the win.
+   * - A player who forfeits (their phone dropped or hidden when the room gives up on it) while the
+   *   one who stayed has been dropped 30 seconds or more too: nobody wins. A stayer whose page is
+   *   merely hidden, its socket still open, wins the forfeit.
    */
   abandon(state: RoomGameState, seat: number, now: number): { standings: { seat: number; place: number }[]; result: RoomResult | null; events: { k: "abandoned"; seat: number }[] } {
     const seats = seatList(state);
@@ -340,8 +344,12 @@ export const game = {
     if (!seats.includes(seat) || stayed === undefined) return { standings: [], result: null, events: [] };
     if (decided(state)) return { standings: decidedStandings(state), result: decidedResult(state), events: [] };
     const room = state.match.room;
+    const went = playerById(room, playerOf(seat));
     const other = playerById(room, playerOf(stayed));
-    const since = other ? absentSince(other) : null;
+    // A seat whose page was not here when it went did not leave: the room gave up on it. (A page
+    // can only tap "Leave" while it is shown; a ghost is still taken for away, never dropped.)
+    const forfeit = !!went && absentSince(went) !== null;
+    const since = !other ? null : forfeit ? (other.connected ? null : other.disconnectedAt) : absentSince(other);
     const otherGone = since !== null && now - since >= ABSENT_MS;
     const rows = bestFirst(state);
     return {

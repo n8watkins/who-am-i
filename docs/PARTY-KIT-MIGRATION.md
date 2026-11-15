@@ -122,7 +122,10 @@ With the built `party.js`, the scratch party site built its public files, bundle
 12. **A watcher's `you`.** A member who is not playing is `{role: "audience", seat}` in `you` and in the snapshot.
 13. **Ending early.** The contract leaves the grace to the game. A grace that never ends froze a match whose other phone vanished: on that player's move nothing could happen, and leaving handed them the win.
    The owner's rule (2026-11-15): a player who has vanished for a minute forfeits, so the grace is 60 seconds, after which the room ends the match and the player who stayed wins it.
-   Decided by the orchestrator, not the owner: a player who leaves while the other has been gone 30 seconds or more ends it with nobody placed (30 seconds, the same as the override, is half the minute: someone who waits the other half wins).
+   A forfeit always makes the player who stayed first, also when their own page was hidden meanwhile (switched to another app, phone locked, socket still open).
+   The one exception: when the player who stayed has been dropped (no socket) for 30 seconds or more too, nobody is placed.
+   Decided by the orchestrator, not the owner: a player who leaves the party (taps "Leave", their page shown) while the other has been gone, dropped or hidden, for 30 seconds or more ends it with nobody placed (30 seconds, the same as the override, is half the minute: someone who waits the other half wins).
+   `abandon` tells a forfeit from a leave by the going player's own record: a page can only tap "Leave" while it is shown, so a seat that was dropped or hidden when it went was given up on by the room.
    "Nobody placed" rather than the leaver first, because the room drops the leaver's seat from the party before it asks `abandon`, so a place for them would not be counted.
    The minute runs only for a phone whose socket is gone.
    A locked or hidden page that keeps its socket is away, not dropped: its timer is paused and nothing runs down while its keep-alive is still heard.

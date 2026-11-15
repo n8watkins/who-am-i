@@ -482,6 +482,36 @@ describe("abandon", () => {
     expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
   });
 
+  it("gives the one who stayed the win when the other forfeits, even with their own page hidden all the while", () => {
+    // Seat 2's phone drops; seat 0 switches to another app 5 seconds later and is still away when seat 2's minute runs out.
+    const { state, sources } = start({ turnFormat: "keep_going" });
+    playTurn(state, START, sources);
+    game.presence(state, 2, { connected: false, away: false }, START, sources);
+    game.presence(state, 0, { connected: true, away: true }, START + 5_000, sources);
+    const ended = game.abandon(state, 2, START + game.reconnectGraceMs);
+    expect(ended.standings).toEqual([{ seat: 0, place: 1 }]);
+    expect(ended.result![0]!.seat).toBe(0);
+
+    // A ghost: seat 2's page went away and its socket fell silent, so the room was never told it
+    // dropped before it gave up on it. Still a forfeit, and the hidden stayer still wins.
+    const ghost = start({ turnFormat: "keep_going" });
+    game.presence(ghost.state, 2, { connected: true, away: true }, START, ghost.sources);
+    game.presence(ghost.state, 0, { connected: true, away: true }, START + 1_000, ghost.sources);
+    expect(game.abandon(ghost.state, 2, START + game.reconnectGraceMs).standings).toEqual([{ seat: 0, place: 1 }]);
+  });
+
+  it("gives nobody the win when a phone forfeits while the other phone has been dropped 30 seconds too", () => {
+    const { state, sources } = start({ turnFormat: "keep_going" });
+    game.presence(state, 2, { connected: false, away: false }, START, sources);
+    game.presence(state, 0, { connected: false, away: false }, START + 20_000, sources);
+    expect(game.abandon(state, 2, START + game.reconnectGraceMs).standings).toEqual([]);
+    // Dropped only a moment ago: the one who stayed still wins.
+    const late = start({ turnFormat: "keep_going" });
+    game.presence(late.state, 2, { connected: false, away: false }, START, late.sources);
+    game.presence(late.state, 0, { connected: false, away: false }, START + 50_000, late.sources);
+    expect(game.abandon(late.state, 2, START + game.reconnectGraceMs).standings).toEqual([{ seat: 0, place: 1 }]);
+  });
+
   it("gives nobody the win when a player leaves while the other has been gone for a while", () => {
     for (const report of [
       { connected: false, away: false },

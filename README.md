@@ -204,6 +204,7 @@ The room view is committed built for the same reason: a party site runs no build
   A locked phone that keeps its connection is away, not gone; if it stops answering the room's keep-alive, the room drops it at its next wake-up after a minute of silence, and it forfeits then.
   Either guesser may confirm their own guess once the other phone has been gone 30 seconds.
 - A player who leaves the party ends the match, and the one who stayed wins it, unless they have been gone a while themselves; then nobody places.
+  A forfeit always goes to the one who stayed, even if their own page was hidden meanwhile; only if their phone has been dropped 30 seconds too does nobody place.
   Once the last round's summary says who won, the match is decided, whoever leaves.
 - The end card shows each player's score beside their place.
 - The room may sleep between taps, and is closed only after an hour with nobody doing anything.
