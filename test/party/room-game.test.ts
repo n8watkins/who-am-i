@@ -259,8 +259,15 @@ describe("snapshot", () => {
     }
   });
 
-  it("has an audience view, for when the room can pass one: both identities, never sent to anyone else", () => {
+  it("has an audience view: both identities, never sent to anyone else", () => {
     const { state } = start();
+    // Nobody but the audience gets it: not a player, the screen, a member watching as a screen, or anyone unknown.
+    for (const viewer of [{ role: "player", seat: 0 }, { role: "player", seat: 2 }, { role: "screen" }, { role: "screen", seat: 1 }, { role: "judge", seat: 1 }, {}, null, undefined]) {
+      const text = JSON.stringify(game.snapshot(state, START, viewer));
+      expect(text, JSON.stringify(viewer)).not.toMatch(/"(role":"audience|identities|reveal|scores)"/);
+      const own = viewer && "seat" in viewer && viewer.role === "player" ? [assignment(state, viewer.seat)!] : [assignment(state, 0)!, assignment(state, 2)!];
+      for (const id of own) expect(text, JSON.stringify(viewer)).not.toContain(id);
+    }
     const audience = game.snapshot(state, START, { role: "audience" });
     expect(audience).toMatchObject({ role: "audience", match: "first_to_3", scores: [{ seat: 0, score: 0 }, { seat: 2, score: 0 }] });
     expect((audience as { identities: { seat: number; identity: { id: string } }[] }).identities.map((i) => [i.seat, i.identity.id])).toEqual([
@@ -584,6 +591,7 @@ const VIEWERS = {
   bo: { role: "player", seat: 2 },
   screen: { role: "screen" },
   watcher: { role: "screen", seat: 1 },
+  audience: { role: "audience", seat: 3 },
 } as const;
 type Who = keyof typeof VIEWERS;
 
@@ -644,7 +652,23 @@ function scanFrame(state: RoomGameState, who: Who, frame: string, scan: Scan) {
     }
     return;
   }
-  // The screen and a watching member: no identity at all, no hint, no question, no log.
+  if (viewer.role === "audience") {
+    // A member watching as the audience: both identities while a round is on (in its snapshot),
+    // but no hint, no question, no log and nothing of a player's own view.
+    const round = state.match.room.round;
+    const current = round ? state.match.seats.map((s) => getIdentity(assignment(state, s)!)) : [];
+    const shown = current.flatMap((i) => [i.canonicalName, i.id, ...i.aliases]).map(escaped);
+    if (frame.startsWith('{"t":"snap"')) for (const identity of current) expect(frame, `${who} was not sent ${identity.id}`).toContain(escaped(identity.canonicalName));
+    for (const id of scan.owned.keys()) {
+      for (const hint of secretsOf(id).hints) {
+        if (!shown.some((s) => s.includes(hint))) expect(frame, `${who} was sent a hint (${hint})`).not.toContain(hint);
+      }
+    }
+    for (const question of scan.questions) expect(frame, `${who} was sent a question`).not.toContain(escaped(question));
+    expect(frame).not.toMatch(/"(log|hints|opponentIdentity|roundSummary|assignments|usedIdentityIds|youId)"/);
+    return;
+  }
+  // The screen and a member watching as a screen: no identity at all, no hint, no question, no log.
   for (const id of scan.owned.keys()) {
     const { names, hints } = secretsOf(id);
     for (const text of [...names, ...hints]) expect(frame, `${who} was sent ${text}`).not.toContain(text);
