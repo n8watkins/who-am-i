@@ -358,6 +358,24 @@ describe("the end of a match", () => {
     expect(game.isOver(state)).toBe(true);
   });
 
+  it("is decided at the round that reaches 3: whoever leaves on that summary, the real winner is first", () => {
+    for (const leaver of [0, 2]) {
+      const { state, sources } = start({ turnFormat: "keep_going" });
+      for (let round = 0; round < 3; round++) {
+        while (state.match.room.status !== "round_summary") playTurn(state, START, sources, turnSeat(state) !== 0);
+        if (round < 2) game.input(state, 2, command(state, "round.next"), START, sources);
+      }
+      expect(state.match.room.lastRoundSummary?.matchOver).toBe(true);
+      const ended = game.abandon(state, leaver, START);
+      expect(ended.standings, `seat ${leaver} left`).toEqual([
+        { seat: 0, place: 1 },
+        { seat: 2, place: 2 },
+      ]);
+      expect(ended.result, `seat ${leaver} left`).toMatchObject({ winnerSeat: 0, tie: false, rounds: 3 });
+      expect(ended.events).toEqual([]);
+    }
+  });
+
   it("keeps the engine's own lengths: first to 5, and the best after 10 rounds with a shared first place on a tie", () => {
     const five = start({ match: "first_to_5", turnFormat: "keep_going" });
     expect(playMatch(five.state, five.sources, 0)).toBe(5);

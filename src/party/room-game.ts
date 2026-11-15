@@ -133,6 +133,44 @@ function seatList(state: RoomGameState): readonly number[] {
   return state.match.seats;
 }
 
+/**
+ * Whether the match is decided: its last round's summary says the match is over (the engine's
+ * own end, or first to 3), or the match summary is showing. From then on its result and places
+ * are final, whoever leaves; only the tap to the match summary is still to come.
+ */
+function decided(state: RoomGameState): boolean {
+  const room = state.match.room;
+  if (!room.match) return false;
+  return room.status === "match_summary" || (room.status === "round_summary" && !!room.lastRoundSummary?.matchOver);
+}
+
+/** The scores of both seats, from the match as it stands. */
+function scoresOf(state: RoomGameState): { seat: number; score: number }[] {
+  const room = state.match.room;
+  return seatList(state).map((seat) => ({ seat, score: playerById(room, playerOf(seat))?.score ?? 0 }));
+}
+
+/** The final result of a decided match, or null while it is still being played. */
+function decidedResult(state: RoomGameState): RoomResult | null {
+  const room = state.match.room;
+  if (!decided(state) || !room.match) return null;
+  const winner = room.match.winnerId;
+  return {
+    winnerSeat: seatList(state).find((s) => playerOf(s) === winner) ?? null,
+    tie: room.match.tie,
+    rounds: room.match.rounds,
+    scores: scoresOf(state),
+  };
+}
+
+/** Places for a decided match: the winner first, both first after a tie. */
+function decidedStandings(state: RoomGameState): { seat: number; place: number }[] {
+  if (!decided(state)) return [];
+  const scores = scoresOf(state);
+  const sorted = [...scores].sort((x, y) => y.score - x.score);
+  return sorted.map((row) => ({ seat: row.seat, place: 1 + sorted.filter((other) => other.score > row.score).length }));
+}
+
 function screenOf(state: RoomGameState, now: number): RoomScreenView {
   const view = adapter.snapshot(state.match, now, { role: "screen" }) as ScreenView;
   return { ...view, match: state.settings.match };
@@ -242,13 +280,15 @@ export const game = {
   },
 
   /**
-   * A player left the party (or their phone never came back): the match ends, and the player who
-   * stayed wins it. The one who left gets no place.
+   * A player left the party (or their phone never came back): the match ends. A match already
+   * decided (its last round's summary is up) ends as it was decided, whoever leaves. Otherwise the
+   * player who stayed wins it, and the one who left gets no place.
    */
   abandon(state: RoomGameState, seat: number, _now: number): { standings: { seat: number; place: number }[]; result: RoomResult | null; events: { k: "abandoned"; seat: number }[] } {
     const seats = seatList(state);
     const stayed = seats.find((s) => s !== seat);
     if (!seats.includes(seat) || stayed === undefined) return { standings: [], result: null, events: [] };
+    if (decided(state)) return { standings: decidedStandings(state), result: decidedResult(state), events: [] };
     const room = state.match.room;
     return {
       standings: [{ seat: stayed, place: 1 }],
@@ -256,7 +296,7 @@ export const game = {
         winnerSeat: stayed,
         tie: false,
         rounds: room.roundIndex,
-        scores: seats.map((s) => ({ seat: s, score: playerById(room, playerOf(s))?.score ?? 0 })),
+        scores: scoresOf(state),
         abandonedBy: seat,
       },
       events: [{ k: "abandoned", seat }],
@@ -269,12 +309,12 @@ export const game = {
 
   /** Sent to everyone with the end: the winner, the rounds and the scores. No identity. */
   result(state: RoomGameState): RoomResult | null {
-    return adapter.result(state.match);
+    return decidedResult(state);
   },
 
   /** Places for the night: the winner first, both first after a tie. */
   standings(state: RoomGameState): { seat: number; place: number }[] {
-    return adapter.standings(state.match);
+    return decidedStandings(state);
   },
 
   /**

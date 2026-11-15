@@ -4612,6 +4612,45 @@ function applyTarget(state) {
 function seatList(state) {
 	return state.match.seats;
 }
+/**
+* Whether the match is decided: its last round's summary says the match is over (the engine's
+* own end, or first to 3), or the match summary is showing. From then on its result and places
+* are final, whoever leaves; only the tap to the match summary is still to come.
+*/
+function decided(state) {
+	const room = state.match.room;
+	if (!room.match) return false;
+	return room.status === "match_summary" || room.status === "round_summary" && !!room.lastRoundSummary?.matchOver;
+}
+/** The scores of both seats, from the match as it stands. */
+function scoresOf(state) {
+	const room = state.match.room;
+	return seatList(state).map((seat) => ({
+		seat,
+		score: playerById(room, playerOf(seat))?.score ?? 0
+	}));
+}
+/** The final result of a decided match, or null while it is still being played. */
+function decidedResult(state) {
+	const room = state.match.room;
+	if (!decided(state) || !room.match) return null;
+	const winner = room.match.winnerId;
+	return {
+		winnerSeat: seatList(state).find((s) => playerOf(s) === winner) ?? null,
+		tie: room.match.tie,
+		rounds: room.match.rounds,
+		scores: scoresOf(state)
+	};
+}
+/** Places for a decided match: the winner first, both first after a tie. */
+function decidedStandings(state) {
+	if (!decided(state)) return [];
+	const sorted = [...scoresOf(state)].sort((x, y) => y.score - x.score);
+	return sorted.map((row) => ({
+		seat: row.seat,
+		place: 1 + sorted.filter((other) => other.score > row.score).length
+	}));
+}
 function screenOf(state, now) {
 	return {
 		...game$1.snapshot(state.match, now, { role: "screen" }),
@@ -4736,8 +4775,9 @@ var game = {
 		return game$1.presence(state.match, seat, report, now, sources);
 	},
 	/**
-	* A player left the party (or their phone never came back): the match ends, and the player who
-	* stayed wins it. The one who left gets no place.
+	* A player left the party (or their phone never came back): the match ends. A match already
+	* decided (its last round's summary is up) ends as it was decided, whoever leaves. Otherwise the
+	* player who stayed wins it, and the one who left gets no place.
 	*/
 	abandon(state, seat, _now) {
 		const seats = seatList(state);
@@ -4745,6 +4785,11 @@ var game = {
 		if (!seats.includes(seat) || stayed === void 0) return {
 			standings: [],
 			result: null,
+			events: []
+		};
+		if (decided(state)) return {
+			standings: decidedStandings(state),
+			result: decidedResult(state),
 			events: []
 		};
 		const room = state.match.room;
@@ -4757,10 +4802,7 @@ var game = {
 				winnerSeat: stayed,
 				tie: false,
 				rounds: room.roundIndex,
-				scores: seats.map((s) => ({
-					seat: s,
-					score: playerById(room, playerOf(s))?.score ?? 0
-				})),
+				scores: scoresOf(state),
 				abandonedBy: seat
 			},
 			events: [{
@@ -4774,11 +4816,11 @@ var game = {
 	},
 	/** Sent to everyone with the end: the winner, the rounds and the scores. No identity. */
 	result(state) {
-		return game$1.result(state.match);
+		return decidedResult(state);
 	},
 	/** Places for the night: the winner first, both first after a tie. */
 	standings(state) {
-		return game$1.standings(state.match);
+		return decidedStandings(state);
 	},
 	/**
 	* What a rematch between the same two seats starts from: the identities this match used, so the
