@@ -112,7 +112,8 @@ With the built `party.js`, the scratch party site built its public files, bundle
 5. **Who starts.** The game's own "host" and "opponent" choices have no meaning when the party's host may not be playing; not offered.
 6. **The match's end.** The room unmounts the view and shows its own card right after the last snapshot, so the game's own match summary (rematch, share card) is never seen.
    The last round's reveal is: the match ends only when a player taps on from it.
-   The match is decided from the moment that round's summary says so: a player who leaves then (or whose phone never comes back) does not change the result or the places.
+   The match is decided from the moment that round's summary says so: when a player leaves then (or their phone never comes back), `abandon` returns the match's real standings (the winner first) and scores, not the leave's.
+   What the room's end card shows is the room's doing: at `9911f1c` its `finishGame` skips a place for a seat whose member has left the party, so when the winner is the one who leaves, the card has only the loser, at place 2 (a fix is being made in `n8-party-games`).
    `isOver` stays false until the tap, so the last reveal is still shown; the cost is that a decided match nobody taps on from for the stale limit (an hour) ends with no points.
 7. **The rematch.** Only through the room's carry. Without it, every match is a first match.
 8. **A carry's size.** The room keeps at most 4 KB; a long match's identities can pass that, so the oldest are dropped.

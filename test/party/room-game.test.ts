@@ -449,7 +449,7 @@ describe("the end of a match", () => {
     expect(game.isOver(state)).toBe(true);
   });
 
-  it("is decided at the round that reaches 3: whoever leaves on that summary, the real winner is first", () => {
+  it("is decided at the round that reaches 3: whoever leaves on that summary, abandon returns the real standings and scores", () => {
     for (const leaver of [0, 2]) {
       const { state, sources } = start({ turnFormat: "keep_going" });
       for (let round = 0; round < 3; round++) {
