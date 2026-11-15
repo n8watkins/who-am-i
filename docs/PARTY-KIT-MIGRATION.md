@@ -52,7 +52,7 @@ There are two moves, and they are now separate:
 | `settings(value)` | The clean choices with their defaults, or `{ok: false, error: "bad_settings", message}`. |
 | `carry(state)` | The last match's identities (oldest dropped to stay under the room's 4 KB) and who lost. Server-only. |
 | `serialize`, `restore` | The whole state as one string; `restore` refuses anything else. `input` is proved on `restore(serialize(state))`. |
-| `reconnectGraceMs` ten minutes, `idleShutdownMs` and `staleRoomMs` an hour | A dropped phone keeps its seat for ten minutes; one that does not come back by then is gone, and the room ends the match for the player who stayed. Two quiet phones do not lose the match. |
+| `reconnectGraceMs` a minute, `idleShutdownMs` and `staleRoomMs` an hour | A dropped phone keeps its seat for a minute; one that does not come back by then forfeits, and the room ends the match for the player who stayed (the owner's rule). A locked phone whose socket stays open is away, not dropped (item 13 below). |
 
 `manifest` adds `audience: true`, `devices: {phone: true, desktop: false, sharedScreen: true, sideways: false, upright: true}`, `lobby: {view: "party-view/view.js"}`, `settings` (the fields below) and `public: [{from: "party-view", to: "party-view"}]`.
 `desktop` is false as in the contract's own example for Who Am I?: each player needs a phone of their own, since it holds the other player's identity, and the room's badge then reads "A phone each".
@@ -88,7 +88,7 @@ With the built `party.js`, the scratch party site built its public files, bundle
 | KR-1 Per-seat views | Met | `game.snapshot(state, now, viewer)` for every message with game state; events with `only`; the room's seed is never sent, and each game gets its own seed from the secure source. `privateSeed` is not needed. |
 | KR-2 No tick loop | Met | `tickHz: 0`; `nextDeadline(state)` is the alarm and calls `tick` once; pages keep to the keep-alive (`turns: true`). |
 | KR-3 Saved rounds | Met | `serialize` and `restore`, saved after every input and restored on wake; `input` sees `restore(serialize(state))`. |
-| KR-4 Humans only | Met | A turn-based game is humans only (`bot` is never called); `reconnectGraceMs` (Who Am I? asks for ten minutes); `presence(state, seat, {connected, away}, now)`. The adapter's `bots: false` is not read. |
+| KR-4 Humans only | Met | A turn-based game is humans only (`bot` is never called); `reconnectGraceMs` (Who Am I? asks for a minute); `presence(state, seat, {connected, away}, now)`. The adapter's `bots: false` is not read. |
 | KR-5 Away | Met | `away` and `back` on the socket, `away: true` on the member, and the room's page says it when hidden during a turn-based game. |
 | KR-6 Lifetimes | Met | `idleShutdownMs` and `staleRoomMs`. |
 | KR-7 Answered inputs | Met | `{ok: false, error, message}` from `input`; `in {d, id}`, answered `ack {id}` or `error {id, error, message}`; `id_reused`; `inputId()` in the view; `send(data, {id})` returns a promise. |
@@ -121,8 +121,13 @@ With the built `party.js`, the scratch party site built its public files, bundle
 11. **The override.** On this site only the room's host may confirm their own guess when the other phone is gone; in the party room neither player made the room, so either guesser may (the adapter checks the engine's rule with the guesser standing in as host for that one command).
 12. **A watcher's `you`.** A member who is not playing is `{role: "audience", seat}` in `you` and in the snapshot.
 13. **Ending early.** The contract leaves the grace to the game. A grace that never ends froze a match whose other phone vanished: on that player's move nothing could happen, and leaving handed them the win.
-   Decided by the orchestrator, not the owner: the grace is ten minutes, after which the room ends the match and the player who stayed wins it, and a player who leaves while the other has been gone 30 seconds or more ends it with nobody placed.
+   The owner's rule (2026-11-15): a player who has vanished for a minute forfeits, so the grace is 60 seconds, after which the room ends the match and the player who stayed wins it.
+   Decided by the orchestrator, not the owner: a player who leaves while the other has been gone 30 seconds or more ends it with nobody placed (30 seconds, the same as the override, is half the minute: someone who waits the other half wins).
    "Nobody placed" rather than the leaver first, because the room drops the leaver's seat from the party before it asks `abandon`, so a place for them would not be counted.
+   The minute runs only for a phone whose socket is gone.
+   A locked or hidden page that keeps its socket is away, not dropped: its timer is paused and nothing runs down while its keep-alive is still heard.
+   If its browser stops the keep-alive (a frozen page), the room closes the socket as silent at its first wake-up after a minute of silence (an input from the other phone, a deadline, or another alarm) and counts it gone at once, so the player forfeits then; if nothing wakes the room before the page is shown again, the player plays on.
+   The harness proves each of these on the room class ("a phone locked for 90 seconds").
 14. **The result's shape.** The room shows each score on its end card only when `result` is a list of rows, so `result` is `[{seat, score}]`, best first, and who won is in the places; the winner, the rounds and who left are not in it.
 15. **The party site's tests** assume Who Am I? is an outside game: hosting it changes three of them.
 16. **npm.** `npm install github:n8watkins/who-am-i#<commit>` over an existing git dependency was refused (`EALLOWGIT`, "non-root"); setting the commit in `package.json` and running `npm install` worked.
@@ -186,7 +191,7 @@ Unchanged from the first plan, with what the party room work settled:
 
 1. Whether this repository drops release-kit's `prepare` script, as the party kit's contract asks (the party site's install works with it, with a warning).
 2. Whether the contract should say that a game ships built JavaScript (as here) or the party site's scripts should load TypeScript.
-3. Whether a player who leaves should hand the win to the one who stayed (as built) or end the match with no points, and whether ten minutes is the right time to give up on a phone (chosen by the orchestrator).
+3. Whether a player who leaves should hand the win to the one who stayed (as built) or end the match with no points (the one-minute forfeit is decided; the no-winner rule for leaving while the other is gone was chosen by the orchestrator).
 4. The room view's look, from a preview on a phone.
 5. Whether this site moves onto the kit at all once KR-9 exists, and whether it runs under the shared room budget.
 6. Whether to drop the unused `users` and `identity_plays` tables from the live D1 database.

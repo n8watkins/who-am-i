@@ -199,7 +199,9 @@ The room view is committed built for the same reason: a party site runs no build
 - After the vote the party's host picks the settings: the game's own (category, mode, turns, questions, timer, hints, difficulty) and the match length, which adds first to 3, the default there.
 - The first guesser is random, and a rematch between the same two players starts with the loser and avoids the last match's identities.
 - Every tap is an answered input with an id: the room applies it once however often it arrives, and a tap made against an old view is refused.
-- A locked or dropped phone pauses the timer and keeps its seat for ten minutes; one that does not come back by then is given up on, and the player who stayed wins.
+- A locked or dropped phone pauses the timer.
+  A phone whose connection is gone keeps its seat for a minute; one that is not back by then forfeits, and the player who stayed wins.
+  A locked phone that keeps its connection is away, not gone; if it stops answering the room's keep-alive, the room drops it at its next wake-up after a minute of silence, and it forfeits then.
   Either guesser may confirm their own guess once the other phone has been gone 30 seconds.
 - A player who leaves the party ends the match, and the one who stayed wins it, unless they have been gone a while themselves; then nobody places.
   Once the last round's summary says who won, the match is decided, whoever leaves.

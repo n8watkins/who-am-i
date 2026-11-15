@@ -88,8 +88,8 @@ describe("the contract surface", () => {
   it("is a turn-based game for exactly two humans, with lifetimes for a long talking match", () => {
     expect(game.id).toBe(manifest.id);
     expect([game.minSeats, game.maxSeats, game.tickHz]).toEqual([2, 2, 0]);
-    // A phone that never comes back is given up on after ten minutes, so the match cannot freeze.
-    expect(game.reconnectGraceMs).toBe(10 * 60_000);
+    // A phone gone for a minute forfeits (the owner's rule, 2026-11-15), so the match cannot freeze.
+    expect(game.reconnectGraceMs).toBe(60_000);
     expect(game.idleShutdownMs).toBe(60 * 60_000);
     expect(game.staleRoomMs).toBe(60 * 60_000);
     // Humans only: nothing for the room to hand a dropped seat to.

@@ -63,13 +63,16 @@ export const RoomSettingsSchema = z.object({
 });
 export type RoomSettings = z.infer<typeof RoomSettingsSchema>;
 
-/** How long a dropped phone's seat is held before the room gives up on it (`game.reconnectGraceMs`). */
-export const RECONNECT_GRACE_MS = 10 * 60_000;
+/**
+ * How long a dropped phone's seat is held before the room gives up on it (`game.reconnectGraceMs`):
+ * a player gone for a minute forfeits (the owner's rule, 2026-11-15).
+ */
+export const RECONNECT_GRACE_MS = 60_000;
 
 /**
  * How long a player must have been gone (dropped, or their page hidden) before the other leaving
  * the party no longer hands them the win: the same 30 seconds after which the guesser may confirm
- * their own guess without them.
+ * their own guess without them, half the minute after which a dropped phone forfeits.
  */
 const ABSENT_MS = HOST_OVERRIDE_AFTER_MS;
 
@@ -234,12 +237,13 @@ export const game = {
   /** Turn-based: the room never ticks it on a timer, and wakes for an input or `nextDeadline`. */
   tickHz: 0,
   /**
-   * A dropped phone keeps its seat for ten minutes (a locked phone, a lost signal, a reload), and
-   * the turn timer pauses meanwhile. A phone that has not come back by then is gone for good: the
-   * room ends the match through `abandon`, and the player who stayed wins it. Without a limit the
-   * player left behind could do nothing but leave, and leaving would hand the win to the one who
-   * vanished. A hidden page whose socket stays open is not a drop: the room closes such a socket
-   * only once it has been silent this long, so a ghost is given up on the same way.
+   * A dropped phone keeps its seat for a minute (a lost signal, a reload), and the turn timer
+   * pauses meanwhile. A phone that has not come back by then forfeits: the room ends the match
+   * through `abandon`, and the player who stayed wins it. Without a limit the player left behind
+   * could do nothing but leave, and leaving would hand the win to the one who vanished.
+   * A hidden or locked page whose socket stays open is away, not dropped: the room closes such a
+   * socket only once it has said nothing (not even its keep-alive) for this long, and then counts
+   * it gone at once, so a frozen page is given up on the same way at the room's next wake-up.
    */
   reconnectGraceMs: RECONNECT_GRACE_MS,
   /** A match is people talking, with a tap now and then: two locked phones must not lose it. */

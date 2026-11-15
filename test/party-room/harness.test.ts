@@ -411,19 +411,103 @@ describe("Who Am I? in the party room", () => {
     const resumed = lastSnap(ws.screen) as unknown as { turn: { deadline: number } };
     expect(resumed.turn.deadline).toBe(Date.now() + 50_000);
 
-    // The phone drops: the seat is held for the game's ten minutes, and the timer pauses again.
+    // The phone drops: the seat is held for a minute, and the timer pauses again.
     ctx.room.webSocketClose(waiting, 1006, "");
     await fake.settle();
     expect(lastSnap(ws.screen)).toMatchObject({ turn: { deadline: null } });
-    await vi.advanceTimersByTimeAsync(game.reconnectGraceMs - 1_000);
+    await vi.advanceTimersByTimeAsync(59_000);
     expect(ctx.room.core.activity.kind).toBe("game");
-    // It never comes back: the room gives up on it, and the player who stayed wins the match.
+    // It is not back after a minute: it forfeits, with nobody tapping, and the player who stayed wins.
     await vi.advanceTimersByTimeAsync(2_000);
     expect(ctx.room.core.activity.kind).toBe("lobby");
     const end = ws.screen.messages().find((m: Msg) => m.t === "end");
     expect(end.last.early).toMatchObject({ seat: first, why: "gone" });
     expect(end.last.rows).toEqual([expect.objectContaining({ seat: second, place: 1, points: 3 })]);
     secrecy.finalCheck();
+  });
+
+  describe("a phone locked for 90 seconds in the middle of a match", () => {
+    /**
+     * Ann's phone locks: her page says `away` and keeps its socket, as the room's page does during
+     * a turn-based game. `keepAlive` is whether her locked page goes on sending its keep-alive
+     * (the runtime answers it, so the room sees when it was last heard); a browser that freezes a
+     * locked page stops it. Everyone else's keep-alive goes on. The phone locks two minutes into
+     * the match, after the room's wake-up for the settings step's time limit (90 seconds after it
+     * opened) has rung: that alarm, still set when the match starts, would wake the room too.
+     */
+    async function locked(keepAlive: boolean) {
+      const r = await party();
+      const { ctx, say, ws } = r;
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(ctx.room.core.activity.kind).toBe("game");
+      const lockedAt = Date.now();
+      ctx.getWebSocketAutoResponseTimestamp = (w: Socket) => (w === ws.ann && !keepAlive ? new Date(lockedAt) : new Date(Date.now()));
+      say(ws.ann, { t: "away" });
+      await fake.settle();
+      expect(ctx.room.core.members[0]).toMatchObject({ connected: true, away: true });
+      return r;
+    }
+
+    it("with its keep-alive going: the socket lives, she is away, not dropped, and plays on", async () => {
+      const { ctx, say, ws, secrecy } = await locked(true);
+      const bo = phone("bo", ws.bo, say);
+      for (let t = 0; t < 9; t++) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        bo.send("turn.hint"); // whatever it is answered, an input makes the room look for silent sockets
+        await fake.settle();
+      }
+      expect(ws.ann.closed).toBeNull();
+      expect(ctx.room.core.members[0]).toMatchObject({ connected: true, away: true });
+      say(ws.ann, { t: "back" });
+      await fake.settle();
+      expect(ctx.room.core.activity.kind).toBe("game");
+      secrecy.finalCheck();
+    });
+
+    it("with its keep-alive stopped and the other player tapping: her silent socket is closed after a minute, and she forfeits", async () => {
+      const { ctx, say, ws, secrecy } = await locked(false);
+      const bo = phone("bo", ws.bo, say);
+      await vi.advanceTimersByTimeAsync(55_000);
+      bo.send("turn.hint");
+      await fake.settle();
+      expect(ctx.room.core.activity.kind).toBe("game");
+      await vi.advanceTimersByTimeAsync(10_000);
+      bo.send("turn.hint");
+      await fake.settle();
+      expect(ws.ann.closed).toMatchObject({ code: 1001, reason: "silent" });
+      expect(ctx.room.core.activity.kind).toBe("lobby");
+      const end = ws.screen.messages().find((m: Msg) => m.t === "end");
+      expect(end.last.early).toMatchObject({ seat: 0, why: "gone" });
+      expect(end.last.rows).toEqual([expect.objectContaining({ seat: 1, place: 1, points: 3 })]);
+      secrecy.finalCheck();
+    });
+
+    it("with its keep-alive stopped and nobody touching the room: nothing wakes it, and she plays on when she unlocks", async () => {
+      const { ctx, say, ws, secrecy } = await locked(false);
+      // No turn timer, nobody taps, and the settings step's own wake-up is long past: no alarm is due.
+      expect(ctx.alarm.at === null || ctx.alarm.at - Date.now() > 90_000).toBe(true);
+      await vi.advanceTimersByTimeAsync(90_000);
+      say(ws.ann, { t: "back" });
+      await fake.settle();
+      expect(ws.ann.closed).toBeNull();
+      expect(ctx.room.core.activity.kind).toBe("game");
+      expect(ctx.room.core.members[0]).toMatchObject({ connected: true, away: false });
+      secrecy.finalCheck();
+    });
+
+    it("whose socket the phone closes: she is dropped, and forfeits a minute after the close whatever anyone does", async () => {
+      const { ctx, ws, secrecy } = await locked(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      ctx.room.webSocketClose(ws.ann, 1006, "");
+      await fake.settle();
+      expect(ctx.room.core.members[0]).toMatchObject({ connected: false });
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(ctx.room.core.activity.kind).toBe("game");
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(ctx.room.core.activity.kind).toBe("lobby");
+      expect(ws.screen.messages().find((m: Msg) => m.t === "end").last.early).toMatchObject({ seat: 0, why: "gone" });
+      secrecy.finalCheck();
+    });
   });
 
   it("ends the match when a player leaves the party: the one who stayed wins, and the last frames keep the secret", async () => {
@@ -456,7 +540,8 @@ describe("Who Am I? in the party room", () => {
     const { ctx, say, ws, secrecy } = await party();
     ctx.room.webSocketClose(ws.bo, 1006, "");
     await fake.settle();
-    await vi.advanceTimersByTimeAsync(60_000);
+    // Gone 40 seconds: past the 30 that make him absent, short of the minute that would forfeit him.
+    await vi.advanceTimersByTimeAsync(40_000);
     expect(ctx.room.core.activity.kind).toBe("game");
     say(ws.ann, { t: "leave" });
     await fake.settle();
