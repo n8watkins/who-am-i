@@ -9,7 +9,8 @@ import { existsSync } from "node:fs";
 
 const contentDir = new URL("../src/worker/content/", import.meta.url);
 // `--party-view`: only the room view (npm run build:party), otherwise the site and the room view.
-const bundles = (process.argv.includes("--party-view") ? ["party-view"] : ["dist/client", "party-view"]).map((dir) => new URL(`../${dir}/`, import.meta.url));
+const names = process.argv.includes("--party-view") ? ["party-view"] : ["dist/client", "party-view"];
+const bundles = names.map((dir) => new URL(`../${dir}/`, import.meta.url));
 for (const dir of bundles) {
   if (!existsSync(dir)) {
     console.error(`check-bundle: ${dir.pathname} does not exist. Build it first.`);
@@ -50,5 +51,4 @@ if (leaks.length) {
   console.error("check-bundle: identity content found in the client bundle:\n" + leaks.join("\n"));
   process.exit(1);
 }
-const scanned = bundles.map((dir) => dir.pathname.replace(/^.*\/([^/]+\/[^/]+|[^/]+)\/$/, "$1")).join(" and ");
-console.log(`check-bundle: ${identities.length} identities, none present in ${scanned}.`);
+console.log(`check-bundle: ${identities.length} identities, none present in ${names.join(" or ")}.`);
