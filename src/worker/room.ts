@@ -304,21 +304,20 @@ export class RoomDurableObject extends DurableObject<Env> {
    * is called, so a slow directory never holds up the socket.
    */
   private async welcome(ws: WebSocket, playerId: string, open: () => void): Promise<void> {
-    await this.expireIfDue();
+    // A turn that ran out is applied first (as expireIfDue does), but stored without the PIN
+    // step, which can wait on the directory; that runs once the gate is open.
+    const ticked = this.room ? rules.tick(this.room, Date.now()) : null;
+    if (ticked) await this.store(ticked);
     if (!this.room || !rules.player(this.room, playerId)) return;
     // Connecting never changes away by itself: a new page starts visible and reports otherwise.
     const away = rules.player(this.room, playerId)?.away ?? false;
     const updated = rules.presence(this.room, playerId, { connected: true, away }, Date.now());
-    if (updated) {
-      await this.store(updated);
-      open();
-      await this.updatePin();
-    } else {
-      // Another tab was already connected: this visible one may end their away state.
-      this.sendView(ws, playerId);
-      open();
-      await this.syncAway(playerId);
-    }
+    if (updated) await this.store(updated);
+    else this.sendView(ws, playerId);
+    open();
+    // Another tab was already connected: this visible one may end their away state.
+    if (!updated) await this.syncAway(playerId);
+    await this.updatePin();
   }
 
   /** Sockets that have said whose seat they are, for one player. */
