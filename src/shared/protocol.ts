@@ -300,7 +300,16 @@ export type ErrorCode =
   | "invalid_transition"
   | "forbidden"
   | "removed"
+  /** The page predates the current client (see CLIENT_VERSION_HEADER) and must reload. */
+  | "outdated"
   | "internal";
+
+/**
+ * Sent by the page on create and join. Pages from before the v2 socket handshake do not send it,
+ * and would put a fresh token in a logged socket header, so the Worker turns them away.
+ */
+export const CLIENT_VERSION_HEADER = "X-WhoAmI-Client";
+export const CLIENT_VERSION = "2";
 
 export interface ApiError {
   ok: false;

@@ -2,6 +2,8 @@
 // in the platform's logs, so the session token may only travel inside the socket (its first
 // message). Chrome's DevTools protocol shows the exact handshake the browser sends.
 import { expect, test, type Page } from "@playwright/test";
+import { DEFAULT_SETTINGS } from "../src/shared/protocol";
+import { installPhoneMocks, setVisibility } from "./phone";
 import { createGame, joinGame, newPlayer } from "./support";
 
 interface Wire {
@@ -89,6 +91,52 @@ test("a page still on the old header handshake is closed with the room-closed co
   expect(result).toEqual({ protocol: "whoami.v1", code: 4000, messages: 0 });
   // The real page's own socket is unaffected.
   await expect(alice.page.getByTestId("room-code")).toHaveText(code);
+  await alice.context.close();
+});
+
+for (const [closeCode, heading] of [
+  [4000, "This room has closed"],
+  [4002, "You were removed from this game"],
+  [4004, "This page is out of date"],
+] as const) {
+  test(`after a fatal close (${closeCode}) unlocking the phone opens no new socket`, async ({ browser }) => {
+    const alice = await newPlayer(browser, { mobile: true });
+    await installPhoneMocks(alice.context);
+    await createGame(alice.page, { nickname: "Alice" });
+    let sockets = 0;
+    await alice.page.routeWebSocket(/\/api\/rooms\/[^/]+\/ws$/, (ws) => {
+      sockets++;
+      ws.onMessage(() => void ws.close({ code: closeCode, reason: "test" }));
+    });
+    // Remembers a reload just now, so a 4004 goes straight to the out-of-date screen.
+    await alice.page.evaluate(() => sessionStorage.setItem("whoami:reloaded-for-socket", String(Date.now())));
+    await alice.page.reload();
+    await expect(alice.page.getByRole("heading", { name: heading })).toBeVisible();
+    const before = sockets;
+    let loads = 0;
+    alice.page.on("load", () => void loads++);
+    for (let i = 0; i < 3; i++) {
+      await setVisibility(alice.page, "hidden");
+      await setVisibility(alice.page, "visible");
+    }
+    await alice.page.waitForTimeout(1_500);
+    expect(sockets).toBe(before);
+    expect(loads).toBe(0);
+    await expect(alice.page.getByRole("heading", { name: heading })).toBeVisible();
+    await alice.context.close();
+  });
+}
+
+test("a page from before the socket change is told to reload when it creates or joins", async ({ browser }) => {
+  const alice = await newPlayer(browser);
+  // What old pages send: no client version header.
+  const created = await alice.page.request.post("/api/rooms", { data: { nickname: "Old", settings: DEFAULT_SETTINGS } });
+  expect(created.status()).toBe(426);
+  expect(await created.json()).toMatchObject({ error: "outdated", message: "This page is out of date. Reload it and try again." });
+  // The current page passes.
+  const { code } = await createGame(alice.page, { nickname: "Alice" });
+  const joined = await alice.page.request.post(`/api/rooms/${code}/join`, { data: { nickname: "Old" } });
+  expect(joined.status()).toBe(426);
   await alice.context.close();
 });
 

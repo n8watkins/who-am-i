@@ -2,6 +2,8 @@ import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject, SEL
 import { describe, expect, it, vi } from "vitest";
 import pkg from "../package.json";
 import {
+  CLIENT_VERSION,
+  CLIENT_VERSION_HEADER,
   DEFAULT_SETTINGS,
   LEGACY_WS_PROTOCOL,
   LEGACY_WS_TOKEN_PREFIX,
@@ -31,6 +33,8 @@ async function api<T>(path: string, init: RequestInit & { token?: string; ip?: s
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
   headers.set("CF-Connecting-IP", init.ip ?? freshIp());
+  // Sent by current pages on create and join; tests of old pages remove it.
+  if (!headers.has(CLIENT_VERSION_HEADER)) headers.set(CLIENT_VERSION_HEADER, CLIENT_VERSION);
   if (init.token) headers.set("Authorization", `Bearer ${init.token}`);
   const res = await SELF.fetch(`${BASE}${path}`, { ...init, headers });
   return { status: res.status, body: (await res.json()) as T };
@@ -69,13 +73,15 @@ async function startedRoom(settings: Partial<Settings> = {}) {
 }
 
 /** Asks for a room socket the way the page does: no token in the address or the headers. */
-function upgrade(code: string, protocols: string = WS_PROTOCOL) {
-  return SELF.fetch(`${BASE}/api/rooms/${code}/ws`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": protocols } });
+function upgrade(code: string, protocols: string = WS_PROTOCOL, ip = freshIp()) {
+  return SELF.fetch(`${BASE}/api/rooms/${code}/ws`, {
+    headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": protocols, "CF-Connecting-IP": ip },
+  });
 }
 
 /** A socket that has not said who it is yet: it records every frame and its close code. */
-async function rawSocket(code: string, protocols: string = WS_PROTOCOL) {
-  const res = await upgrade(code, protocols);
+async function rawSocket(code: string, protocols: string = WS_PROTOCOL, ip = freshIp()) {
+  const res = await upgrade(code, protocols, ip);
   expect(res.status).toBe(101);
   const ws = res.webSocket!;
   const frames: string[] = [];
@@ -125,6 +131,25 @@ describe("HTTP API", () => {
     expect(host.view.code).toMatch(/^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
     expect(host.token.split(".")).toHaveLength(3);
     expect(host.view.players).toHaveLength(1);
+  });
+
+  it("tells a page from before the socket change to reload instead of creating or joining", async () => {
+    const oldPage = new Headers({ [CLIENT_VERSION_HEADER]: "" });
+    const created = await api<ApiError>("/api/rooms", {
+      method: "POST",
+      headers: oldPage,
+      body: JSON.stringify({ nickname: "Old", settings: DEFAULT_SETTINGS }),
+    });
+    expect(created.status).toBe(426);
+    expect(created.body).toEqual({ ok: false, error: "outdated", message: "This page is out of date. Reload it and try again." });
+
+    const host = await createRoom();
+    const joined = await api<ApiError>(`/api/rooms/${host.view.code}/join`, { method: "POST", headers: oldPage, body: JSON.stringify({ nickname: "Old" }) });
+    expect(joined.status).toBe(426);
+    expect(joined.body.error).toBe("outdated");
+    // No seat was taken: the room still has one player and a current page can still join.
+    expect((await latestView(host.view.code, host.token)).players).toHaveLength(1);
+    expect((await joinRoom(host.view.code)).status).toBe(200);
   });
 
   it("validates input with Zod", async () => {
@@ -401,6 +426,60 @@ describe("WebSocket handshake (the token is the first message, never the address
     b.ws.close();
   });
 
+  it("handles a signal sent right behind the hello after it, even when the token check is slow", async () => {
+    const { code, host, guest } = await startedRoom();
+    const a = await openSocket(code, host.token);
+    await a.next((v) => v.players.find((p) => p.seat === "A")!.connected);
+    // Make the token check really yield, so the "away" arrives while it is still running.
+    await runInDurableObject(roomStub(code), async (instance) => {
+      const self = instance as unknown as { verifyToken: (token: string) => Promise<unknown> };
+      const verify = self.verifyToken.bind(instance);
+      self.verifyToken = async (token) => {
+        await pause(150);
+        return verify(token);
+      };
+    });
+    const b = await rawSocket(code);
+    b.ws.send(helloFrame(guest.token));
+    b.ws.send("away");
+    const guestOf = (v: RoomView) => v.players.find((p) => p.seat === "B")!;
+    await a.next((v) => guestOf(v).connected && !!guestOf(v).away);
+    expect(await closeWithin(b.closed, 100)).toBeNull();
+    a.ws.close();
+    b.ws.close();
+  });
+
+  it("keeps handling socket events while the PIN directory is slow", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    // The room has lost its PIN, so the host arriving asks the directory for a new one, which hangs.
+    const stub = roomStub(code);
+    let directoryCalls = 0;
+    await runInDurableObject(stub, async (instance, state) => {
+      const self = instance as unknown as { room: RoomState; pinDirectory: () => unknown };
+      self.room = { ...self.room, pin: null };
+      await state.storage.put("room", self.room);
+      const slow = () => {
+        directoryCalls++;
+        return new Promise((resolve) => setTimeout(() => resolve(null), 5_000));
+      };
+      self.pinDirectory = () => ({ issue: slow, refresh: slow, release: slow });
+    });
+    const socket = await rawSocket(code);
+    socket.ws.send(helloFrame(host.token));
+    await expect.poll(() => socket.frames.length).toBeGreaterThan(0);
+    await expect.poll(() => directoryCalls).toBeGreaterThan(0);
+    // The directory has not answered; the page's next signals are handled anyway.
+    const started = Date.now();
+    socket.ws.send("away");
+    await expect.poll(async () => (await playerIn(code, host.playerId)).away, { timeout: 2_000 }).toBe(true);
+    socket.ws.send("sync");
+    const framesBefore = socket.frames.length;
+    await expect.poll(() => socket.frames.length, { timeout: 2_000 }).toBeGreaterThan(framesBefore);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    socket.ws.close();
+  });
+
   it("wakes up correct when the room sleeps between the open and the hello", async () => {
     const host = await createRoom();
     const code = host.view.code;
@@ -428,20 +507,85 @@ describe("WebSocket handshake (the token is the first message, never the address
     socket.ws.close();
   });
 
-  it(`holds at most ${MAX_UNIDENTIFIED_SOCKETS} sockets that have not said who they are, and drops them after the hello timeout`, async () => {
+  it(`holds at most ${MAX_UNIDENTIFIED_SOCKETS} sockets that have not said who they are: a newcomer pushes out the oldest`, async () => {
     const host = await createRoom();
     const code = host.view.code;
     const silent: Awaited<ReturnType<typeof rawSocket>>[] = [];
     for (let i = 0; i < MAX_UNIDENTIFIED_SOCKETS; i++) silent.push(await rawSocket(code));
-    const refused = await upgrade(code);
-    expect(refused.status).toBe(429);
-    expect(refused.webSocket).toBeNull();
+    const newcomer = await rawSocket(code);
+    expect(await closeWithin(silent[0]!.closed)).toBe(WS_CLOSE.helloTimeout);
+    expect(silent[0]!.frames).toEqual([]);
+    for (const s of silent.slice(1)) expect(await closeWithin(s.closed, 50)).toBeNull();
+    expect(await attachments(code)).toHaveLength(MAX_UNIDENTIFIED_SOCKETS);
 
-    // A socket that says who it is no longer counts against the cap.
+    // A socket that says who it is no longer counts against the cap, so the next one pushes out no one.
+    newcomer.ws.send(helloFrame(host.token));
+    await expect.poll(() => newcomer.frames.length).toBeGreaterThan(0);
+    const one = await rawSocket(code);
+    for (const s of [...silent.slice(1), newcomer]) expect(await closeWithin(s.closed, 50)).toBeNull();
+    for (const s of [...silent.slice(2), one]) s.ws.close();
+    newcomer.ws.close();
+  });
+
+  it("cannot be used to lock a real player out by holding the silent slots", async () => {
+    const { code, host } = await startedRoom();
+    // The attack the cap first allowed: hold every slot, and keep topping them up.
+    const attacker: Awaited<ReturnType<typeof rawSocket>>[] = [];
+    for (let i = 0; i < MAX_UNIDENTIFIED_SOCKETS; i++) attacker.push(await rawSocket(code));
+    for (let round = 0; round < 10; round++) {
+      attacker.push(await rawSocket(code));
+      const player = await rawSocket(code);
+      player.ws.send(helloFrame(host.token));
+      await expect.poll(() => player.frames.length, `round ${round}`).toBeGreaterThan(0);
+      expect(JSON.parse(player.frames[0]!)).toMatchObject({ type: "state", view: { youId: host.playerId } });
+      player.ws.close();
+    }
+    for (const s of attacker) s.ws.close();
+  });
+
+  it("limits socket requests per client before the room is touched", async () => {
+    const host = await createRoom();
+    const ip = freshIp();
+    const { limit } = RATE_LIMITS.socket;
+    const statuses: number[] = [];
+    for (let i = 0; i < limit + 5; i++) {
+      const res = await upgrade(host.view.code, WS_PROTOCOL, ip);
+      statuses.push(res.status);
+      if (res.webSocket) {
+        res.webSocket.accept();
+        res.webSocket.close();
+      } else if (res.status === 429) {
+        expect(await res.json()).toMatchObject({ ok: false, error: "rate_limited" });
+      }
+    }
+    expect(statuses.slice(0, limit).every((s) => s === 101)).toBe(true);
+    expect(statuses.slice(limit)).toEqual(new Array(5).fill(429));
+    // Another client is unaffected.
+    const other = await rawSocket(host.view.code);
+    other.ws.close();
+  });
+
+  it("does not answer room-code guesses on the socket route faster than the lookup limit", async () => {
+    const ip = freshIp();
+    const statuses: number[] = [];
+    for (let i = 0; i < 80; i++) statuses.push((await upgrade("ZZZZZZ", WS_PROTOCOL, ip)).status);
+    const { limit } = RATE_LIMITS.socket;
+    expect(limit).toBeLessThanOrEqual(RATE_LIMITS.lookup.limit);
+    expect(statuses.filter((s) => s === 404)).toHaveLength(limit);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(80 - limit);
+    // Once limited, a real room answers the same way: the probe never reaches a room.
+    const host = await createRoom();
+    expect((await upgrade(host.view.code, WS_PROTOCOL, ip)).status).toBe(429);
+  });
+
+  it("closes silent sockets older than the hello timeout when the next socket arrives", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const silent: Awaited<ReturnType<typeof rawSocket>>[] = [];
+    for (let i = 0; i < 3; i++) silent.push(await rawSocket(code));
     silent[0]!.ws.send(helloFrame(host.token));
     await expect.poll(() => silent[0]!.frames.length).toBeGreaterThan(0);
     const next = await rawSocket(code);
-    expect((await upgrade(code)).status).toBe(429);
 
     // Once the silent ones are older than the timeout, the next request sweeps them out.
     await runInDurableObject(roomStub(code), async (_instance, state) => {

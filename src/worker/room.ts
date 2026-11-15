@@ -169,11 +169,14 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
     if (!this.room) return new Response("Not found", { status: 404 });
     const now = Date.now();
-    const silent = this.unidentifiedSockets();
-    for (const ws of silent) {
-      if (now - (attachmentOf(ws).openedAt ?? 0) > HELLO_TIMEOUT_MS) closeQuietly(ws, WS_CLOSE.helloTimeout, "hello_timeout");
-    }
-    if (this.unidentifiedSockets().length >= MAX_UNIDENTIFIED_SOCKETS) return new Response("Too many sockets", { status: 429 });
+    // Silent sockets past the timeout go; then, at the cap, the oldest silent one makes room.
+    // Refusing the newcomer instead would let anyone holding the slots keep real players out,
+    // while a real page says hello within milliseconds, so it is never the oldest for long.
+    const silent = this.unidentifiedSockets().sort((a, b) => (attachmentOf(a).openedAt ?? 0) - (attachmentOf(b).openedAt ?? 0));
+    const expired = silent.filter((ws) => now - (attachmentOf(ws).openedAt ?? 0) > HELLO_TIMEOUT_MS);
+    const kept = silent.filter((ws) => !expired.includes(ws));
+    const evicted = [...expired, ...kept.slice(0, Math.max(0, kept.length - MAX_UNIDENTIFIED_SOCKETS + 1))];
+    for (const ws of evicted) closeQuietly(ws, WS_CLOSE.helloTimeout, "hello_timeout");
 
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];

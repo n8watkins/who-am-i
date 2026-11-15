@@ -17,6 +17,10 @@ export const RATE_LIMITS = {
   pin_new: { limit: 6, windowMs: 60_000 },
   // Result cards: a player shares a match once or twice, never dozens of times.
   share: { limit: 10, windowMs: 10 * 60_000 },
+  // Room sockets. A page reconnects with backoff (at most about 15 a minute while its network
+  // flaps), so this leaves room for two tabs, while a flood of silent sockets and room-code
+  // guesses through the socket route stay well under the lookup limit.
+  socket: { limit: 30, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitBucket = keyof typeof RATE_LIMITS;

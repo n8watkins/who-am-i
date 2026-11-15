@@ -228,6 +228,9 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   // socket's first message, checked by the room, because request addresses and headers are logged.
   if (action === "ws" && parts.length === 4 && method === "GET") {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return error("bad_request", "Expected a WebSocket upgrade.");
+    // Before anything touches the room: whether a room answers is itself an answer to a code
+    // guess, and a flood of silent sockets must not crowd real players out.
+    if (!(await allowRequest(env, request, "socket"))) return error("rate_limited", "Too many connections. Try again in a minute.");
     const protocols = offeredProtocols(request);
     if (protocols.some((p) => p.startsWith(LEGACY_WS_TOKEN_PREFIX))) return closeOldHandshake();
     if (!protocols.includes(WS_PROTOCOL)) return error("bad_request", "Unsupported WebSocket protocol.");
