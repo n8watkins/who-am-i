@@ -4,7 +4,8 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".wrangler", "node_modules", "test-results", "playwright-report", "src/worker/worker-configuration.d.ts"] },
+  // .cache holds the party room's own code for the harness test; party-view is built (npm run build:party-view).
+  { ignores: ["dist", ".wrangler", ".cache", "party-view", "node_modules", "test-results", "playwright-report", "src/worker/worker-configuration.d.ts"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
