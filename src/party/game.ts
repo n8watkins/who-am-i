@@ -399,7 +399,11 @@ export const game = {
  */
 function overrideAsGuesser(room: RoomState, playerId: string, command: Command, now: number, sources: Sources): Result<{ room: RoomState; duplicate: boolean }> {
   const host = room.hostPlayerId;
-  if (host === playerId || room.turn?.playerId !== playerId) return rules.command(room, playerId, command, now, sources);
+  // A command already applied is the engine's to answer (a repeat, never applied twice).
+  const repeat = room.recentCommands.some((c) => c.id === command.commandId && c.playerId === playerId);
+  // The engine's own refusal speaks of the host; in a party room it is about who is guessing.
+  if (!repeat && room.turn && room.turn.playerId !== playerId) return { ok: false, error: "forbidden", message: "Only the player who is guessing can confirm their own guess." };
+  if (host === playerId || !room.turn) return rules.command(room, playerId, command, now, sources);
   const result = rules.command({ ...room, hostPlayerId: playerId }, playerId, command, now, sources);
   if (!result.ok) return result;
   return { ...result, room: { ...result.room, hostPlayerId: host } };

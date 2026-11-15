@@ -4533,7 +4533,12 @@ var game$1 = {
 */
 function overrideAsGuesser(room, playerId, command, now, sources) {
 	const host = room.hostPlayerId;
-	if (host === playerId || room.turn?.playerId !== playerId) return rules.command(room, playerId, command, now, sources);
+	if (!room.recentCommands.some((c) => c.id === command.commandId && c.playerId === playerId) && room.turn && room.turn.playerId !== playerId) return {
+		ok: false,
+		error: "forbidden",
+		message: "Only the player who is guessing can confirm their own guess."
+	};
+	if (host === playerId || !room.turn) return rules.command(room, playerId, command, now, sources);
 	const result = rules.command({
 		...room,
 		hostPlayerId: playerId

@@ -374,11 +374,37 @@ describe("the turn timer", () => {
       expect(game.presence(state, answerer, { connected: true, away: true }, START, sources)).toBe(true);
       expect(game.input(state, guesser, command(state, "turn.correct.override"), START + 29_999, sources), `seat ${guesser}`).toMatchObject({ ok: false, error: "forbidden" });
       // The one who is not guessing may not use it.
-      expect(game.input(state, answerer, command(state, "turn.correct.override"), START + 30_000, sources)).toMatchObject({ ok: false, error: "forbidden" });
-      expect(game.input(state, guesser, command(state, "turn.correct.override"), START + 30_000, sources), `seat ${guesser}`).toMatchObject({ ok: true });
+      const refused = game.input(state, answerer, command(state, "turn.correct.override"), START + 30_000, sources);
+      expect(refused).toMatchObject({ ok: false, error: "forbidden" });
+      // In words that fit a party room: nobody there is "the host" of the match.
+      expect((refused as { message: string }).message).not.toMatch(/host/i);
+      expect((refused as { message: string }).message).toMatch(/guess/i);
+      const override = command(state, "turn.correct.override");
+      expect(game.input(state, guesser, override, START + 30_000, sources), `seat ${guesser}`).toEqual({ ok: true, duplicate: false });
+      // Sent again (a double tap, a resend after a reconnect): answered as a repeat, never applied twice.
+      expect(game.input(state, guesser, override, START + 30_000, sources)).toEqual({ ok: true, duplicate: true });
       expect(state.match.room.players.find((p) => p.id === `seat-${guesser}`)!.score).toBe(1);
       // Nothing else changes hands: the match's host is still the lower seat.
       expect(state.match.room.hostPlayerId).toBe("seat-0");
+    }
+  });
+
+  it("answers an override sent again as a repeat, also once the other player has the turn", () => {
+    for (const guesser of [0, 2]) {
+      let found: ReturnType<typeof start> | null = null;
+      for (let seed = 1; !found; seed++) {
+        const tried = start({ turnFormat: "keep_going" }, { seed });
+        if (turnSeat(tried.state) === guesser) found = tried;
+      }
+      const { state, sources } = found;
+      const answerer = other(state, guesser);
+      game.input(state, guesser, command(state, "turn.correct.request"), START, sources);
+      game.presence(state, answerer, { connected: false, away: false }, START, sources);
+      const override = command(state, "turn.correct.override");
+      expect(game.input(state, guesser, override, START + 30_000, sources)).toEqual({ ok: true, duplicate: false });
+      expect(turnSeat(state)).toBe(answerer);
+      expect(game.input(state, guesser, override, START + 30_000, sources), `seat ${guesser}`).toEqual({ ok: true, duplicate: true });
+      expect(state.match.room.players.find((p) => p.id === `seat-${guesser}`)!.score).toBe(1);
     }
   });
 });
