@@ -54,6 +54,43 @@ const seatOf = (id: string | null | undefined) => (id ? Number(id.replace("seat-
 /** The room's options: the game's real manifest, as a party site's wall is built from it. */
 const ROOM_OPTIONS = { players: manifest.players, manifest };
 
+/** Seeded randomness (mulberry32) and counting ids, so a draw is the same on every run. */
+function seeded(seed: number) {
+  let a = seed >>> 0;
+  let n = 0;
+  return {
+    random: () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    },
+    newId: () => `harness-${seed}-${++n}`,
+  };
+}
+
+/**
+ * The built game with a fixed draw: the same identities, in the same order, on every run, so the
+ * secrecy checks (and their exemptions for a short alias or a hint that is part of the other
+ * identity's name) check the same thing every time. Everything else is the built game itself; the
+ * room passes no randomness, so the draw is bound here, for every call that may draw (`create`,
+ * and `input`, `tick` and `presence`, which start the next round).
+ */
+function drawn(seed: number): typeof game {
+  const sources = seeded(seed);
+  return {
+    ...game,
+    create: (input: Parameters<typeof game.create>[0]) => game.create({ ...input, sources }),
+    input: (state: RoomGameState, seat: number, data: unknown, now: number) => game.input(state, seat, data, now, sources),
+    tick: (state: RoomGameState, now: number) => game.tick(state, now, sources),
+    presence: (state: RoomGameState, seat: number, report: { connected: boolean; away: boolean }, now: number) => game.presence(state, seat, report, now, sources),
+  };
+}
+
+/** The draw most cases play with; the whole match is played with several, and once with the real random draw. */
+const DRAW = 101;
+
 /** The room view a socket was last sent. */
 const roomOf = (ws: Socket) => ws.messages().filter((m: Msg) => m.room).at(-1)?.room;
 
@@ -93,8 +130,8 @@ async function chooseAndStart(r: any, host: Socket, others: Socket[], settings: 
  * goes through the settings step (`settings`: what she changes there). Every frame is checked as
  * it is sent (`watch`), and Cy joins once the match is on: she watches as the audience.
  */
-async function party(settings: object | null = null) {
-  const r = await fake.openRoom(createLobbyRoom, game, ROOM_OPTIONS);
+async function party(settings: object | null = null, which: typeof game = drawn(DRAW)) {
+  const r = await fake.openRoom(createLobbyRoom, which, ROOM_OPTIONS);
   const { ctx, connect } = r;
   ctx.keepAlive = true;
   const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
@@ -293,8 +330,22 @@ async function playOut(ctx: any, players: Record<number, ReturnType<typeof phone
 }
 
 describe("Who Am I? in the party room", () => {
-  it("plays a whole match through the real room class, rebuilt in the middle, and nobody is sent what they must not see", async () => {
-    const r = await party();
+  it("draws the same identities on every run with a fixed draw, and different ones with the real draw", async () => {
+    const first = async (which: typeof game) => stateOf((await party(null, which)).ctx)!.match.room.round!.assignments;
+    expect(await first(drawn(DRAW))).toEqual(await first(drawn(DRAW)));
+    expect(await first(drawn(DRAW))).not.toEqual(await first(drawn(DRAW + 1)));
+    const real = new Set<string>();
+    for (let i = 0; i < 3; i++) real.add(JSON.stringify(await first(game)));
+    expect(real.size).toBeGreaterThan(1);
+  });
+
+  it.each([
+    ["fixed draw 101", () => drawn(101)],
+    ["fixed draw 102", () => drawn(102)],
+    ["fixed draw 103", () => drawn(103)],
+    ["the real random draw", () => game],
+  ] as const)("plays a whole match through the real room class, rebuilt in the middle, and nobody is sent what they must not see (%s)", async (_label, which) => {
+    const r = await party(null, which());
     const { ctx, say, ws, secrecy } = r;
     expect(game.tickHz).toBe(0);
     // No timer runs for a turn-based game, and with no turn timer there is no deadline.
@@ -593,7 +644,7 @@ describe("Who Am I? in the party room", () => {
   });
 
   it("plays in a party of four: two take the spots, the other two watch as the audience, and only the players place", async () => {
-    const r = await turns.spotsFor4(createLobbyRoom, game, ROOM_OPTIONS);
+    const r = await turns.spotsFor4(createLobbyRoom, drawn(DRAW + 7), ROOM_OPTIONS);
     const { ctx, say, ws } = r;
     const secrecy = watch(ctx, ws, { ann: { kind: "audience" }, bo: { kind: "player", seat: 1 }, cy: { kind: "audience" }, di: { kind: "player", seat: 3 }, screen: { kind: "screen" } });
     // The step offers the game's settings and two spots on the wall.
