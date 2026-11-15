@@ -60,6 +60,26 @@ export default tseslint.config(
     },
   },
   {
+    // The room view a party room shows (src/party-view): browser code like the client, built
+    // from the game's own screens. It never imports the rules or the content: a phone gets an
+    // identity only in its own snapshot (scripts/check-bundle.mjs checks the build too).
+    files: ["src/party-view/**/*.{ts,tsx,js}"],
+    languageOptions: { globals: globals.browser },
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["**/worker/**"], message: "The room view must not import Worker modules (identity content is server-only)." },
+            { group: ["**/party/*", "!**/party/snapshots", "!**/party/manifest"], message: "The room view takes only the snapshot types and the manifest from src/party." },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["scripts/**/*.mjs", "e2e/**/*.ts", "*.config.{ts,js}"],
     languageOptions: { globals: globals.node },
   },

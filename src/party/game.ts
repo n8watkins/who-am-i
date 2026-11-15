@@ -23,10 +23,8 @@ import {
   type CommandType,
   type ErrorCode,
   type RoomPreview,
-  type RoomStatus,
   type RoomView,
   type Settings,
-  type TurnPhase,
 } from "../shared/protocol";
 import { getIdentity } from "../worker/content";
 import {
@@ -47,6 +45,7 @@ import {
 } from "../worker/engine";
 import { previewOf, viewFor } from "../worker/view";
 import { manifest } from "./manifest";
+import type { ScreenView } from "./snapshots";
 
 export type { RoomState };
 
@@ -174,16 +173,7 @@ export interface Carry {
 
 export type InputResult = { ok: true; duplicate: boolean } | { ok: false; error: ErrorCode; message: string };
 
-/** What a shared screen shows: turn, timer and question count. Never an identity, a hint or a question. */
-export interface ScreenView {
-  role: "screen";
-  version: number;
-  serverNow: number;
-  status: RoomStatus;
-  roundIndex: number;
-  players: { seat: number; name: string }[];
-  turn: { seat: number; phase: TurnPhase; deadline: number | null; pausedRemainingMs: number | null; questionCount: number } | null;
-}
+export type { ScreenView };
 
 export type Snapshot = RoomView | ScreenView;
 

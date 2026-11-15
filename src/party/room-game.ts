@@ -23,7 +23,6 @@ import {
   PACK_IDS,
   QUESTION_MODES,
   TURN_FORMATS,
-  type PublicIdentity,
   type RoomView,
   type Settings,
 } from "../shared/protocol";
@@ -41,7 +40,8 @@ import {
   type ScreenView,
   type Sources,
 } from "./game";
-import { MATCH_LENGTHS, SETTING_FIELDS, manifest, type MatchLength } from "./manifest";
+import { MATCH_LENGTHS, SETTING_FIELDS, manifest } from "./manifest";
+import type { AudienceView, PlayerSnapshot, RoomScreenView, RoomSnapshot } from "./snapshots";
 
 export { cryptoSources, type Carry, type Sources };
 
@@ -84,21 +84,7 @@ function engineSettings(settings: RoomSettings): { settings: Settings; pointsToW
   };
 }
 
-/** What a player sees: their own view of the match, as on the game's own site, and the match length. */
-export type PlayerSnapshot = RoomView & { role: "player"; seat: number; match: MatchLength };
-/** What the screen and a watching member see: whose turn, the timer and the question count. */
-export type RoomScreenView = ScreenView & { match: MatchLength };
-/**
- * What a watching phone in the audience may see, once the room can say so (`{role: "audience"}`):
- * the screen's view and both identities while a round is on. Never sent to a player or a screen.
- */
-export type AudienceView = Omit<ScreenView, "role"> & {
-  role: "audience";
-  match: MatchLength;
-  scores: { seat: number; score: number }[];
-  identities: { seat: number; identity: PublicIdentity }[];
-};
-export type RoomSnapshot = PlayerSnapshot | RoomScreenView | AudienceView;
+export type { AudienceView, PlayerSnapshot, RoomScreenView, RoomSnapshot };
 
 export type Viewer = { role?: unknown; seat?: unknown } | null | undefined;
 

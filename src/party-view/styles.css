@@ -1,0 +1,7 @@
+/* The room view's page uses the game's own look: the same tokens and Tailwind build as the game's
+   own site, with the room view's files added to what Tailwind scans. */
+@import "../client/styles.css";
+
+@source "../client";
+@source "../kit/client";
+@source "./";
