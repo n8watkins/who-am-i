@@ -136,7 +136,7 @@ function watch(ctx: any, sockets: Record<string, Socket>, roles: Record<string, 
   let last: RoomGameState | null = null;
   const assigned = new Map<string, number>();
   const questions = new Set<string>();
-  const checked = { frames: 0, audienceSnaps: 0 };
+  const checked = { frames: 0, audienceSnaps: 0, reveals: 0 };
   const known = new Map<string, { ws: Socket; role: Role }>();
   // The room catches what a socket's send throws, so a failed check is kept, not thrown.
   const problems: string[] = [];
@@ -148,6 +148,8 @@ function watch(ctx: any, sockets: Record<string, Socket>, roles: Record<string, 
     if (round) for (const s of state.match.seats) assigned.set(round.assignments[playerOf(s)]!, s);
   };
   const checkPlayer = (seat: number, text: string) => {
+    // The audience's reveal and identities are never a player's.
+    if (fake.GAME_FRAME.test(text) && /"(reveal|identities)"/.test(text)) problems.push(`seat ${seat} was sent the audience's view`);
     const state = stateOf(ctx) ?? last;
     if (!state) return;
     last = state;
@@ -183,6 +185,23 @@ function watch(ctx: any, sockets: Record<string, Socket>, roles: Record<string, 
       checked.audienceSnaps++;
       if (!/"role":"audience"/.test(text)) problems.push(`${who} was not sent the audience's view`);
       for (const identity of shown) if (!text.includes(escaped(identity.canonicalName))) problems.push(`${who} was not sent ${identity.id}`);
+    }
+    // Between rounds, the reveal is exactly the round's summary: each seat, its identity and how it went.
+    const room = state?.match.room;
+    const summary = room?.lastRoundSummary;
+    if (/^\{"t":"(start|snap)"/.test(text) && state && room && summary && (room.status === "round_summary" || room.status === "match_summary")) {
+      const want = {
+        roundIndex: summary.roundIndex,
+        matchOver: summary.matchOver,
+        entries: state.match.seats.map((seat) => {
+          const entry = summary.entries.find((e) => e.playerId === playerOf(seat))!;
+          const identity = getIdentity(entry.identityId);
+          return { seat, identity: { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId }, result: entry.result };
+        }),
+      };
+      const got = JSON.parse(text).s?.reveal;
+      if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`${who} was sent the reveal ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
+      checked.reveals++;
     }
   };
   const checkScreen = (who: string, text: string) => {
@@ -374,6 +393,8 @@ describe("Who Am I? in the party room", () => {
     expect(secrecy.checked.frames).toBeGreaterThan(100);
     // Every round on, Cy was sent the audience's view with both identities (how many snapshots depends on the draw).
     expect(secrecy.checked.audienceSnaps).toBeGreaterThanOrEqual(3);
+    // And between rounds the reveal, checked against each round's summary.
+    expect(secrecy.checked.reveals).toBeGreaterThanOrEqual(2);
     fake.expectNoRoomSeed(ctx.room.core, Object.values(ws));
   });
 
@@ -609,6 +630,7 @@ describe("Who Am I? in the party room", () => {
     secrecy.finalCheck();
     // Ann and Cy, every round on (how many snapshots depends on the draw).
     expect(secrecy.checked.audienceSnaps).toBeGreaterThanOrEqual(6);
+    expect(secrecy.checked.reveals).toBeGreaterThanOrEqual(4);
     fake.expectNoRoomSeed(ctx.room.core, Object.values(ws));
   });
 

@@ -10,7 +10,7 @@ import { manifest } from "../../src/party/manifest";
 import * as built from "../../party.js";
 import { CARRY_MAX_BYTES, RoomSettingsSchema, type AudienceView, type RoomGameState, type RoomSnapshot, type Sources } from "../../src/party/room-game";
 import { SETTING_FIELDS } from "../../src/party/manifest";
-import { HINTS_PER_TURN, type RoomView } from "../../src/shared/protocol";
+import { HINTS_PER_TURN, HOST_OVERRIDE_AFTER_MS, type RoomView } from "../../src/shared/protocol";
 import { getIdentity } from "../../src/worker/content";
 
 const START = 1_700_000_000_000;
@@ -301,8 +301,16 @@ describe("snapshot", () => {
       [0, drawn[0], "correct"],
       [2, drawn[2], "skipped"],
     ]);
+    expect(audience.reveal!.entries.map((e) => e.identity)).toEqual([0, 2].map((seat) => {
+      const identity = getIdentity(drawn[seat as 0 | 2]);
+      return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId };
+    }));
     const screen = JSON.stringify(game.snapshot(state, START, { role: "screen" }));
     for (const id of Object.values(drawn)) expect(screen).not.toContain(id);
+    // Nobody else gets the reveal: not the screen, and not the players (they have their own summary).
+    for (const viewer of [{ role: "screen" }, { role: "screen", seat: 1 }, { role: "player", seat: 0 }, { role: "player", seat: 2 }]) {
+      expect(JSON.stringify(game.snapshot(state, START, viewer)), JSON.stringify(viewer)).not.toMatch(/"(reveal|identities)"/);
+    }
     // Once the next round is on, the reveal is put away and the new identities shown.
     game.input(state, 0, command(state, "round.next"), START, sources);
     const next = game.snapshot(state, START, { role: "audience", seat: 1 }) as AudienceView;
@@ -459,13 +467,17 @@ describe("the end of a match", () => {
 describe("abandon", () => {
   it("ends the match for the player who stayed: first place for them, none for the one who left", () => {
     const { state, sources } = start({ turnFormat: "keep_going" });
+    // Whoever guesses first is right, and the other gives up: 1 to 0 when seat 2 leaves.
+    const first = turnSeat(state)!;
     playTurn(state, START, sources);
+    playTurn(state, START, sources, true);
+    expect(state.match.room.status).toBe("round_summary");
     const ended = game.abandon(state, 2, START);
     expect(ended.standings).toEqual([{ seat: 0, place: 1 }]);
     // The one who stayed first, whatever the scores; the one who left after them.
     expect(ended.result).toEqual([
-      { seat: 0, score: expect.any(Number) },
-      { seat: 2, score: expect.any(Number) },
+      { seat: 0, score: first === 0 ? 1 : 0 },
+      { seat: 2, score: first === 2 ? 1 : 0 },
     ]);
     expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
     expect(JSON.stringify(ended)).not.toContain(assignment(state, 0)!);
@@ -637,6 +649,8 @@ interface Scan {
   /** Every identity assigned to a seat, and whether its round is over (then the player may see it). */
   owned: Map<string, { seat: number; round: number; revealed: boolean }>;
   questions: Set<string>;
+  /** How many audience snapshots carried a round's reveal, each checked against the summary. */
+  reveals?: number;
 }
 
 /** Keeps the record of who was given which identity, and which rounds are over. */
@@ -687,6 +701,8 @@ function scanFrame(state: RoomGameState, who: Who, frame: string, scan: Scan) {
         expect(frame, `${who} was sent a hint for themselves they did not ask for (${hint})`).not.toContain(hint);
       });
     }
+    // The audience's reveal is never a player's: they have their own round summary.
+    expect(frame, `${who} was sent the audience's reveal`).not.toMatch(/"(reveal|identities)"/);
     return;
   }
   if (viewer.role === "audience") {
@@ -695,7 +711,25 @@ function scanFrame(state: RoomGameState, who: Who, frame: string, scan: Scan) {
     const round = state.match.room.round;
     const current = round ? state.match.seats.map((s) => getIdentity(assignment(state, s)!)) : [];
     const shown = current.flatMap((i) => [i.canonicalName, i.id, ...i.aliases]).map(escaped);
-    if (frame.startsWith('{"t":"snap"')) for (const identity of current) expect(frame, `${who} was not sent ${identity.id}`).toContain(escaped(identity.canonicalName));
+    if (frame.startsWith('{"t":"snap"')) {
+      for (const identity of current) expect(frame, `${who} was not sent ${identity.id}`).toContain(escaped(identity.canonicalName));
+      // Between rounds, the reveal is exactly the round's summary: each seat, its identity and how it went.
+      const s = JSON.parse(frame).s as AudienceView;
+      const room = state.match.room;
+      const summary = room.lastRoundSummary;
+      if ((room.status === "round_summary" || room.status === "match_summary") && summary) {
+        expect(s.reveal, `${who}'s reveal`).toEqual({
+          roundIndex: summary.roundIndex,
+          matchOver: summary.matchOver,
+          entries: state.match.seats.map((seat) => {
+            const entry = summary.entries.find((e) => e.playerId === `seat-${seat}`)!;
+            const identity = getIdentity(entry.identityId);
+            return { seat, identity: { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId }, result: entry.result };
+          }),
+        });
+        scan.reveals = (scan.reveals ?? 0) + 1;
+      } else expect(s.reveal, `${who}'s reveal during a round`).toBeNull();
+    }
     for (const id of scan.owned.keys()) {
       for (const hint of secretsOf(id).hints) {
         if (!shown.some((s) => s.includes(hint))) expect(frame, `${who} was sent a hint (${hint})`).not.toContain(hint);
@@ -711,7 +745,7 @@ function scanFrame(state: RoomGameState, who: Who, frame: string, scan: Scan) {
     for (const text of [...names, ...hints]) expect(frame, `${who} was sent ${text}`).not.toContain(text);
   }
   for (const question of scan.questions) expect(frame, `${who} was sent a question`).not.toContain(escaped(question));
-  expect(frame).not.toMatch(/"(log|opponentIdentity|roundSummary|identity|identities|assignments|usedIdentityIds|youId)"/);
+  expect(frame).not.toMatch(/"(log|opponentIdentity|roundSummary|identity|identities|reveal|assignments|usedIdentityIds|youId)"/);
 }
 
 /** Every viewer's snapshot now, and the events, as the room would send them (no event of this game has `only`). */
@@ -772,7 +806,15 @@ function roomMatch(settings: object, seed: number, opts: { abandonAt?: number } 
     const pending = turn.log.find((e) => e.kind === "question" && e.answer === null);
     moves++;
     if (turn.phase === "pending_confirm") {
-      act(answerer, pick() < 0.4 ? "turn.correct.reject" : "turn.correct.confirm");
+      const roll = pick();
+      if (roll < 0.2) {
+        // The answerer's phone locks before they judge the guess: after 30 seconds the guesser
+        // confirms it on their own (the override, with the guesser standing in as host).
+        if (game.presence(state, answerer, { connected: true, away: true }, now, sources)) send(state, now, [], scan);
+        now += HOST_OVERRIDE_AFTER_MS;
+        act(guesser, "turn.correct.override");
+        if (game.presence(state, answerer, { connected: true, away: false }, now, sources)) send(state, now, [], scan);
+      } else act(answerer, roll < 0.5 ? "turn.correct.reject" : "turn.correct.confirm");
     } else if (pending) {
       act(answerer, "turn.answer", { questionId: pending.id, answer: ["yes", "no", "sort_of", "dont_know"][Math.floor(pick() * 4)] });
     } else if (moves > 12) {
@@ -816,9 +858,10 @@ describe("secrecy across whole matches in the party room", () => {
     expect(scan.frames).toBeGreaterThan(400);
     expect(scan.owned.size).toBeGreaterThanOrEqual(6);
     expect([...scan.owned.values()].every((o) => o.revealed)).toBe(true);
-    for (const move of ["turn.ask", "turn.answer", "turn.hint", "turn.pass", "turn.correct.reject", "turn.correct.confirm", "round.next", "away", "dropped", "timed_out"]) {
+    for (const move of ["turn.ask", "turn.answer", "turn.hint", "turn.pass", "turn.correct.reject", "turn.correct.confirm", "turn.correct.override", "round.next", "away", "dropped", "timed_out"]) {
       expect(happened, move).toContain(move);
     }
+    expect(scan.reveals).toBeGreaterThanOrEqual(5);
     expect(game.isOver(state)).toBe(true);
   });
 
