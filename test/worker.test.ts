@@ -1,10 +1,12 @@
-import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
+import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import pkg from "../package.json";
 import {
   DEFAULT_SETTINGS,
+  LEGACY_WS_PROTOCOL,
+  LEGACY_WS_TOKEN_PREFIX,
+  WS_CLOSE,
   WS_PROTOCOL,
-  WS_TOKEN_PREFIX,
   type ApiError,
   type CommandResponse,
   type JoinLookupResponse,
@@ -15,7 +17,8 @@ import {
   type ViewResponse,
 } from "../src/shared/protocol";
 import type { RoomState } from "../src/worker/engine";
-import type { RoomDurableObject } from "../src/worker/room";
+import { HELLO_TIMEOUT_MS, MAX_UNIDENTIFIED_SOCKETS, type RoomDurableObject } from "../src/worker/room";
+import { helloFrame } from "../src/client/lib/roomSocket";
 import { PIN_DIRECTORY_NAME, PIN_TTL_MS, type PinDirectoryDurableObject } from "../src/worker/pin-directory";
 import { RATE_LIMITS } from "../src/worker/rate-limiter";
 import { signSession } from "../src/worker/session";
@@ -65,20 +68,37 @@ async function startedRoom(settings: Partial<Settings> = {}) {
   return { code, host, guest, view: started };
 }
 
-async function openSocket(code: string, token: string) {
-  const res = await SELF.fetch(`${BASE}/api/rooms/${code}/ws`, {
-    headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `${WS_PROTOCOL}, ${WS_TOKEN_PREFIX}${token}` },
-  });
+/** Asks for a room socket the way the page does: no token in the address or the headers. */
+function upgrade(code: string, protocols: string = WS_PROTOCOL) {
+  return SELF.fetch(`${BASE}/api/rooms/${code}/ws`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": protocols } });
+}
+
+/** A socket that has not said who it is yet: it records every frame and its close code. */
+async function rawSocket(code: string, protocols: string = WS_PROTOCOL) {
+  const res = await upgrade(code, protocols);
   expect(res.status).toBe(101);
-  expect(res.headers.get("Sec-WebSocket-Protocol")).toBe(WS_PROTOCOL);
   const ws = res.webSocket!;
   const frames: string[] = [];
   const waiters: (() => void)[] = [];
+  const closed = new Promise<number>((resolve) => ws.addEventListener("close", (e) => resolve(e.code)));
   ws.addEventListener("message", (event) => {
     frames.push(event.data as string);
     waiters.splice(0).forEach((w) => w());
   });
   ws.accept();
+  return { ws, frames, waiters, closed, protocol: res.headers.get("Sec-WebSocket-Protocol") };
+}
+
+/** Resolves with the close code, or null if the socket is still open after `ms`. */
+const closeWithin = (closed: Promise<number>, ms = 1_000) =>
+  Promise.race([closed, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function openSocket(code: string, token: string) {
+  const { ws, frames, waiters, protocol } = await rawSocket(code);
+  expect(protocol).toBe(WS_PROTOCOL);
+  ws.send(helloFrame(token));
   const next = async (predicate: (view: RoomView) => boolean): Promise<RoomView> => {
     for (let i = 0; i < 50; i++) {
       const match = frames
@@ -279,12 +299,205 @@ describe("WebSockets", () => {
     b1.ws.close();
   });
 
-  it("refuses sockets without a valid token", async () => {
+});
+
+/** The room as stored, read from inside its Durable Object. */
+const storedRoom = (code: string) =>
+  runInDurableObject(roomStub(code), async (instance) => structuredClone((instance as unknown as { room: RoomState | null }).room));
+
+const playerIn = async (code: string, playerId: string) => (await storedRoom(code))!.players.find((p) => p.id === playerId)!;
+
+/** What each open socket in the room has recorded about who it belongs to. */
+const attachments = (code: string) =>
+  runInDurableObject(roomStub(code), async (_instance, state) => state.getWebSockets().map((ws) => ws.deserializeAttachment() as { playerId: string | null }));
+
+describe("WebSocket handshake (the token is the first message, never the address or a header)", () => {
+  it("sends a socket nothing about the room until its hello says whose seat it is", async () => {
     const host = await createRoom();
-    const res = await SELF.fetch(`${BASE}/api/rooms/${host.view.code}/ws`, {
-      headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `${WS_PROTOCOL}, ${WS_TOKEN_PREFIX}nope` },
+    const code = host.view.code;
+    const socket = await rawSocket(code);
+    expect(socket.protocol).toBe(WS_PROTOCOL);
+    expect(await attachments(code)).toEqual([expect.objectContaining({ playerId: null })]);
+
+    // The room changes twice (a join, a ready) while the socket is silent: it hears none of it.
+    const guest = (await joinRoom(code)).body;
+    await send(code, guest.token, guest.view, "player.ready", { ready: true });
+    await pause(200);
+    expect(socket.frames).toEqual([]);
+    expect((await playerIn(code, host.playerId)).connected).toBe(false);
+
+    socket.ws.send(helloFrame(host.token));
+    await expect.poll(() => socket.frames.length).toBeGreaterThan(0);
+    const first = JSON.parse(socket.frames[0]!) as ServerMessage;
+    expect(first.type === "state" && first.view.youId).toBe(host.playerId);
+    expect((await playerIn(code, host.playerId)).connected).toBe(true);
+    expect(await attachments(code)).toEqual([expect.objectContaining({ playerId: host.playerId })]);
+    socket.ws.close();
+  });
+
+  it("closes a socket whose first message is anything but a hello, without acting on it", async () => {
+    const { code, host } = await startedRoom();
+    const before = await storedRoom(code);
+    for (const first of ["sync", "away", "back", "hello", '{"type":"hello"}', JSON.stringify({ type: "hello", token: host.token, extra: 1 }), "{"]) {
+      const socket = await rawSocket(code);
+      socket.ws.send(first);
+      expect(await closeWithin(socket.closed), `first message ${first}`).toBe(WS_CLOSE.reload);
+      expect(socket.frames, `first message ${first}`).toEqual([]);
+    }
+    const after = await storedRoom(code);
+    expect(after!.version).toBe(before!.version);
+    expect(after!.players.map((p) => [p.connected, p.away ?? false])).toEqual(before!.players.map((p) => [p.connected, p.away ?? false]));
+  });
+
+  it("closes a socket whose hello carries a wrong token, without a word", async () => {
+    const { code, host } = await startedRoom();
+    const other = await createRoom();
+    const before = await storedRoom(code);
+    const roomId = before!.roomId;
+    const [payload, signature] = host.token.split(".").slice(1);
+    const wrong = [
+      "nope",
+      `v1.${payload}.${signature!.slice(0, -2)}AA`, // tampered signature
+      other.token, // a real seat in another room
+      await signSession("test-only-secret-not-for-production", { roomId: "an-older-room", code, playerId: host.playerId }), // an earlier room with this code
+      await signSession("test-only-secret-not-for-production", { roomId, code, playerId: "nobody" }), // no such seat
+      await signSession("test-only-secret-not-for-production", { roomId, code, playerId: host.playerId }, Date.now() - 2 * 24 * 60 * 60 * 1000), // expired
+      await signSession("a-different-secret-entirely", { roomId, code, playerId: host.playerId }),
+    ];
+    for (const token of wrong) {
+      const socket = await rawSocket(code);
+      socket.ws.send(helloFrame(token));
+      expect(await closeWithin(socket.closed)).toBe(WS_CLOSE.unauthorized);
+      expect(socket.frames).toEqual([]);
+    }
+    expect((await storedRoom(code))!.version).toBe(before!.version);
+  });
+
+  it("tells a removed player's late hello that they were removed, and nothing else", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const guest = (await joinRoom(code)).body;
+    await send(code, host.token, await latestView(code, host.token), "player.remove", { playerId: guest.playerId });
+    const socket = await rawSocket(code);
+    socket.ws.send(helloFrame(guest.token));
+    expect(await closeWithin(socket.closed)).toBe(WS_CLOSE.removed);
+    expect(socket.frames).toEqual([]);
+  });
+
+  it("ignores a second hello, and handles a signal sent right behind the hello in order", async () => {
+    const { code, host, guest } = await startedRoom();
+    const a = await openSocket(code, host.token);
+    await a.next((v) => v.players.find((p) => p.seat === "A")!.connected);
+    const b = await rawSocket(code);
+    // A hidden page sends its hello and "away" back to back.
+    b.ws.send(helloFrame(guest.token));
+    b.ws.send("away");
+    const guestAway = await a.next((v) => v.players.find((p) => p.seat === "B")!.connected && !!v.players.find((p) => p.seat === "B")!.away);
+    expect(guestAway).toBeTruthy();
+    b.ws.send(helloFrame(host.token));
+    expect(await closeWithin(b.closed, 300)).toBeNull();
+    expect((await attachments(code)).map((x) => x.playerId).sort()).toEqual([host.playerId, guest.playerId].sort());
+    a.ws.close();
+    b.ws.close();
+  });
+
+  it("wakes up correct when the room sleeps between the open and the hello", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const socket = await rawSocket(code);
+    await evictDurableObject(roomStub(code)); // hibernates the socket and drops the room from memory
+
+    // Still nobody's: a change after the wake reaches it not at all.
+    const guest = (await joinRoom(code)).body;
+    await pause(100);
+    expect(socket.frames).toEqual([]);
+    expect(await attachments(code)).toEqual([expect.objectContaining({ playerId: null })]);
+
+    await evictDurableObject(roomStub(code));
+    socket.ws.send(helloFrame(host.token));
+    await expect.poll(() => socket.frames.length).toBeGreaterThan(0);
+    const view = (JSON.parse(socket.frames[0]!) as Extract<ServerMessage, { type: "state" }>).view;
+    expect(view.youId).toBe(host.playerId);
+    expect(view.players.map((p) => p.nickname)).toEqual(["Alice", guest.view.players[1]!.nickname]);
+    expect((await playerIn(code, host.playerId)).connected).toBe(true);
+
+    // And it stays the host's socket across another sleep.
+    await evictDurableObject(roomStub(code));
+    socket.ws.send("away");
+    await expect.poll(async () => (await playerIn(code, host.playerId)).away).toBe(true);
+    socket.ws.close();
+  });
+
+  it(`holds at most ${MAX_UNIDENTIFIED_SOCKETS} sockets that have not said who they are, and drops them after the hello timeout`, async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const silent: Awaited<ReturnType<typeof rawSocket>>[] = [];
+    for (let i = 0; i < MAX_UNIDENTIFIED_SOCKETS; i++) silent.push(await rawSocket(code));
+    const refused = await upgrade(code);
+    expect(refused.status).toBe(429);
+    expect(refused.webSocket).toBeNull();
+
+    // A socket that says who it is no longer counts against the cap.
+    silent[0]!.ws.send(helloFrame(host.token));
+    await expect.poll(() => silent[0]!.frames.length).toBeGreaterThan(0);
+    const next = await rawSocket(code);
+    expect((await upgrade(code)).status).toBe(429);
+
+    // Once the silent ones are older than the timeout, the next request sweeps them out.
+    await runInDurableObject(roomStub(code), async (_instance, state) => {
+      for (const ws of state.getWebSockets()) {
+        const attachment = ws.deserializeAttachment() as { playerId: string | null; openedAt?: number };
+        if (attachment.playerId === null) ws.serializeAttachment({ ...attachment, openedAt: Date.now() - HELLO_TIMEOUT_MS - 1 });
+      }
     });
-    expect(res.status).toBe(401);
+    const fresh = await rawSocket(code);
+    for (const s of [...silent.slice(1), next]) {
+      expect(await closeWithin(s.closed)).toBe(WS_CLOSE.helloTimeout);
+      expect(s.frames).toEqual([]);
+    }
+    // The host's socket is untouched, and the silent sockets never counted as activity.
+    expect(await closeWithin(silent[0]!.closed, 100)).toBeNull();
+    expect(await attachments(code)).toHaveLength(2);
+    silent[0]!.ws.close();
+    fresh.ws.close();
+  });
+
+  it("does not let silent sockets keep an idle room alive", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const socket = await rawSocket(code);
+    const stub = roomStub(code);
+    await runInDurableObject(stub, async (instance, state) => {
+      const self = instance as unknown as { room: RoomState };
+      self.room = { ...self.room, lastActivityAt: 0 };
+      await state.storage.put("room", self.room);
+    });
+    await runDurableObjectAlarm(stub);
+    expect(await closeWithin(socket.closed)).toBe(WS_CLOSE.roomClosed);
+    expect(socket.frames).toEqual([]);
+    expect((await upgrade(code)).status).toBe(404);
+  });
+
+  it("refuses an upgrade for a room that does not exist, or with no handshake name", async () => {
+    expect((await upgrade("ZZZZZZ")).status).toBe(404);
+    const host = await createRoom();
+    expect((await upgrade(host.view.code, "something.else")).status).toBe(400);
+    expect((await SELF.fetch(`${BASE}/api/rooms/${host.view.code}/ws`, { headers: { Upgrade: "websocket" } })).status).toBe(400);
+  });
+
+  it("closes a page still on the old header handshake with the room-closed code, before it reaches the room", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const before = await storedRoom(code);
+    // Exactly what pages built before v2 send.
+    const old = await rawSocket(code, `${LEGACY_WS_PROTOCOL}, ${LEGACY_WS_TOKEN_PREFIX}${host.token}`);
+    expect(old.protocol).toBe(LEGACY_WS_PROTOCOL); // a protocol it offered, so the browser opens and then sees the close
+    expect(await closeWithin(old.closed)).toBe(WS_CLOSE.roomClosed);
+    expect(old.frames).toEqual([]);
+    // It never became the host's socket: the room did not change and holds no socket.
+    expect((await storedRoom(code))!.version).toBe(before!.version);
+    expect((await playerIn(code, host.playerId)).connected).toBe(false);
+    expect(await attachments(code)).toEqual([]);
   });
 });
 

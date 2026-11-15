@@ -1,21 +1,23 @@
 // Keeps the client's copy of the room in sync with the Durable Object: an initial HTTP fetch,
 // then a WebSocket that pushes this player's filtered view on every change, with reconnects.
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  WS_PROTOCOL,
-  WS_TOKEN_PREFIX,
-  type Command,
-  type CommandType,
-  type RoomView,
-  type ServerMessage,
-} from "../../shared/protocol";
+import { WS_CLOSE, type Command, type CommandType, type RoomView, type ServerMessage } from "../../shared/protocol";
 import { visibilitySignal, watchVisibility } from "../../kit/client/visibility";
 import { PRESENCE_AWAY } from "../../kit/shared/presence";
 import type { CreatedCard } from "../../kit/shared/share-cards";
 import { api, ApiRequestError, newCommandId, type StoredSession } from "./api";
+import { helloFrame, reloadOnce, ROOM_SOCKET_PROTOCOLS, roomSocketUrl } from "./roomSocket";
 
 export type Connection = "connecting" | "open" | "reconnecting";
-export type FatalReason = "expired" | "unauthorized" | "left" | "removed";
+export type FatalReason = "expired" | "unauthorized" | "left" | "removed" | "outdated";
+
+function sessionStore(): Storage | null {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 type CommandExtra<T extends CommandType> = Omit<Extract<Command, { type: T }>, "type" | "commandId" | "expectedVersion">;
 
@@ -114,13 +116,11 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
 
     const connect = () => {
       if (stopped) return;
-      const scheme = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${scheme}://${location.host}/api/rooms/${encodeURIComponent(code)}/ws`, [
-        WS_PROTOCOL,
-        `${WS_TOKEN_PREFIX}${session.token}`,
-      ]);
+      // The address and the subprotocol header are logged, so the token goes in the first message.
+      const ws = new WebSocket(roomSocketUrl(location, code), [...ROOM_SOCKET_PROTOCOLS]);
       socket = ws;
       ws.onopen = () => {
+        ws.send(helloFrame(session.token));
         retry = 0;
         setConnection("open");
         // Every new socket starts as "here"; a hidden page says so at once.
@@ -140,9 +140,16 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
       ws.onclose = (event) => {
         clearInterval(pingTimer);
         if (stopped || socket !== ws) return;
-        if (event.code === 4000) return setFatal("expired");
-        if (event.code === 4001) return setFatal("left");
-        if (event.code === 4002) return setFatal("removed");
+        if (event.code === WS_CLOSE.roomClosed) return setFatal("expired");
+        if (event.code === WS_CLOSE.leftRoom) return setFatal("left");
+        if (event.code === WS_CLOSE.removed) return setFatal("removed");
+        // The room no longer speaks this page's handshake: load the new page, once.
+        if (event.code === WS_CLOSE.reload) {
+          if (!reloadOnce(sessionStore(), () => location.reload())) setFatal("outdated");
+          return;
+        }
+        // Anything else, including a refused token (WS_CLOSE.unauthorized), reconnects after the
+        // session is checked over HTTP, which ends a seat that is really gone.
         setConnection("reconnecting");
         const delay = Math.min(500 * 2 ** retry, 8_000);
         retry += 1;

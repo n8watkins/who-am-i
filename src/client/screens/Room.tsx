@@ -196,6 +196,22 @@ function RoomScreen({ code, session, onSessionInvalid }: { code: string; session
     );
   }
 
+  if (fatal === "outdated") {
+    return (
+      <Shell>
+        <Card className="mt-6 text-center">
+          <h1 className="text-2xl font-extrabold">This page is out of date</h1>
+          <p className="mt-2 text-muted">A new version of the game is out. Reload to get back to your seat.</p>
+          <div className="mt-6">
+            <Button block onClick={() => location.reload()}>
+              Reload
+            </Button>
+          </div>
+        </Card>
+      </Shell>
+    );
+  }
+
   if (fatal === "expired" || fatal === "unauthorized") {
     return (
       <Shell>

@@ -74,7 +74,7 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 - **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, start, ask an in-app question, request hints, guess, confirm, skip, reveal, five rounds with alternating first guessers to a winner, then a one-tap rematch started by the loser.
   While doing so they record every HTTP response body and WebSocket frame each browser receives, plus the page HTML and localStorage, and assert that a player's own identity (name and id) never appears before the round summary, and that each hint arrives only after it was requested.
   Phone tests run at 390x844 with a fake Screen Wake Lock API and a controllable page visibility (`e2e/phone.ts`), so they can lock and unlock a "phone" the way a real one hides and shows the page.
-  Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, every main desktop screen fitting 1280x800 with no accessibility violations, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
+  Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, every main desktop screen fitting 1280x800 with no accessibility violations, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, a timed turn running out, and the socket handshake (no token in any address or header the browser sends, old header-form pages closed, out-of-date pages reloading only once).
 
 ## Secrecy model
 
@@ -86,7 +86,7 @@ Keeping your own identity secret is the core of the game, so it is enforced on t
 - Every payload sent to a browser is built by `viewFor(room, playerId)` in `src/worker/view.ts`.
   It contains the public room state plus only the identity your opponent is guessing.
   Your own identity is included only in the summary of a round that has already ended.
-- Each WebSocket is tagged with its player, and every broadcast is rendered separately per socket.
+- Each WebSocket records its player in its attachment once its hello is accepted, and every broadcast is rendered separately per socket; a socket that has not said who it is gets nothing.
 - Command responses and errors carry the same filtered view.
 - Clients send commands, never identities or scores; the server ignores anything else.
 - Hints are stored with each identity on the server.
@@ -99,7 +99,24 @@ Keeping your own identity secret is the core of the game, so it is enforced on t
 Players are anonymous.
 On create or join the Worker issues a token signed with HMAC-SHA256 (`SESSION_SECRET`), scoped to the room id, room code and player id.
 The browser stores it in localStorage per room, so a refresh restores the same seat; it never contains identity data.
-The WebSocket carries the token as a subprotocol, because browsers cannot set headers on WebSockets.
+HTTP calls send it as `Authorization: Bearer`, a header Workers Logs redacts.
+
+The token never goes in an address or in a WebSocket header, because Workers Logs keeps request addresses and headers.
+The room socket handshake (`whoami.v2`) works like this:
+
+1. The page opens `GET /api/rooms/:code/ws` with the subprotocol `whoami.v2`, which carries no secret.
+2. The room accepts the socket as nobody's: its attachment says `playerId: null`, so it survives the room sleeping.
+   The room sends it nothing and acts on nothing from it.
+3. The page's first message is `{"type":"hello","token":"..."}`.
+   With a valid token for a seat in this room the socket becomes that player's, and from then on behaves as before: presence, the player's own view, away and back, `sync`.
+4. Anything else as the first message closes the socket with 4004 (the page is out of date; it reloads once, and shows a Reload screen if that did not help).
+   A wrong token closes it with 4003, or 4002 for a removed player; the page then checks its session over HTTP as after any drop.
+5. A room holds at most 4 sockets that have not said who they are and refuses more with 429.
+   Silent sockets older than 10 seconds are closed (4005) when the next socket arrives, and they never count as activity, so they cannot keep a room alive.
+
+Pages built before v2 still offer `whoami.v1` plus `token.<token>`.
+The Worker never honours that token: it opens the socket and closes it at once with 4000 (room closed), the one code that makes an old page stop reconnecting without deleting its stored seat.
+The old page shows "This room has closed"; a reload loads the new page, which finds the stored seat and carries on.
 
 ### Abuse resistance
 
