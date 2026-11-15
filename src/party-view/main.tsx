@@ -12,6 +12,8 @@ document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark
 const host = partyHost();
 const root = document.getElementById("root")!;
 if (host) {
+  // The big screen is read from across the room: every size in rem grows with the screen (styles.css).
+  if (host.you.role === "screen") document.documentElement.dataset.screen = "big";
   createRoot(root).render(
     <StrictMode>
       <PartyApp host={host} />

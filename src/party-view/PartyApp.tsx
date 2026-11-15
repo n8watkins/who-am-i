@@ -20,8 +20,14 @@ export function PartyApp({ host }: { host: PartyHost }) {
   // The room shows this page only while a match is on: a phone set down mid-round, and the big
   // screen, must not dim and lock (the frame is allowed the wake lock: view.js).
   useWakeLock(true);
+  // The big screen is read from across the room: the whole width, and the type scaled up with it
+  // (main.tsx sets the page's root size for it).
+  const big = host.you.role === "screen";
   return (
-    <main className="mx-auto w-full max-w-lg px-4 pt-3 pb-[calc(1.5rem+var(--action-bar-h,0px))]">
+    <main
+      data-screen={big ? "big" : undefined}
+      className={big ? "mx-auto w-full max-w-3xl px-6 pt-6 pb-6" : "mx-auto w-full max-w-lg px-4 pt-3 pb-[calc(1.5rem+var(--action-bar-h,0px))]"}
+    >
       <header className="mb-3 flex min-h-9 items-center justify-between gap-3 text-sm font-extrabold">
         <span className="tracking-tight">Who Am I?</span>
         <span className="text-muted">{MATCH_LABELS[snap.match] ?? ""}</span>

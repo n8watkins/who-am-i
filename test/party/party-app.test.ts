@@ -80,6 +80,17 @@ describe("the room view's page", () => {
     }
   });
 
+  it("lays a phone out as a column and the big screen across its width", () => {
+    const now = Date.now();
+    const { state } = matchFor(0, now);
+    const phone = render(game.snapshot(state, now, { role: "player", seat: 0 }), now);
+    expect(phone).toContain("max-w-lg");
+    expect(phone).not.toContain("data-screen");
+    const screen = render(game.snapshot(state, now, { role: "screen" }), now);
+    expect(screen).not.toContain("max-w-lg");
+    expect(screen).toContain('data-screen="big"');
+  });
+
   it("offers either guesser the button to confirm their own guess once the other phone has been gone 30 seconds", () => {
     const now = Date.now();
     for (const guesser of [0, 2]) {

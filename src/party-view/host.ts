@@ -16,7 +16,11 @@ export interface PartyAnswerError extends Error {
 
 export interface PartyHost {
   room: PartyRoomView;
+  /** `{role: "player", seat}`, `{role: "audience", seat}` for a member watching, or `{role: "screen", seat: -1}` for the big screen. */
   you: { role: string; seat: number };
+  /** The room has stopped asking this phone for sideways: the page may lay itself out upright. False on the big screen. */
+  upright?: boolean;
+  /** The latest snapshot the room gave: the start, or a later one for a page that started again. */
   snapshot: Snapshot;
   inset: { top: number; right: number };
   /** The room's clock, in ms. */
@@ -30,11 +34,22 @@ export interface PartyHost {
   ready(): void;
 }
 
-/** The host, when this page is shown by a party room; null when it was opened on its own. */
+/** What the frame's element carries: the host, once a page attaches to it. */
+interface FrameHost extends PartyHost {
+  /** Drops what an earlier page in this frame registered (a reload) and returns the host. */
+  attach?(): PartyHost;
+}
+
+/**
+ * The host, when this page is shown by a party room; null when it was opened on its own. Call it
+ * once per page: it attaches this page, so a page that reloads in the frame starts from the
+ * latest snapshot and the page before it hears nothing more.
+ */
 export function partyHost(): PartyHost | null {
   try {
-    const frame = window.frameElement as (Element & { partyHost?: PartyHost | null }) | null;
-    return frame?.partyHost ?? null;
+    const frame = window.frameElement as (Element & { partyHost?: FrameHost | null }) | null;
+    const host = frame?.partyHost ?? null;
+    return host?.attach ? host.attach() : host;
   } catch {
     return null;
   }

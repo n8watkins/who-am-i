@@ -7,6 +7,13 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error -- plain JavaScript with no types: it is served as it is.
 import { mount } from "../../party-view/view.js";
 
+type Host = Record<string, unknown> & {
+  on(type: string, handler: (...args: unknown[]) => void): () => void;
+  ready(): void;
+  attach(): Host;
+  send(data: unknown, opts: unknown): Promise<unknown>;
+};
+
 interface FakeEl {
   tag: string;
   style: Record<string, string>;
@@ -15,11 +22,17 @@ interface FakeEl {
   parent: FakeEl | null;
   src?: string;
   title?: string;
-  partyHost?: Record<string, (...args: unknown[]) => unknown> | null;
+  partyHost?: Host | null;
   clientWidth: number;
 }
 
-function fakeDocument() {
+/**
+ * The room's page: `viewport` CSS pixels wide, and the box the room lays over it (the stage) at
+ * `left`, `width` wide. On a phone held sideways in an upright game the room letterboxes the stage
+ * to an upright shape in the middle; otherwise it is the whole width.
+ */
+function fakeDocument({ viewport = 844, left = 0, width }: { viewport?: number; left?: number; width?: number } = {}) {
+  width ??= viewport;
   const el = (tag: string): FakeEl & { append(c: FakeEl): void; remove(): void; setAttribute(k: string, v: string): void; ownerDocument?: unknown } => {
     const node = {
       tag,
@@ -42,15 +55,20 @@ function fakeDocument() {
     };
     return node;
   };
-  const doc = { createElement: el };
-  const container = Object.assign(el("div"), { ownerDocument: doc, clientWidth: 844 });
+  const doc = { createElement: el, documentElement: { clientWidth: viewport } };
+  const container = Object.assign(el("div"), {
+    ownerDocument: doc,
+    clientWidth: width,
+    getBoundingClientRect: () => ({ left, right: left + width, top: 0, width }),
+  });
   return { container };
 }
 
-function context(sent: unknown[] = []) {
+function context(sent: unknown[] = [], extra: object = {}) {
   return {
     room: { members: [{ name: "Ann", colour: "#f00" }] },
     you: { role: "player", seat: 0 },
+    upright: true,
     snapshot: { role: "player", version: 3 },
     send: (data: unknown, opts: unknown) => {
       sent.push([data, opts]);
@@ -59,8 +77,14 @@ function context(sent: unknown[] = []) {
     inputId: () => "abc.1",
     now: () => 123,
     inset: { top: 56, right: 56 },
+    ...extra,
   };
 }
+
+const parts = (container: FakeEl) => {
+  const box = container.children[0]!;
+  return { box, frame: box.children[0]!, host: box.children[0]!.partyHost! };
+};
 
 describe("the room view's module", () => {
   it("shows the game's page in one frame inside the container, as an upright column", () => {
@@ -68,21 +92,37 @@ describe("the room view's module", () => {
     const view = mount(container, context());
     expect(view.full).toBe(true);
     expect(container.children).toHaveLength(1);
-    const box = container.children[0]!;
-    const frame = box.children[0]!;
+    const { box, frame } = parts(container);
     expect(frame.tag).toBe("iframe");
     expect(frame.src).toMatch(/\/party-view\/index\.html$/);
     expect(frame.style.maxWidth).toBe("480px");
-    // A sideways phone: the column is clear of the door, so it starts at the top.
+    // A wide stage: the column in the middle is clear of the door, so it starts at the top.
     expect(box.style.paddingTop).toBe("0");
     view.unmount();
   });
 
   it("starts the column below the door when it reaches the corner (an upright phone)", () => {
-    const { container } = fakeDocument();
-    container.clientWidth = 390;
+    const { container } = fakeDocument({ viewport: 390 });
     const view = mount(container, context());
-    expect(container.children[0]!.style.paddingTop).toBe("56px");
+    expect(parts(container).box.style.paddingTop).toBe("56px");
+    view.unmount();
+  });
+
+  it("does not leave room for the door on a sideways phone, where the room letterboxes the stage in the middle", () => {
+    // 844 by 390, held sideways: the stage is an upright 292 pixels in the middle, far from the door.
+    const { container } = fakeDocument({ viewport: 844, left: 276, width: 292 });
+    const view = mount(container, context());
+    expect(parts(container).box.style.paddingTop).toBe("0");
+    view.unmount();
+  });
+
+  it("gives the big screen the whole width, not a phone's column, and tells the page who it is", () => {
+    const { container } = fakeDocument({ viewport: 1920 });
+    const view = mount(container, context([], { you: { role: "screen", seat: -1 }, upright: false }));
+    const { frame, host } = parts(container);
+    expect(frame.style.maxWidth).toBe("none");
+    expect(host.you).toEqual({ role: "screen", seat: -1 });
+    expect(host.upright).toBe(false);
     view.unmount();
   });
 
@@ -90,42 +130,67 @@ describe("the room view's module", () => {
     const { container } = fakeDocument();
     const sent: unknown[] = [];
     const view = mount(container, context(sent));
-    const host = container.children[0]!.children[0]!.partyHost!;
+    const host = parts(container).host.attach();
     expect(host.you).toEqual({ role: "player", seat: 0 });
+    expect(host.upright).toBe(true);
     expect((host.now as () => number)()).toBe(123);
     expect((host.inputId as () => string)()).toBe("abc.1");
     view.snapshot({ version: 4 }, 1, false);
     view.events([{ k: "timed_out", seat: 0 }]);
     const got: unknown[] = [];
-    host.on!("snapshot", (s: unknown) => got.push(["snapshot", s]));
-    host.on!("events", (list: unknown) => got.push(["events", list]));
+    host.on("snapshot", (s: unknown) => got.push(["snapshot", s]));
+    host.on("events", (list: unknown) => got.push(["events", list]));
     expect(got).toEqual([]);
-    host.ready!();
+    host.ready();
     expect(got).toEqual([
       ["snapshot", { version: 4 }],
       ["events", [{ k: "timed_out", seat: 0 }]],
     ]);
     view.snapshot({ version: 5 });
     expect(got.at(-1)).toEqual(["snapshot", { version: 5 }]);
-    void host.send!({ type: "turn.hint" }, { id: "abc.1" });
+    void host.send({ type: "turn.hint" }, { id: "abc.1" });
     expect(sent).toEqual([[{ type: "turn.hint" }, { id: "abc.1" }]]);
+    view.unmount();
+  });
+
+  it("starts a page reloaded in the frame from the latest snapshot, and drops the old page's handlers", () => {
+    const { container } = fakeDocument();
+    const view = mount(container, context());
+    const first = parts(container).host.attach();
+    expect(first.snapshot).toEqual({ role: "player", version: 3 });
+    const old: unknown[] = [];
+    first.on("snapshot", (s: unknown) => old.push(s));
+    first.ready();
+    view.snapshot({ role: "player", version: 7 });
+    expect(old).toEqual([{ role: "player", version: 7 }]);
+
+    // The frame's page reloads: the new page attaches and starts from what the room said last.
+    const second = parts(container).host.attach();
+    expect(second.snapshot).toEqual({ role: "player", version: 7 });
+    view.snapshot({ role: "player", version: 8 });
+    const got: unknown[] = [];
+    second.on("snapshot", (s: unknown) => got.push(s));
+    second.ready();
+    expect(got).toEqual([{ role: "player", version: 8 }]);
+    // The old page's handler is gone: it heard nothing after the reload.
+    expect(old).toEqual([{ role: "player", version: 7 }]);
     view.unmount();
   });
 
   it("leaves nothing behind: the frame is gone, the page's handle is cut, and a late tap is refused", async () => {
     const { container } = fakeDocument();
     const view = mount(container, context());
-    const frame = container.children[0]!.children[0]!;
-    const host = frame.partyHost!;
+    const { frame } = parts(container);
+    const host = frame.partyHost!.attach();
     const got: unknown[] = [];
-    host.on!("snapshot", (s: unknown) => got.push(s));
-    host.ready!();
+    host.on("snapshot", (s: unknown) => got.push(s));
+    host.ready();
     view.unmount();
     expect(container.children).toEqual([]);
     expect(frame.partyHost).toBeNull();
     view.snapshot({ version: 9 });
     expect(got).toEqual([]);
-    await expect(host.send!({}, { id: 1 })).rejects.toMatchObject({ code: "gone" });
+    await expect(host.send({}, { id: 1 })).rejects.toMatchObject({ code: "gone" });
     view.unmount();
   });
 });
