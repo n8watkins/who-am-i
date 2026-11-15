@@ -7,7 +7,8 @@
 // built from the snapshot that phone last got. The room is rebuilt over the same storage in the
 // middle (an eviction or a deploy). Every frame any socket is sent is checked against the secret.
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest";
-import { game } from "../../party";
+// The built module, as a party site imports it (the package's "." export), not the source.
+import { game } from "../../party.js";
 import type { RoomGameState } from "../../src/party/room-game";
 import type { RoomView } from "../../src/shared/protocol";
 import { getIdentity } from "../../src/worker/content";

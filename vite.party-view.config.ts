@@ -6,7 +6,7 @@ import pkg from "./package.json" with { type: "json" };
 
 // Builds the room view a party room shows (src/party-view) into party-view/, which is committed:
 // a party site serves the package's files as they are and runs no build of a game's (the party
-// kit's GAME-CONTRACT.md). `npm run check:party-view` rebuilds it and fails when the committed
+// kit's GAME-CONTRACT.md). `npm run check:party` rebuilds it and fails when the committed
 // copy differs. `PARTY_VIEW_OUT` builds somewhere else, for that check.
 const root = fileURLToPath(new URL("./src/party-view/", import.meta.url));
 const out = process.env.PARTY_VIEW_OUT ?? fileURLToPath(new URL("./party-view/", import.meta.url));

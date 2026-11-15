@@ -5,17 +5,11 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    ".": "./party.ts",
+    ".": "./party.js",
     "./package.json": "./package.json"
   },
   "files": [
-    "party.ts",
-    "src/party",
-    "src/shared",
-    "src/kit/shared/presence.ts",
-    "src/worker/engine.ts",
-    "src/worker/view.ts",
-    "src/worker/content",
+    "party.js",
     "party-view",
     "LICENSE",
     "README.md"
@@ -25,8 +19,8 @@
     "dev": "npm run setup && vite build && wrangler dev",
     "dev:ui": "vite",
     "build": "vite build && node scripts/check-bundle.mjs && wrangler deploy --dry-run --outdir dist/worker",
-    "build:party-view": "vite build --config vite.party-view.config.ts && node scripts/check-bundle.mjs --party-view",
-    "check:party-view": "node scripts/check-party-view.mjs",
+    "build:party": "vite build --config vite.party.config.ts && vite build --config vite.party-view.config.ts && node scripts/check-bundle.mjs --party-view",
+    "check:party": "node scripts/check-party-build.mjs",
     "test:party-room": "vitest run --project party-room",
     "cf-typegen": "wrangler types src/worker/worker-configuration.d.ts",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json",

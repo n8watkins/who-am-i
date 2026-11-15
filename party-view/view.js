@@ -7,7 +7,7 @@
 //   view.unmount();               // the match is over: everything is freed
 //
 // The match is drawn by the game's own React screens on a page beside this module (index.html,
-// built from src/party-view by `npm run build:party-view`) in a frame of the same origin. That
+// built from src/party-view by `npm run build:party`) in a frame of the same origin. That
 // keeps the game's styles, fonts and listeners in the frame's document, out of the room's page,
 // and makes unmount() complete: removing the frame frees them all. The frame finds what the room
 // gave on its own element (`frame.partyHost`): plain data and functions, no messages.

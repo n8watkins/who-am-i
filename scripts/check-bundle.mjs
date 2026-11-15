@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 
 const contentDir = new URL("../src/worker/content/", import.meta.url);
-// `--party-view`: only the room view (npm run build:party-view), otherwise the site and the room view.
+// `--party-view`: only the room view (npm run build:party), otherwise the site and the room view.
 const bundles = (process.argv.includes("--party-view") ? ["party-view"] : ["dist/client", "party-view"]).map((dir) => new URL(`../${dir}/`, import.meta.url));
 for (const dir of bundles) {
   if (!existsSync(dir)) {

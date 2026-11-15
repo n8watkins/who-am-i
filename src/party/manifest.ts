@@ -91,7 +91,7 @@ export const manifest = {
   settings: SETTING_FIELDS,
   /**
    * What a browser loads, relative to this package, copied under `path` by the host's build:
-   * the built room view (`npm run build:party-view`), and nothing else. It holds no identity
+   * the built room view (`npm run build:party`), and nothing else. It holds no identity
    * content (scripts/check-bundle.mjs).
    */
   public: [{ from: "party-view", to: "party-view" }],

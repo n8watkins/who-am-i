@@ -4,6 +4,8 @@
 // snapshot and every event scanned).
 import { describe, expect, it } from "vitest";
 import { game, manifest } from "../../party";
+// The built module a party site imports (the package's "." export): it must be the source.
+import * as built from "../../party.js";
 import { CARRY_MAX_BYTES, RoomSettingsSchema, type RoomGameState, type RoomSnapshot, type Sources } from "../../src/party/room-game";
 import { SETTING_FIELDS } from "../../src/party/manifest";
 import { HINTS_PER_TURN, type RoomView } from "../../src/shared/protocol";
@@ -56,26 +58,26 @@ const asPlayer = (s: RoomSnapshot) => {
 };
 
 /** One turn the quick way: right, or giving up when `skip`. */
-function playTurn(state: RoomGameState, now: number, sources: Sources, skip = false) {
+function playTurn(state: RoomGameState, now: number, sources: Sources, skip = false, g = game) {
   const seat = turnSeat(state)!;
   if (skip) {
-    expect(game.input(state, seat, command(state, "turn.skip"), now, sources)).toMatchObject({ ok: true });
+    expect(g.input(state, seat, command(state, "turn.skip"), now, sources)).toMatchObject({ ok: true });
     return;
   }
-  expect(game.input(state, seat, command(state, "turn.correct.request"), now, sources)).toMatchObject({ ok: true });
-  expect(game.input(state, other(state, seat), command(state, "turn.correct.confirm"), now, sources)).toMatchObject({ ok: true });
+  expect(g.input(state, seat, command(state, "turn.correct.request"), now, sources)).toMatchObject({ ok: true });
+  expect(g.input(state, other(state, seat), command(state, "turn.correct.confirm"), now, sources)).toMatchObject({ ok: true });
 }
 
 /** To the end of the match: `winner` is always right, the other always gives up. */
-function playMatch(state: RoomGameState, sources: Sources, winner: number) {
+function playMatch(state: RoomGameState, sources: Sources, winner: number, g = game) {
   let rounds = 0;
-  while (!game.isOver(state)) {
+  while (!g.isOver(state)) {
     if (state.match.room.status === "round_summary") {
-      expect(game.input(state, winner, command(state, "round.next"), START, sources)).toMatchObject({ ok: true });
+      expect(g.input(state, winner, command(state, "round.next"), START, sources)).toMatchObject({ ok: true });
       rounds++;
       continue;
     }
-    playTurn(state, START, sources, turnSeat(state) !== winner);
+    playTurn(state, START, sources, turnSeat(state) !== winner, g);
   }
   return rounds;
 }
@@ -92,6 +94,22 @@ describe("the contract surface", () => {
     for (const name of ["create", "input", "snapshot", "isOver", "nextDeadline", "tick", "serialize", "restore", "presence", "abandon", "result", "standings", "settings", "carry"] as const) {
       expect(typeof game[name], name).toBe("function");
     }
+  });
+
+  it("is the same game in the built party.js a party site imports: the same manifest, and the same match", () => {
+    expect(JSON.stringify(built.manifest)).toBe(JSON.stringify(manifest));
+    const keys = (g: object) => Object.keys(g).sort();
+    expect(keys(built.game)).toEqual(keys(game));
+    const play = (g: typeof game) => {
+      const sources = seeded(8);
+      const state = g.create({ seats: SEATS, now: START, settings: { turnFormat: "keep_going" }, sources });
+      playMatch(state, sources, 0, g);
+      return g.serialize(state);
+    };
+    commands = 5_000;
+    const fromSource = play(game);
+    commands = 5_000;
+    expect(play(built.game as typeof game)).toBe(fromSource);
   });
 
   it("names its room view and nothing else as public files", () => {
