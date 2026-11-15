@@ -35,7 +35,7 @@ export function PartyApp({ host }: { host: PartyHost }) {
 }
 
 function PlayerView({ view, handle }: { view: PlayerSnapshot; handle: ReturnType<typeof useParty>["handle"] }) {
-  if (view.status === "guessing_first" || view.status === "guessing_second") return <Game room={handle} view={view} />;
+  if (view.status === "guessing_first" || view.status === "guessing_second") return <Game room={handle} view={view} eitherMayOverride />;
   if (view.status === "round_summary") return <RoundSummary room={handle} view={view} />;
   if (view.status === "match_summary") {
     const me = mePlayer(view);

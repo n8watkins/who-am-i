@@ -255,8 +255,8 @@ export const game = {
 
   /**
    * A match begins with the party's two seats, both connected (they just voted). The first seat
-   * is the match's host: the one who may confirm their own guess when the other phone is gone.
-   * With a carry from the same two seats it starts as a rematch: the loser guesses first and the
+   * is the engine's host; in a party room that means nothing a player sees (either guesser may
+   * confirm their own guess when the other phone is gone: overrideAsGuesser). With a carry from the same two seats it starts as a rematch: the loser guesses first and the
    * last match's identities stay out of the draw.
    */
   create(input: { seats: readonly PartySeat[]; settings?: unknown; now: number; carry?: Carry | null; sources?: Sources }): GameState {
@@ -306,7 +306,9 @@ export const game = {
     if (!parsed.success) return { ok: false, error: "bad_request", message: parsed.error.issues[0]?.message ?? "Invalid command." };
     if (!PARTY_COMMANDS.has(parsed.data.type)) return { ok: false, error: "forbidden", message: "The party room does that, not the game." };
     game.tick(state, now, sources);
-    const result: Result<{ room: RoomState; duplicate: boolean }> = rules.command(state.room, playerOf(seat), parsed.data, now, sources);
+    const playerId = playerOf(seat);
+    const result: Result<{ room: RoomState; duplicate: boolean }> =
+      parsed.data.type === "turn.correct.override" ? overrideAsGuesser(state.room, playerId, parsed.data, now, sources) : rules.command(state.room, playerId, parsed.data, now, sources);
     if (!result.ok) return result;
     state.room = result.room;
     return { ok: true, duplicate: result.duplicate };
@@ -387,6 +389,21 @@ export const game = {
     return { room: state.room, seats: [seats[0]!, seats[1]!] };
   },
 };
+
+/**
+ * "Confirm my own guess": on the game's own site only the room's host may, because the host made
+ * the room. In a party room neither player made it, so either guesser may, on the same terms
+ * (their own turn, a guess waiting, the other phone gone or hidden for 30 seconds). The engine
+ * checks those terms with the guesser standing in as host for this one command, and the host is
+ * put back after, so nothing else changes hands.
+ */
+function overrideAsGuesser(room: RoomState, playerId: string, command: Command, now: number, sources: Sources): Result<{ room: RoomState; duplicate: boolean }> {
+  const host = room.hostPlayerId;
+  if (host === playerId || room.turn?.playerId !== playerId) return rules.command(room, playerId, command, now, sources);
+  const result = rules.command({ ...room, hostPlayerId: playerId }, playerId, command, now, sources);
+  if (!result.ok) return result;
+  return { ...result, room: { ...result.room, hostPlayerId: host } };
+}
 
 function screenView(state: GameState, now: number): ScreenView {
   const { room } = state;

@@ -4,5 +4,7 @@
     "lib": ["ES2023", "DOM"],
     "types": ["node"]
   },
-  "include": ["party.ts", "src/party/**/*.ts", "test/party/**/*.ts", "test/party-room/**/*.ts", "vite.config.ts", "vite.party-view.config.ts", "vitest.config.ts", "playwright.config.ts", "eslint.config.js", "e2e/**/*.ts", "scripts/**/*.mjs"]
+  "include": ["party.ts", "src/party/**/*.ts", "test/party/**/*.ts", "test/party-room/**/*.ts", "vite.config.ts", "vite.party-view.config.ts", "vitest.config.ts", "playwright.config.ts", "eslint.config.js", "e2e/**/*.ts", "scripts/**/*.mjs"],
+  // Renders the room view's React page, so it is checked with the browser code (tsconfig.app.json).
+  "exclude": ["test/party/party-app.test.ts"]
 }

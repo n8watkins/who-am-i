@@ -302,18 +302,28 @@ describe("the turn timer", () => {
     expect(game.presence(state, 9, { connected: false, away: false }, START, sources)).toBe(false);
   });
 
-  it("lets the guesser who is the match's host confirm their own guess once the other phone has been gone 30 seconds", () => {
-    // The host is the lower seat; make it the guesser.
-    let found: ReturnType<typeof start> | null = null;
-    for (let seed = 1; !found; seed++) {
-      const tried = start({}, { seed });
-      if (turnSeat(tried.state) === 0) found = tried;
+  it("lets either guesser confirm their own guess once the other phone has been gone 30 seconds", () => {
+    for (const guesser of [0, 2]) {
+      let found: ReturnType<typeof start> | null = null;
+      for (let seed = 1; !found; seed++) {
+        const tried = start({}, { seed });
+        if (turnSeat(tried.state) === guesser) found = tried;
+      }
+      const { state, sources } = found;
+      const answerer = other(state, guesser);
+      // Not before a guess, and not while the other phone is here.
+      expect(game.input(state, guesser, command(state, "turn.correct.override"), START, sources)).toMatchObject({ ok: false });
+      expect(game.input(state, guesser, command(state, "turn.correct.request"), START, sources)).toMatchObject({ ok: true });
+      expect(game.input(state, guesser, command(state, "turn.correct.override"), START + 60_000, sources)).toMatchObject({ ok: false, error: "forbidden" });
+      expect(game.presence(state, answerer, { connected: true, away: true }, START, sources)).toBe(true);
+      expect(game.input(state, guesser, command(state, "turn.correct.override"), START + 29_999, sources), `seat ${guesser}`).toMatchObject({ ok: false, error: "forbidden" });
+      // The one who is not guessing may not use it.
+      expect(game.input(state, answerer, command(state, "turn.correct.override"), START + 30_000, sources)).toMatchObject({ ok: false, error: "forbidden" });
+      expect(game.input(state, guesser, command(state, "turn.correct.override"), START + 30_000, sources), `seat ${guesser}`).toMatchObject({ ok: true });
+      expect(state.match.room.players.find((p) => p.id === `seat-${guesser}`)!.score).toBe(1);
+      // Nothing else changes hands: the match's host is still the lower seat.
+      expect(state.match.room.hostPlayerId).toBe("seat-0");
     }
-    const { state, sources } = found;
-    expect(game.input(state, 0, command(state, "turn.correct.request"), START, sources)).toMatchObject({ ok: true });
-    expect(game.presence(state, 2, { connected: true, away: true }, START, sources)).toBe(true);
-    expect(game.input(state, 0, command(state, "turn.correct.override"), START + 29_999, sources)).toMatchObject({ ok: false, error: "forbidden" });
-    expect(game.input(state, 0, command(state, "turn.correct.override"), START + 30_000, sources)).toMatchObject({ ok: true });
   });
 });
 
