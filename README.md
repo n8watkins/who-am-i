@@ -111,13 +111,17 @@ The room socket handshake (`whoami.v2`) works like this:
    With a valid token for a seat in this room the socket becomes that player's, and from then on behaves as before: presence, the player's own view, away and back, `sync`.
 4. Anything else as the first message closes the socket with 4004 (the page is out of date; it reloads once, and shows a Reload screen if that did not help).
    A wrong token closes it with 4003, or 4002 for a removed player; the page then checks its session over HTTP as after any drop.
-5. Sockets that have not said who they are ("silent") are capped per client: a client (an IPv4 address, or an IPv6 /48) holds at most 2 in a room, and its third pushes out its own oldest (4005), never anyone else's.
-   A room holds at most 32 silent sockets in all; at that point the oldest socket of the client holding the most goes, and if every client holds just one, the newcomer is refused (429).
+5. Sockets that have not said who they are ("silent") are capped per socket client: an IPv4 address, or an IPv6 /48 (`socketClientKey`, because one customer can be handed a whole /48).
+   A socket client holds at most 4 silent sockets in a room, and its fifth pushes out its own oldest (4005), never anyone else's.
+   4, not fewer, because a mobile carrier can put both players of a room in one /48, and both phones with two tabs each may reconnect at the same moment.
+   A room holds at most 64 silent sockets in all; at that point the oldest socket of the client holding the most goes, and if every client holds just one, the newcomer is refused (429).
    A socket whose hello is being checked is never pushed out.
    Silent sockets older than 10 seconds are closed (4005) when the next socket arrives, and they never count as activity, so they cannot keep a room alive.
-   What is left: someone controlling 32 or more separate clients (32 IPv4 addresses or IPv6 /48s), each topping up its socket every 10 seconds, can fill a room's silent slots so that newcomers from other clients are refused until they retry after a slot frees.
-   A player already seated is never affected, and once a page's socket is accepted, only its own client's newcomers (or the 10-second timeout) can push it out.
-6. Socket requests are limited to 30 a minute per client before the room is touched, which also keeps the route from answering room-code guesses faster than the lookup limit.
+   What is left: someone controlling 64 or more separate socket clients (IPv4 addresses or IPv6 /48s), each topping up one socket every 10 seconds, can fill a room's silent slots so that newcomers from other clients are refused until they retry after a slot frees.
+   Someone inside the same carrier /48 as a player shares that player's share, so they can push out the player's socket in the moment before its hello; the page then reconnects.
+   A player already seated is never affected.
+6. Socket requests are limited to 30 a minute per socket client (IPv4 address or IPv6 /48) before the room is touched, which also keeps the route from answering room-code guesses faster than the lookup limit.
+   The cost of the /48: every phone in one carrier /48 shares those 30 opens a minute, so a carrier /48 with many players at once can see 429s, which the page retries with backoff.
 7. After a fatal close (room closed, left, removed, out of date), or a fatal answer over HTTP (which also closes an open socket), the page opens no more sockets, even when the tab comes back into view.
    Reconnects back off from 0.5 s to 8 s and start over only once the room has sent the socket a view (`SocketLife` in `src/client/lib/roomSocket.ts`).
 
@@ -129,12 +133,12 @@ Pages built before v2 still open sockets offering `whoami.v1` plus `token.<token
 The Worker never honours that token: it opens the socket and closes it at once with 4000 (room closed).
 On those pages, 4000, 4001 and 4002 are the only codes that stop the reconnect loop, and 4000 is the least false of them: 4001 deletes the stored seat at once, and 4002 says the host removed you.
 The old page shows "This room has closed"; a reload loads the new page, which finds the stored seat and carries on.
-This cannot be made fully quiet for pages already open: their code reopens a socket every time the tab comes back into view, even on that screen, and each time sends its token in the header again (the request is limited like any other socket request), until the page is reloaded or closed.
+This cannot be made fully quiet for pages already open: their code reopens a socket every time the tab comes back into view, even on that screen, and each time sends its token in the header again (each is closed with 4000 again, outside the socket limit, so it never turns into a fast retry loop), until the page is reloaded or closed.
 
 ### Abuse resistance
 
 - Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
-- Join attempts, room lookups, room sockets and room creation are rate limited per client IP (a whole IPv6 /48 counts as one client) by a small Durable Object.
+- Join attempts, room lookups and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client, since carriers give each phone its own /64 from a shared /48) by a small Durable Object; room sockets are limited per IPv6 /48 (above).
 - PINs are short-lived aliases for an open lobby, held in one `PinDirectoryDurableObject`.
   They are chosen at random, last 15 minutes unless the host's lobby stays open, end when the room fills or the game starts, wait out a 10-minute cooldown before reuse, and lookups are limited to 10 per 10 minutes and 30 per hour.
   Unknown and expired PINs get the same response, and a lookup returns only the room preview, never a player id or token.

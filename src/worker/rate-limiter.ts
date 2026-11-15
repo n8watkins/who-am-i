@@ -47,12 +47,8 @@ export class RateLimiterDurableObject extends DurableObject<Env> {
   }
 }
 
-/**
- * The key a client is limited by. One IPv6 customer can be handed a whole /48 (65,536 /64s), so
- * all of it counts as one client; IPv4 addresses, including IPv4-mapped IPv6 ones, are used as
- * they are.
- */
-export function clientKey(ip: string): string {
+/** IPv4 addresses (including IPv4-mapped IPv6 ones) as they are; IPv6 cut to its first `groups`. */
+function ipPrefix(ip: string, groups: number): string {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return mapped[1]!;
   if (!ip.includes(":")) return ip;
@@ -60,17 +56,40 @@ export function clientKey(ip: string): string {
   const left = head ? head.split(":") : [];
   const right = tail ? tail.split(":") : [];
   const zeros = tail === undefined ? [] : new Array<string>(Math.max(0, 8 - left.length - right.length)).fill("0");
-  const groups = [...left, ...zeros, ...right].slice(0, 3);
-  return `${groups.map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/48`;
+  const kept = [...left, ...zeros, ...right].slice(0, groups);
+  return `${kept.map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/${groups * 16}`;
 }
 
-/** The client key of a request, from the address Cloudflare saw ("local" in tests without one). */
-export function requestClientKey(request: Request): string {
-  return clientKey(request.headers.get("CF-Connecting-IP") ?? "local");
+/**
+ * The key a client is limited by for joins, lookups, creates, PINs and shares. One IPv6 customer
+ * usually holds a whole /64, so all of it counts as one client. Not the /48: mobile carriers give
+ * each phone its own /64 out of a shared /48, so keying these on the /48 would make thousands of
+ * unrelated phones share one small allowance.
+ */
+export function clientKey(ip: string): string {
+  return ipPrefix(ip, 4);
+}
+
+/**
+ * The key for room sockets (the `socket` bucket and a room's cap on silent sockets). One customer
+ * can be handed a whole /48 (65,536 /64s), so counting per /64 would let one person hold
+ * thousands of silent sockets. The cost: phones that share a carrier /48 also share this
+ * allowance (see RATE_LIMITS.socket and MAX_SILENT_PER_CLIENT).
+ */
+export function socketClientKey(ip: string): string {
+  return ipPrefix(ip, 3);
+}
+
+/** The address Cloudflare saw ("local" in tests without one). */
+const clientAddress = (request: Request) => request.headers.get("CF-Connecting-IP") ?? "local";
+
+/** The socket client key of a request: what a room caps silent sockets by. */
+export function requestSocketClientKey(request: Request): string {
+  return socketClientKey(clientAddress(request));
 }
 
 export async function allowRequest(env: Env, request: Request, bucket: RateLimitBucket): Promise<boolean> {
-  const ip = requestClientKey(request);
+  const ip = bucket === "socket" ? requestSocketClientKey(request) : clientKey(clientAddress(request));
   const stub = env.RATE_LIMITER.getByName(`${bucket}:${ip}`);
   return stub.hit(RATE_LIMITS[bucket]);
 }

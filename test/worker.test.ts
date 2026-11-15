@@ -619,15 +619,16 @@ describe("WebSocket handshake (the token is the first message, never the address
     for (let i = 0; i < MAX_SILENT_SOCKETS - greedy.length; i++) lone.push(await rawSocket(code));
     const newcomer = await rawSocket(code);
     expect(await closeWithin(greedy[0]!.closed)).toBe(WS_CLOSE.helloTimeout);
-    for (const s of [greedy[1]!, ...lone, newcomer]) expect(await closeWithin(s.closed, 20)).toBeNull();
+    const stillOpen = () => Promise.all([greedy[1]!, ...lone, newcomer].map((s) => closeWithin(s.closed, 100)));
+    expect((await stillOpen()).every((c) => c === null)).toBe(true);
 
     // Now every client holds a single silent socket: nobody is pushed out, the newcomer is refused.
     const refused = await upgrade(code);
     expect(refused.status).toBe(429);
-    for (const s of [greedy[1]!, ...lone, newcomer]) expect(await closeWithin(s.closed, 20)).toBeNull();
+    expect((await stillOpen()).every((c) => c === null)).toBe(true);
     expect(await attachments(code)).toHaveLength(MAX_SILENT_SOCKETS);
     for (const s of [greedy[1]!, ...lone, newcomer]) s.ws.close();
-  });
+  }, 30_000);
 
   it("limits socket requests per client before the room is touched", async () => {
     const host = await createRoom();
@@ -661,6 +662,51 @@ describe("WebSocket handshake (the token is the first message, never the address
     }
     // A 429 would make an old page retry every few seconds, its token in the header each time.
     expect(codes).toEqual(new Array(RATE_LIMITS.socket.limit + 1).fill(WS_CLOSE.roomClosed));
+  });
+
+  it("counts a whole IPv6 /48 as one client for sockets: the limit and the room's silent cap", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
+    const prefix = `2001:db8:${++ipCounter}`;
+    const { limit } = RATE_LIMITS.socket;
+    // Every request from a different /64 of the same /48: one allowance between them.
+    const statuses: number[] = [];
+    for (let i = 0; i <= limit; i++) {
+      const res = await upgrade(code, WS_PROTOCOL, `${prefix}:${i}::1`);
+      statuses.push(res.status);
+      if (res.webSocket) {
+        res.webSocket.accept();
+        res.webSocket.close();
+      }
+    }
+    expect(statuses.filter((s) => s === 101)).toHaveLength(limit);
+    expect(statuses.at(-1)).toBe(429);
+
+    // In the room, too, the /48 holds one client's share of silent sockets.
+    const other = `2001:db8:${++ipCounter}`;
+    const mine: Awaited<ReturnType<typeof rawSocket>>[] = [];
+    for (let i = 0; i < MAX_SILENT_PER_CLIENT; i++) mine.push(await rawSocket(code, WS_PROTOCOL, `${other}:${i}::1`));
+    const newcomer = await rawSocket(code, WS_PROTOCOL, `${other}:ffff::1`);
+    expect(await closeWithin(mine[0]!.closed)).toBe(WS_CLOSE.helloTimeout);
+    for (const s of [...mine.slice(1), newcomer]) s.ws.close();
+  });
+
+  it("seats both players and their second tabs when they share a carrier /48 and reconnect at once", async () => {
+    const { code, host, guest } = await startedRoom();
+    const prefix = `2001:db8:${++ipCounter}`;
+    // Two phones (two /64s of one /48), each with two tabs, all silent at the same moment.
+    const sockets = [
+      { token: host.token, socket: await rawSocket(code, WS_PROTOCOL, `${prefix}:1::1`) },
+      { token: host.token, socket: await rawSocket(code, WS_PROTOCOL, `${prefix}:1::1`) },
+      { token: guest.token, socket: await rawSocket(code, WS_PROTOCOL, `${prefix}:2::1`) },
+      { token: guest.token, socket: await rawSocket(code, WS_PROTOCOL, `${prefix}:2::1`) },
+    ];
+    for (const { token, socket } of sockets) socket.ws.send(helloFrame(token));
+    for (const { socket } of sockets) {
+      await expect.poll(() => socket.frames.length).toBeGreaterThan(0);
+      expect(await closeWithin(socket.closed, 20)).toBeNull();
+    }
+    for (const { socket } of sockets) socket.ws.close();
   });
 
   it("does not answer room-code guesses on the socket route faster than the lookup limit", async () => {
@@ -913,12 +959,13 @@ describe("PINs", () => {
     }
   });
 
-  it("limits lookups per client, and counts a whole IPv6 /48 as one", async () => {
+  it("limits lookups per client, and counts a whole IPv6 /64 (not the /48) as one", async () => {
     const short = RATE_LIMITS.pin_short.limit;
-    const prefix = `2001:db8:${++ipCounter}`;
-    for (let i = 0; i < short; i++) expect((await lookUp("0000", `${prefix}:${i}::1`)).status).not.toBe(429);
-    expect((await lookUp("0000", `${prefix}:ffff:1:2:3:4`)).status).toBe(429);
-    expect((await lookUp("0000", `2001:db8:${++ipCounter}:7::1`)).status).not.toBe(429);
+    const ip = `2001:db8:${++ipCounter}:7`;
+    for (let i = 0; i < short; i++) expect((await lookUp("0000", `${ip}::${i}`)).status).not.toBe(429);
+    expect((await lookUp("0000", `${ip}:1:2:3:4`)).status).toBe(429);
+    // Another /64 in the same /48 (another phone on the same carrier) has its own allowance.
+    expect((await lookUp("0000", `${ip.slice(0, -2)}:8::1`)).status).not.toBe(429);
   });
 });
 

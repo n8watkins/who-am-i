@@ -17,7 +17,7 @@ import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence
 import { ROOM_IDLE_MS, rules, type RoomState } from "../party/game";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { resultCardText } from "./result-card";
-import { requestClientKey } from "./rate-limiter";
+import { requestSocketClientKey } from "./rate-limiter";
 import { MissingSecretError, verifySession } from "./session";
 
 /** Rooms are deleted after this long without any player activity. */
@@ -30,17 +30,20 @@ const CLOSE_REMOVED: number = WS_CLOSE.removed;
 const PIN_REFRESH_MARGIN_MS = 60_000;
 
 /**
- * Silent sockets (not yet said who they are) one client may hold in a room. A page sends its
- * hello the moment its socket opens, so two covers a client with two tabs reconnecting at once.
- * A client's newcomer pushes out only that client's own oldest silent socket, so nobody can
- * crowd out anyone else's.
+ * Silent sockets (not yet said who they are) one client may hold in a room. A client is an IPv4
+ * address or an IPv6 /48 (socketClientKey), and a mobile carrier can put both players of a room in
+ * one /48, so this covers both players with two tabs each reconnecting at the same moment (after a
+ * deploy or a network change): each socket is silent for one round trip, then says hello. A
+ * client's newcomer pushes out only that client's own oldest silent socket, so nobody can crowd
+ * out anyone else's.
  */
-export const MAX_SILENT_PER_CLIENT = 2;
+export const MAX_SILENT_PER_CLIENT = 4;
 /**
  * Silent sockets in a room from all clients together. They sleep with the room and cost nothing
- * while they wait; at this many the greediest client's oldest goes, never a client's only one.
+ * while they wait; at this many the greediest client's oldest goes, never a client's only one,
+ * so refusing a newcomer takes this many separate clients holding one socket each.
  */
-export const MAX_SILENT_SOCKETS = 32;
+export const MAX_SILENT_SOCKETS = 64;
 /** A silent socket older than this is closed the next time the room handles a new socket. */
 export const HELLO_TIMEOUT_MS = 10_000;
 
@@ -179,7 +182,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       return new Response("Expected WebSocket", { status: 426 });
     }
     if (!this.room) return new Response("Not found", { status: 404 });
-    const client = requestClientKey(request);
+    const client = requestSocketClientKey(request);
     if (!this.makeRoomForSilentSocket(client, Date.now())) return new Response("Too many sockets", { status: 429 });
 
     const pair = new WebSocketPair();
