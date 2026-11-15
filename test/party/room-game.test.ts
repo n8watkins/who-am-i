@@ -342,15 +342,11 @@ describe("the end of a match", () => {
       }
       playTurn(state, START, sources, turnSeat(state) !== 2);
     }
-    expect(game.result(state)).toEqual({
-      winnerSeat: 2,
-      tie: false,
-      rounds: 3,
-      scores: [
-        { seat: 0, score: 0 },
-        { seat: 2, score: 3 },
-      ],
-    });
+    // Rows best first, with each seat's score: the room's end card shows the score beside the place.
+    expect(game.result(state)).toEqual([
+      { seat: 2, score: 3 },
+      { seat: 0, score: 0 },
+    ]);
     expect(game.standings(state)).toEqual([
       { seat: 2, place: 1 },
       { seat: 0, place: 2 },
@@ -384,7 +380,10 @@ describe("the end of a match", () => {
         { seat: 0, place: 1 },
         { seat: 2, place: 2 },
       ]);
-      expect(ended.result, `seat ${leaver} left`).toMatchObject({ winnerSeat: 0, tie: false, rounds: 3 });
+      expect(ended.result, `seat ${leaver} left`).toEqual([
+        { seat: 0, score: 3 },
+        { seat: 2, score: 0 },
+      ]);
       expect(ended.events).toEqual([]);
     }
   });
@@ -397,7 +396,11 @@ describe("the end of a match", () => {
       if (ten.state.match.room.status === "round_summary") game.input(ten.state, 0, command(ten.state, "round.next"), START, ten.sources);
       else playTurn(ten.state, START, ten.sources, true);
     }
-    expect(game.result(ten.state)).toMatchObject({ tie: true, winnerSeat: null, rounds: 10 });
+    expect(game.result(ten.state)).toEqual([
+      { seat: 0, score: 0 },
+      { seat: 2, score: 0 },
+    ]);
+    expect(ten.state.match.room.roundIndex).toBe(10);
     expect(game.standings(ten.state)).toEqual([
       { seat: 0, place: 1 },
       { seat: 2, place: 1 },
@@ -411,7 +414,11 @@ describe("abandon", () => {
     playTurn(state, START, sources);
     const ended = game.abandon(state, 2, START);
     expect(ended.standings).toEqual([{ seat: 0, place: 1 }]);
-    expect(ended.result).toMatchObject({ winnerSeat: 0, tie: false, abandonedBy: 2, rounds: 1 });
+    // The one who stayed first, whatever the scores; the one who left after them.
+    expect(ended.result).toEqual([
+      { seat: 0, score: expect.any(Number) },
+      { seat: 2, score: expect.any(Number) },
+    ]);
     expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
     expect(JSON.stringify(ended)).not.toContain(assignment(state, 0)!);
     expect(JSON.stringify(ended)).not.toContain(assignment(state, 2)!);
@@ -734,7 +741,8 @@ describe("secrecy across whole matches in the party room", () => {
 
   it("a match a player leaves in the middle: the last snapshots, the events and the result keep the secret too", () => {
     const { scan, ended, state } = roomMatch({ turnFormat: "trade", questions: "app" }, 34, { abandonAt: 25 });
-    expect(ended?.result?.abandonedBy).toBe(2);
+    expect(ended?.events).toEqual([{ k: "abandoned", seat: 2 }]);
+    expect(ended?.result?.[0]?.seat).toBe(0);
     expect(state.match.room.round).not.toBeNull();
     expect([...scan.owned.values()].some((o) => !o.revealed)).toBe(true);
   });

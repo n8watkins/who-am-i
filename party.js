@@ -4665,22 +4665,18 @@ function scoresOf(state) {
 		score: playerById(room, playerOf(seat))?.score ?? 0
 	}));
 }
+/** Both seats' scores, best first (seat order on a tie). */
+function bestFirst(state) {
+	return [...scoresOf(state)].sort((x, y) => y.score - x.score);
+}
 /** The final result of a decided match, or null while it is still being played. */
 function decidedResult(state) {
-	const room = state.match.room;
-	if (!decided(state) || !room.match) return null;
-	const winner = room.match.winnerId;
-	return {
-		winnerSeat: seatList(state).find((s) => playerOf(s) === winner) ?? null,
-		tie: room.match.tie,
-		rounds: room.match.rounds,
-		scores: scoresOf(state)
-	};
+	return decided(state) ? bestFirst(state) : null;
 }
 /** Places for a decided match: the winner first, both first after a tie. */
 function decidedStandings(state) {
 	if (!decided(state)) return [];
-	const sorted = [...scoresOf(state)].sort((x, y) => y.score - x.score);
+	const sorted = bestFirst(state);
 	return sorted.map((row) => ({
 		seat: row.seat,
 		place: 1 + sorted.filter((other) => other.score > row.score).length
@@ -4840,18 +4836,13 @@ var game = {
 		const other = playerById(room, playerOf(stayed));
 		const since = other ? absentSince(other) : null;
 		const otherGone = since !== null && now - since >= ABSENT_MS;
+		const rows = bestFirst(state);
 		return {
 			standings: otherGone ? [] : [{
 				seat: stayed,
 				place: 1
 			}],
-			result: {
-				winnerSeat: otherGone ? null : stayed,
-				tie: false,
-				rounds: room.roundIndex,
-				scores: scoresOf(state),
-				abandonedBy: seat
-			},
+			result: otherGone ? rows : [...rows.filter((r) => r.seat === stayed), ...rows.filter((r) => r.seat !== stayed)],
 			events: [{
 				k: "abandoned",
 				seat
@@ -4861,7 +4852,7 @@ var game = {
 	isOver(state) {
 		return game$1.isOver(state.match);
 	},
-	/** Sent to everyone with the end: the winner, the rounds and the scores. No identity. */
+	/** Sent to everyone with the end: each seat's score, best first. No identity. */
 	result(state) {
 		return decidedResult(state);
 	},

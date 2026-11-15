@@ -37,7 +37,6 @@ import {
   type Carry,
   type GameState as Match,
   type InputResult,
-  type MatchResult,
   type PresenceReport,
   type ScreenView,
   type Sources,
@@ -100,8 +99,13 @@ export type { AudienceView, PlayerSnapshot, RoomScreenView, RoomSnapshot };
 
 export type Viewer = { role?: unknown; seat?: unknown } | null | undefined;
 
-/** The result the room sends everyone at the end: no identity. `abandonedBy` when a player left. */
-export type RoomResult = MatchResult & { abandonedBy?: number };
+/**
+ * The result the room sends everyone at the end, in the contract's shape for a game that keeps
+ * score: one row per seat, best first, so the room's end card shows each score beside the place.
+ * No identity. Who won is in the places (`standings`), and why a match ended early in the room's
+ * own card (`last.early`).
+ */
+export type RoomResult = { seat: number; score: number }[];
 
 const playerOf = (seat: number) => `seat-${seat}`;
 
@@ -162,24 +166,20 @@ function scoresOf(state: RoomGameState): { seat: number; score: number }[] {
   return seatList(state).map((seat) => ({ seat, score: playerById(room, playerOf(seat))?.score ?? 0 }));
 }
 
+/** Both seats' scores, best first (seat order on a tie). */
+function bestFirst(state: RoomGameState): RoomResult {
+  return [...scoresOf(state)].sort((x, y) => y.score - x.score);
+}
+
 /** The final result of a decided match, or null while it is still being played. */
 function decidedResult(state: RoomGameState): RoomResult | null {
-  const room = state.match.room;
-  if (!decided(state) || !room.match) return null;
-  const winner = room.match.winnerId;
-  return {
-    winnerSeat: seatList(state).find((s) => playerOf(s) === winner) ?? null,
-    tie: room.match.tie,
-    rounds: room.match.rounds,
-    scores: scoresOf(state),
-  };
+  return decided(state) ? bestFirst(state) : null;
 }
 
 /** Places for a decided match: the winner first, both first after a tie. */
 function decidedStandings(state: RoomGameState): { seat: number; place: number }[] {
   if (!decided(state)) return [];
-  const scores = scoresOf(state);
-  const sorted = [...scores].sort((x, y) => y.score - x.score);
+  const sorted = bestFirst(state);
   return sorted.map((row) => ({ seat: row.seat, place: 1 + sorted.filter((other) => other.score > row.score).length }));
 }
 
@@ -314,15 +314,11 @@ export const game = {
     const other = playerById(room, playerOf(stayed));
     const since = other ? absentSince(other) : null;
     const otherGone = since !== null && now - since >= ABSENT_MS;
+    const rows = bestFirst(state);
     return {
       standings: otherGone ? [] : [{ seat: stayed, place: 1 }],
-      result: {
-        winnerSeat: otherGone ? null : stayed,
-        tie: false,
-        rounds: room.roundIndex,
-        scores: scoresOf(state),
-        abandonedBy: seat,
-      },
+      // The scores as they stood; the one who stayed first when they win it.
+      result: otherGone ? rows : [...rows.filter((r) => r.seat === stayed), ...rows.filter((r) => r.seat !== stayed)],
       events: [{ k: "abandoned", seat }],
     };
   },
@@ -331,7 +327,7 @@ export const game = {
     return adapter.isOver(state.match);
   },
 
-  /** Sent to everyone with the end: the winner, the rounds and the scores. No identity. */
+  /** Sent to everyone with the end: each seat's score, best first. No identity. */
   result(state: RoomGameState): RoomResult | null {
     return decidedResult(state);
   },

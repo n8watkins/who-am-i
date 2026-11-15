@@ -260,8 +260,15 @@ describe("Who Am I? in the party room", () => {
 
     // The end: everyone hears it, with a result that names nobody's identity, and Ann has the night's points.
     const end = ws.screen.messages().find((m: Msg) => m.t === "end");
-    expect(end.result).toMatchObject({ winnerSeat: 0, tie: false, scores: [{ seat: 0, score: 3 }, { seat: 1, score: expect.any(Number) }] });
-    expect(end.last.rows[0]).toMatchObject({ seat: 0, place: 1, points: 3 });
+    expect(end.result).toEqual([
+      { seat: 0, score: 3 },
+      { seat: 1, score: expect.any(Number) },
+    ]);
+    // The room's card shows each score beside the place.
+    expect(end.last.rows).toEqual([
+      expect.objectContaining({ seat: 0, place: 1, points: 3, score: 3 }),
+      expect.objectContaining({ seat: 1, place: 2, points: 2, score: end.result[1].score }),
+    ]);
     expect(ctx.room.core.members[0].points).toBe(3);
     // The last tap twice is still answered, and never applied twice.
     for (const p of [ann, bo]) expect(p.answers().every((m: Msg) => m.t === "ack" || m.error !== "game_error")).toBe(true);
@@ -342,8 +349,8 @@ describe("Who Am I? in the party room", () => {
     expect(note).toMatchObject({ why: "left", seat: 1, text: "Bo left the party, so who-am-i ended." });
     expect(ws.ann.messages().flatMap((m: Msg) => (m.t === "ev" ? m.ev : []))).toContainEqual({ k: "abandoned", seat: 1 });
     const end = ws.screen.messages().find((m: Msg) => m.t === "end");
-    expect(end.result).toMatchObject({ winnerSeat: 0, abandonedBy: 1 });
-    expect(end.last.rows).toEqual([expect.objectContaining({ seat: 0, place: 1, points: 3 })]);
+    expect(end.result[0]).toMatchObject({ seat: 0, score: expect.any(Number) });
+    expect(end.last.rows).toEqual([expect.objectContaining({ seat: 0, place: 1, points: 3, score: end.result[0].score })]);
     expect(end.last.early).toMatchObject({ seat: 1, why: "left" });
     secrecy.finalCheck();
   });
