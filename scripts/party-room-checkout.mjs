@@ -11,8 +11,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-/** origin/feat/party-room-away: the top of the party room's turn-based stack (n8-party-games #23 to #29). */
-export const PARTY_ROOM_COMMIT = "907721a0f6a4b46325cb533d78eab9562d521c02";
+/**
+ * n8-party-games #32 (feat/party-room-audience): the party room with the settings step, spots and
+ * an audience for a larger party, and the upright phone. `PARTY_ROOM_COMMIT=<sha>` in the
+ * environment tests against another commit without editing this file.
+ */
+export const PARTY_ROOM_COMMIT = process.env.PARTY_ROOM_COMMIT || "9911f1cf31bf7c8bd03f975cd954ebdb21f49007";
 const REPOSITORY = "https://github.com/n8watkins/n8-party-games.git";
 const FOLDERS = ["lobby/server", "lobby/shared", "lobby/test", "party-kit/src", "party-kit/client"];
 
