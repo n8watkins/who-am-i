@@ -153,6 +153,28 @@ describe("the room view's module", () => {
     view.unmount();
   });
 
+  it("holds a bounded backlog for a page that is slow to listen: the latest snapshot, and the latest events", () => {
+    const { container } = fakeDocument();
+    const view = mount(container, context());
+    const host = parts(container).host.attach();
+    for (let i = 1; i <= 500; i++) {
+      view.snapshot({ role: "player", version: i });
+      view.events([{ k: "timed_out", seat: 0, n: i }]);
+    }
+    const got: [string, unknown][] = [];
+    host.on("snapshot", (s: unknown) => got.push(["snapshot", s]));
+    host.on("events", (list: unknown) => got.push(["events", list]));
+    host.ready();
+    const snaps = got.filter(([t]) => t === "snapshot");
+    const events = got.filter(([t]) => t === "events");
+    expect(snaps).toEqual([["snapshot", { role: "player", version: 500 }]]);
+    expect(events).toHaveLength(64);
+    expect(events.at(0)).toEqual(["events", [{ k: "timed_out", seat: 0, n: 437 }]]);
+    expect(events.at(-1)).toEqual(["events", [{ k: "timed_out", seat: 0, n: 500 }]]);
+    expect(host.snapshot).toEqual({ role: "player", version: 500 });
+    view.unmount();
+  });
+
   it("starts a page reloaded in the frame from the latest snapshot, and drops the old page's handlers", () => {
     const { container } = fakeDocument();
     const view = mount(container, context());

@@ -27,6 +27,8 @@
 const PAGE = new URL("./index.html", import.meta.url);
 /** The widest a phone's column gets. */
 const COLUMN_MAX = 480;
+/** The most event lists held for a page that is not listening yet. */
+const BACKLOG_EVENTS = 64;
 
 /**
  * @param {HTMLElement} container  an empty box laid over the room's page
@@ -47,8 +49,23 @@ export function mount(container, { room, you, upright = false, snapshot, send, i
   const emit = (type, ...args) => {
     if (gone) return;
     if (type === "snapshot") latest = args[0];
-    if (!ready) return void backlog.push([type, args]);
+    if (!ready) return void hold(type, args);
     for (const handler of handlers[type]) handler(...args);
+  };
+
+  /**
+   * Keeps what the room says until the page is listening, within bounds: a snapshot is the whole
+   * view, so only the latest is kept (after the events before it); of the events, the latest
+   * BACKLOG_EVENTS.
+   */
+  const hold = (type, args) => {
+    if (type === "snapshot") backlog = backlog.filter(([t]) => t !== "snapshot");
+    backlog.push([type, args]);
+    let events = backlog.filter(([t]) => t === "events").length;
+    while (events > BACKLOG_EVENTS) {
+      backlog.splice(backlog.findIndex(([t]) => t === "events"), 1);
+      events--;
+    }
   };
 
   // Every style is set through the style object, never a style attribute: the host's
