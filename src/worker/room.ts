@@ -60,10 +60,11 @@ export class RoomDurableObject extends DurableObject<Env> {
   /** Calling the directory yields to other events, so PIN work runs strictly one job at a time. */
   private pinWork: Promise<void> = Promise.resolve();
   /**
-   * Checking a hello's token yields to other events, so socket events run one at a time, in
-   * arrival order: a signal sent right behind the hello is handled after it, not before.
+   * Sockets whose hello is being checked. Their later events wait here (see identify), while
+   * every other socket's events go straight through. In memory only: the room cannot sleep while
+   * a check is running.
    */
-  private socketWork: Promise<void> = Promise.resolve();
+  private helloGates = new Map<WebSocket, Promise<void>>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -185,17 +186,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": WS_PROTOCOL } });
   }
 
-  override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    return this.inOrder(() => this.handleMessage(ws, message));
-  }
-
-  private inOrder(job: () => Promise<void>): Promise<void> {
-    const run = this.socketWork.then(job);
-    this.socketWork = run.catch(() => undefined);
-    return run;
-  }
-
-  private async handleMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    await this.helloSettled(ws);
     const attachment = attachmentOf(ws);
     const { playerId } = attachment;
     if (playerId === null) return this.identify(ws, message);
@@ -217,9 +209,32 @@ export class RoomDurableObject extends DurableObject<Env> {
   private async identify(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const hello = typeof message === "string" ? parseHello(message) : null;
     if (!hello) return closeQuietly(ws, WS_CLOSE.reload, "expected_hello");
+    // Checking the token yields, so the socket's next events wait at this gate until the socket
+    // is the player's and their presence is stored, and are then handled in arrival order.
+    let open!: () => void;
+    this.helloGates.set(ws, new Promise<void>((resolve) => (open = resolve)));
+    try {
+      await this.acceptHello(ws, hello.token, open);
+    } finally {
+      this.helloGates.delete(ws);
+      open();
+    }
+  }
+
+  /** Waits until the socket's hello, if one is being checked, has been dealt with. */
+  private helloSettled(ws: WebSocket): Promise<void> | undefined {
+    return this.helloGates.get(ws);
+  }
+
+  /** Checks a session token. A method of its own so tests can make it slow. */
+  private verifyToken(token: string) {
+    return verifySession(this.env.SESSION_SECRET, token);
+  }
+
+  private async acceptHello(ws: WebSocket, token: string, open: () => void): Promise<void> {
     let claims;
     try {
-      claims = await verifySession(this.env.SESSION_SECRET, hello.token);
+      claims = await this.verifyToken(token);
     } catch (err) {
       if (err instanceof MissingSecretError) console.error("SESSION_SECRET is missing or too short; see .dev.vars.example");
       return closeQuietly(ws, 1011, "server_error");
@@ -234,20 +249,28 @@ export class RoomDurableObject extends DurableObject<Env> {
       return closeQuietly(ws, removed ? CLOSE_REMOVED : WS_CLOSE.unauthorized, removed ? "removed" : "unauthorized");
     }
     ws.serializeAttachment({ playerId } satisfies SocketAttachment);
-    await this.welcome(ws, playerId);
+    await this.welcome(ws, playerId, open);
   }
 
-  /** What opening a socket did before the hello existed: presence, then this player's view. */
-  private async welcome(ws: WebSocket, playerId: string): Promise<void> {
+  /**
+   * What opening a socket did before the hello existed: presence, then this player's view.
+   * `open` lets the socket's next events through once that is stored, before the PIN directory
+   * is called, so a slow directory never holds up the socket.
+   */
+  private async welcome(ws: WebSocket, playerId: string, open: () => void): Promise<void> {
     await this.expireIfDue();
     if (!this.room || !rules.player(this.room, playerId)) return;
     // Connecting never changes away by itself: a new page starts visible and reports otherwise.
     const away = rules.player(this.room, playerId)?.away ?? false;
     const updated = rules.presence(this.room, playerId, { connected: true, away }, Date.now());
-    if (updated) await this.commit(updated);
-    else {
+    if (updated) {
+      await this.store(updated);
+      open();
+      await this.updatePin();
+    } else {
       // Another tab was already connected: this visible one may end their away state.
       this.sendView(ws, playerId);
+      open();
       await this.syncAway(playerId);
     }
   }
@@ -273,16 +296,17 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (updated) await this.commit(updated);
   }
 
-  override webSocketClose(ws: WebSocket): Promise<void> {
+  override async webSocketClose(ws: WebSocket): Promise<void> {
     // The runtime completes the close handshake itself (web_socket_auto_reply_to_close).
-    return this.inOrder(() => this.socketGone(ws));
+    await this.socketGone(ws);
   }
 
-  override webSocketError(ws: WebSocket): Promise<void> {
-    return this.inOrder(() => this.socketGone(ws));
+  override async webSocketError(ws: WebSocket): Promise<void> {
+    await this.socketGone(ws);
   }
 
   private async socketGone(ws: WebSocket): Promise<void> {
+    await this.helloSettled(ws);
     const { playerId } = attachmentOf(ws);
     if (playerId === null || !this.room || !rules.player(this.room, playerId)) return;
     const stillOpen = this.playerSockets(playerId).some((s) => s !== ws && s.readyState === WebSocket.OPEN);
