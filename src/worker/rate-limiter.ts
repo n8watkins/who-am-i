@@ -17,9 +17,10 @@ export const RATE_LIMITS = {
   pin_new: { limit: 6, windowMs: 60_000 },
   // Result cards: a player shares a match once or twice, never dozens of times.
   share: { limit: 10, windowMs: 10 * 60_000 },
-  // Room sockets. A page reconnects with backoff (at most about 15 a minute while its network
-  // flaps), so this leaves room for two tabs, while a flood of silent sockets and room-code
-  // guesses through the socket route stay well under the lookup limit.
+  // Room sockets. A page backs off from 0.5 s to 8 s between tries and starts over only once the
+  // room has sent its socket a view, so even a socket that opens and is dropped every time makes
+  // about ten tries a minute. This leaves room for two such tabs, while a flood of silent sockets
+  // and room-code guesses through the socket route stay well under the lookup limit.
   socket: { limit: 30, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 

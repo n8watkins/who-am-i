@@ -118,7 +118,8 @@ The room socket handshake (`whoami.v2`) works like this:
    What is left: someone controlling 32 or more separate clients (32 IPv4 addresses or IPv6 /48s), each topping up its socket every 10 seconds, can fill a room's silent slots so that newcomers from other clients are refused until they retry after a slot frees.
    A player already seated is never affected, and once a page's socket is accepted, only its own client's newcomers (or the 10-second timeout) can push it out.
 6. Socket requests are limited to 30 a minute per client before the room is touched, which also keeps the route from answering room-code guesses faster than the lookup limit.
-7. After a fatal close (room closed, left, removed, out of date) the page opens no more sockets, even when the tab comes back into view.
+7. After a fatal close (room closed, left, removed, out of date), or a fatal answer over HTTP (which also closes an open socket), the page opens no more sockets, even when the tab comes back into view.
+   Reconnects back off from 0.5 s to 8 s and start over only once the room has sent the socket a view (`SocketLife` in `src/client/lib/roomSocket.ts`).
 
 Create and join require the header `X-WhoAmI-Client: 2`, which current pages send.
 Without it they answer 426 with "This page is out of date. Reload it and try again.", which pages from before v2 show where create and join errors appear.

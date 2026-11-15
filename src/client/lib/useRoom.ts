@@ -1,15 +1,15 @@
 // Keeps the client's copy of the room in sync with the Durable Object: an initial HTTP fetch,
 // then a WebSocket that pushes this player's filtered view on every change, with reconnects.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { WS_CLOSE, type Command, type CommandType, type RoomView, type ServerMessage } from "../../shared/protocol";
+import type { Command, CommandType, RoomView, ServerMessage } from "../../shared/protocol";
 import { visibilitySignal, watchVisibility } from "../../kit/client/visibility";
 import { PRESENCE_AWAY } from "../../kit/shared/presence";
 import type { CreatedCard } from "../../kit/shared/share-cards";
 import { api, ApiRequestError, newCommandId, type StoredSession } from "./api";
-import { helloFrame, reloadOnce, ROOM_SOCKET_PROTOCOLS, roomSocketUrl } from "./roomSocket";
+import { helloFrame, reloadOnce, ROOM_SOCKET_PROTOCOLS, roomSocketUrl, SocketLife, type FatalReason } from "./roomSocket";
 
 export type Connection = "connecting" | "open" | "reconnecting";
-export type FatalReason = "expired" | "unauthorized" | "left" | "removed" | "outdated";
+export type { FatalReason };
 
 function sessionStore(): Storage | null {
   try {
@@ -66,11 +66,14 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
   const [pending, setPending] = useState(false);
   const [serverOffset, setServerOffset] = useState(0);
   const viewRef = useRef<RoomView | null>(null);
-  /** Set once the room is over for this page: from then on it never opens another socket. */
-  const ended = useRef(false);
+  /** Whether this page may still connect, and its backoff (see SocketLife). */
+  const life = useRef(new SocketLife());
+  const socketRef = useRef<WebSocket | null>(null);
+  /** The room is over for this page: no more sockets, and an open one is closed. */
   const end = useCallback((reason: FatalReason) => {
-    ended.current = true;
+    life.current.end();
     setFatal(reason);
+    socketRef.current?.close(1000, "ended");
   }, []);
 
   const accept = useCallback((next: RoomView) => {
@@ -98,10 +101,10 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
 
   useEffect(() => {
     // A new session (or room) starts over.
-    ended.current = false;
+    const lifecycle = new SocketLife();
+    life.current = lifecycle;
     let stopped = false;
     let socket: WebSocket | null = null;
-    let retry = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let pingTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -123,13 +126,13 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
     };
 
     const connect = () => {
-      if (stopped || ended.current) return;
+      if (stopped || !lifecycle.mayConnect()) return;
       // The address and the subprotocol header are logged, so the token goes in the first message.
       const ws = new WebSocket(roomSocketUrl(location, code), [...ROOM_SOCKET_PROTOCOLS]);
       socket = ws;
+      socketRef.current = ws;
       ws.onopen = () => {
         ws.send(helloFrame(session.token));
-        retry = 0;
         setConnection("open");
         // Every new socket starts as "here"; a hidden page says so at once.
         if (visibilitySignal() === PRESENCE_AWAY) ws.send(PRESENCE_AWAY);
@@ -140,31 +143,29 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         if (typeof event.data !== "string" || event.data === "pong") return;
         try {
           const message = JSON.parse(event.data) as ServerMessage;
-          if (message.type === "state") accept(message.view);
+          if (message.type === "state") {
+            // The room accepted the hello: only now does the backoff start over.
+            lifecycle.welcomed();
+            accept(message.view);
+          }
         } catch {
           // Ignore malformed frames.
         }
       };
       ws.onclose = (event) => {
         clearInterval(pingTimer);
-        if (stopped || socket !== ws || ended.current) return;
-        if (event.code === WS_CLOSE.roomClosed) return end("expired");
-        if (event.code === WS_CLOSE.leftRoom) return end("left");
-        if (event.code === WS_CLOSE.removed) return end("removed");
-        // The room no longer speaks this page's handshake: load the new page, once.
-        if (event.code === WS_CLOSE.reload) {
-          ended.current = true;
+        if (stopped || socket !== ws) return;
+        const action = lifecycle.onClose(event.code);
+        if (action.type === "ignore") return;
+        if (action.type === "end") return end(action.reason);
+        if (action.type === "reload") {
           if (!reloadOnce(sessionStore(), () => location.reload())) end("outdated");
           return;
         }
-        // Anything else, including a refused token (WS_CLOSE.unauthorized), reconnects after the
-        // session is checked over HTTP, which ends a seat that is really gone.
         setConnection("reconnecting");
-        const delay = Math.min(500 * 2 ** retry, 8_000);
-        retry += 1;
         retryTimer = setTimeout(async () => {
           if (await verifySession()) connect();
-        }, delay);
+        }, lifecycle.nextDelay());
       };
     };
 
@@ -172,11 +173,9 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
 
     const onVisible = () => {
       // After a fatal close the page stays on its screen: coming back to the tab must not reopen
-      // a socket (or, for an out-of-date page, reload again).
-      if (ended.current) return;
-      if (document.visibilityState === "visible" && socket?.readyState === WebSocket.CLOSED) {
+      // a socket (or, for an out-of-date page, reload again). SocketLife decides.
+      if (lifecycle.onVisible(document.visibilityState === "visible", socket?.readyState === WebSocket.CLOSED)) {
         clearTimeout(retryTimer);
-        retry = 0;
         connect();
       }
     };
