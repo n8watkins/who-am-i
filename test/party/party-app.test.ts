@@ -6,9 +6,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 // The page's build defines the version; plain Node does not.
-vi.hoisted(() => {
+const wakeLock = vi.hoisted(() => {
   (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ = "test";
+  return { calls: [] as boolean[] };
 });
+vi.mock("../../src/kit/client/wake-lock", () => ({ useWakeLock: (active: boolean) => void wakeLock.calls.push(active) }));
 
 import { Game } from "../../src/client/screens/Game";
 import type { RoomHandle } from "../../src/client/lib/useRoom";
@@ -67,6 +69,17 @@ function hostFor(snapshot: Snapshot, now: number): PartyHost {
 const render = (snapshot: Snapshot, now: number) => renderToStaticMarkup(createElement(PartyApp, { host: hostFor(snapshot, now) }));
 
 describe("the room view's page", () => {
+  it("keeps every screen awake while the match is shown: a phone set down mid-round, and the big screen", () => {
+    const now = Date.now();
+    const { state } = matchFor(0, now);
+    for (const viewer of [{ role: "player", seat: 0 }, { role: "audience", seat: 1 }, { role: "screen" }]) {
+      wakeLock.calls.length = 0;
+      render(game.snapshot(state, now, viewer), now);
+      expect(wakeLock.calls, JSON.stringify(viewer)).toContain(true);
+      expect(wakeLock.calls).not.toContain(false);
+    }
+  });
+
   it("offers either guesser the button to confirm their own guess once the other phone has been gone 30 seconds", () => {
     const now = Date.now();
     for (const guesser of [0, 2]) {

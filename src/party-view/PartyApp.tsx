@@ -7,6 +7,7 @@ import { Banner, Card, Pill } from "../client/components/ui";
 import { mePlayer, opponentPlayer, useNow } from "../client/lib/hooks";
 import { Game } from "../client/screens/Game";
 import { RoundSummary } from "../client/screens/Summaries";
+import { useWakeLock } from "../kit/client/wake-lock";
 import type { MatchLength } from "../party/manifest";
 import type { AudienceView, PlayerSnapshot, RoomScreenView } from "../party/snapshots";
 import type { PartyHost } from "./host";
@@ -16,6 +17,9 @@ const MATCH_LABELS: Record<MatchLength, string> = { first_to_3: "First to 3", fi
 
 export function PartyApp({ host }: { host: PartyHost }) {
   const { snap, handle } = useParty(host);
+  // The room shows this page only while a match is on: a phone set down mid-round, and the big
+  // screen, must not dim and lock (the frame is allowed the wake lock: view.js).
+  useWakeLock(true);
   return (
     <main className="mx-auto w-full max-w-lg px-4 pt-3 pb-[calc(1.5rem+var(--action-bar-h,0px))]">
       <header className="mb-3 flex min-h-9 items-center justify-between gap-3 text-sm font-extrabold">
