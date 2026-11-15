@@ -4782,11 +4782,16 @@ var game = {
 		applyTarget(state);
 		return result;
 	},
-	/** What this viewer may see. Anyone who is not one of the two players, or not known, gets the screen's view. */
+	/**
+	* What this viewer may see. One of the two players gets their own view, whatever role they are
+	* named by: a seat in the match never gets the audience's view, which holds its own identity.
+	* A member watching as the audience gets both identities; the screen, a member watching as a
+	* screen, and anyone not known get the screen's view.
+	*/
 	snapshot(state, now, viewer) {
 		const role = viewer && typeof viewer === "object" ? viewer.role : void 0;
 		const seat = viewer && typeof viewer === "object" ? viewer.seat : void 0;
-		if (role === "player" && typeof seat === "number" && seatList(state).includes(seat)) return {
+		if ((role === "player" || role === "audience") && typeof seat === "number" && seatList(state).includes(seat)) return {
 			...game$1.snapshot(state.match, now, {
 				role: "player",
 				seat

@@ -267,8 +267,19 @@ describe("snapshot", () => {
       [0, assignment(state, 0)],
       [2, assignment(state, 2)],
     ]);
-    // A seat number does not make it a player's view, and no hint or question goes with it.
-    expect(JSON.stringify(game.snapshot(state, START, { role: "audience", seat: 0 }))).not.toMatch(/"(log|hints|youId)"/);
+    // A watching member's own seat, and no hint or question goes with it.
+    const watching = game.snapshot(state, START, { role: "audience", seat: 1 });
+    expect(watching).toEqual(audience);
+    expect(JSON.stringify(watching)).not.toMatch(/"(log|hints|youId)"/);
+  });
+
+  it("never gives a seat that is playing the audience's view: it is that player's own, without their identity", () => {
+    const { state } = start();
+    for (const seat of [0, 2]) {
+      const s = game.snapshot(state, START, { role: "audience", seat });
+      expect(s, `seat ${seat}`).toEqual(game.snapshot(state, START, { role: "player", seat }));
+      expect(JSON.stringify(s)).not.toContain(assignment(state, seat)!);
+    }
   });
 });
 
