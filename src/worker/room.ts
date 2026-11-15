@@ -17,6 +17,7 @@ import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence
 import { ROOM_IDLE_MS, rules, type RoomState } from "../party/game";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { resultCardText } from "./result-card";
+import { requestClientKey } from "./rate-limiter";
 import { MissingSecretError, verifySession } from "./session";
 
 /** Rooms are deleted after this long without any player activity. */
@@ -29,10 +30,17 @@ const CLOSE_REMOVED: number = WS_CLOSE.removed;
 const PIN_REFRESH_MARGIN_MS = 60_000;
 
 /**
- * Sockets that have not yet said who they are. A page sends its hello the moment the socket
- * opens, so a handful covers two players reconnecting at once; more than that is someone else.
+ * Silent sockets (not yet said who they are) one client may hold in a room. A page sends its
+ * hello the moment its socket opens, so two covers a client with two tabs reconnecting at once.
+ * A client's newcomer pushes out only that client's own oldest silent socket, so nobody can
+ * crowd out anyone else's.
  */
-export const MAX_UNIDENTIFIED_SOCKETS = 4;
+export const MAX_SILENT_PER_CLIENT = 2;
+/**
+ * Silent sockets in a room from all clients together. They sleep with the room and cost nothing
+ * while they wait; at this many the greediest client's oldest goes, never a client's only one.
+ */
+export const MAX_SILENT_SOCKETS = 32;
 /** A silent socket older than this is closed the next time the room handles a new socket. */
 export const HELLO_TIMEOUT_MS = 10_000;
 
@@ -42,6 +50,8 @@ interface SocketAttachment {
   playerId: string | null;
   /** When the socket opened. Set on sockets that have not said who they are. */
   openedAt?: number;
+  /** The client key (address, or IPv6 /48) that opened it. Set on silent sockets. */
+  client?: string;
   /** The page behind this socket is hidden. */
   away?: boolean;
 }
@@ -169,21 +179,57 @@ export class RoomDurableObject extends DurableObject<Env> {
       return new Response("Expected WebSocket", { status: 426 });
     }
     if (!this.room) return new Response("Not found", { status: 404 });
-    const now = Date.now();
-    // Silent sockets past the timeout go; then, at the cap, the oldest silent one makes room.
-    // Refusing the newcomer instead would let anyone holding the slots keep real players out,
-    // while a real page says hello within milliseconds, so it is never the oldest for long.
-    const silent = this.unidentifiedSockets().sort((a, b) => (attachmentOf(a).openedAt ?? 0) - (attachmentOf(b).openedAt ?? 0));
-    const expired = silent.filter((ws) => now - (attachmentOf(ws).openedAt ?? 0) > HELLO_TIMEOUT_MS);
-    const kept = silent.filter((ws) => !expired.includes(ws));
-    const evicted = [...expired, ...kept.slice(0, Math.max(0, kept.length - MAX_UNIDENTIFIED_SOCKETS + 1))];
-    for (const ws of evicted) closeQuietly(ws, WS_CLOSE.helloTimeout, "hello_timeout");
+    const client = requestClientKey(request);
+    if (!this.makeRoomForSilentSocket(client, Date.now())) return new Response("Too many sockets", { status: 429 });
 
     const pair = new WebSocketPair();
-    const [client, server] = [pair[0], pair[1]];
+    const [page, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ playerId: null, openedAt: now } satisfies SocketAttachment);
-    return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": WS_PROTOCOL } });
+    server.serializeAttachment({ playerId: null, openedAt: Date.now(), client } satisfies SocketAttachment);
+    return new Response(null, { status: 101, webSocket: page, headers: { "Sec-WebSocket-Protocol": WS_PROTOCOL } });
+  }
+
+  /**
+   * Closes silent sockets (4005) to make room for a new one from `client`, or returns false when
+   * the newcomer must be refused. A socket whose hello is being checked is never pushed out.
+   * 1. Silent sockets past the hello timeout go.
+   * 2. The client's own oldest goes if it already holds its share.
+   * 3. At the room-wide cap, the oldest of the client holding the most goes, if it holds more
+   *    than one; when every client holds one, the newcomer is refused instead.
+   */
+  private makeRoomForSilentSocket(client: string, now: number): boolean {
+    const evict = (ws: WebSocket) => closeQuietly(ws, WS_CLOSE.helloTimeout, "hello_timeout");
+    const openedAt = (ws: WebSocket) => attachmentOf(ws).openedAt ?? 0;
+    const all = this.unidentifiedSockets();
+    const checking = all.filter((ws) => this.helloGates.has(ws)).length;
+    let live = all.filter((ws) => !this.helloGates.has(ws)).sort((a, b) => openedAt(a) - openedAt(b));
+    for (const ws of live.filter((s) => now - openedAt(s) > HELLO_TIMEOUT_MS)) evict(ws);
+    live = live.filter((s) => now - openedAt(s) <= HELLO_TIMEOUT_MS);
+
+    const byClient = new Map<string, WebSocket[]>();
+    for (const ws of live) {
+      const key = attachmentOf(ws).client ?? "unknown";
+      byClient.set(key, [...(byClient.get(key) ?? []), ws]);
+    }
+    const mine = byClient.get(client) ?? [];
+    while (mine.length >= MAX_SILENT_PER_CLIENT) {
+      const oldest = mine.shift()!;
+      evict(oldest);
+      live = live.filter((s) => s !== oldest);
+    }
+    byClient.set(client, mine);
+
+    if (live.length + checking < MAX_SILENT_SOCKETS) return true;
+    // The greediest client, ties going to the one whose oldest socket is oldest.
+    let greediest: WebSocket[] = [];
+    for (const sockets of byClient.values()) {
+      if (sockets.length > greediest.length || (sockets.length === greediest.length && sockets.length > 0 && openedAt(sockets[0]!) < openedAt(greediest[0]!))) {
+        greediest = sockets;
+      }
+    }
+    if (greediest.length < 2) return false;
+    evict(greediest[0]!);
+    return true;
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {

@@ -111,9 +111,12 @@ The room socket handshake (`whoami.v2`) works like this:
    With a valid token for a seat in this room the socket becomes that player's, and from then on behaves as before: presence, the player's own view, away and back, `sync`.
 4. Anything else as the first message closes the socket with 4004 (the page is out of date; it reloads once, and shows a Reload screen if that did not help).
    A wrong token closes it with 4003, or 4002 for a removed player; the page then checks its session over HTTP as after any drop.
-5. A room holds at most 4 sockets that have not said who they are.
-   When a fifth arrives, the oldest silent one is closed (4005) to make room, so nobody can hold the slots to keep players out; a real page says hello within milliseconds.
+5. Sockets that have not said who they are ("silent") are capped per client: a client (an IPv4 address, or an IPv6 /48) holds at most 2 in a room, and its third pushes out its own oldest (4005), never anyone else's.
+   A room holds at most 32 silent sockets in all; at that point the oldest socket of the client holding the most goes, and if every client holds just one, the newcomer is refused (429).
+   A socket whose hello is being checked is never pushed out.
    Silent sockets older than 10 seconds are closed (4005) when the next socket arrives, and they never count as activity, so they cannot keep a room alive.
+   What is left: someone controlling 32 or more separate clients (32 IPv4 addresses or IPv6 /48s), each topping up its socket every 10 seconds, can fill a room's silent slots so that newcomers from other clients are refused until they retry after a slot frees.
+   A player already seated is never affected, and once a page's socket is accepted, only its own client's newcomers (or the 10-second timeout) can push it out.
 6. Socket requests are limited to 30 a minute per client before the room is touched, which also keeps the route from answering room-code guesses faster than the lookup limit.
 7. After a fatal close (room closed, left, removed, out of date) the page opens no more sockets, even when the tab comes back into view.
 
@@ -130,7 +133,7 @@ This cannot be made fully quiet for pages already open: their code reopens a soc
 ### Abuse resistance
 
 - Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
-- Join attempts, room lookups, room sockets and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client) by a small Durable Object.
+- Join attempts, room lookups, room sockets and room creation are rate limited per client IP (a whole IPv6 /48 counts as one client) by a small Durable Object.
 - PINs are short-lived aliases for an open lobby, held in one `PinDirectoryDurableObject`.
   They are chosen at random, last 15 minutes unless the host's lobby stays open, end when the room fills or the game starts, wait out a 10-minute cooldown before reuse, and lookups are limited to 10 per 10 minutes and 30 per hour.
   Unknown and expired PINs get the same response, and a lookup returns only the room preview, never a player id or token.

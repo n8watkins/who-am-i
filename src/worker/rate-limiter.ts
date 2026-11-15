@@ -47,8 +47,9 @@ export class RateLimiterDurableObject extends DurableObject<Env> {
 }
 
 /**
- * The key a client is limited by. One IPv6 customer usually holds a whole /64, so all of it counts
- * as one client; IPv4 addresses, including IPv4-mapped IPv6 ones, are used as they are.
+ * The key a client is limited by. One IPv6 customer can be handed a whole /48 (65,536 /64s), so
+ * all of it counts as one client; IPv4 addresses, including IPv4-mapped IPv6 ones, are used as
+ * they are.
  */
 export function clientKey(ip: string): string {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
@@ -58,12 +59,17 @@ export function clientKey(ip: string): string {
   const left = head ? head.split(":") : [];
   const right = tail ? tail.split(":") : [];
   const zeros = tail === undefined ? [] : new Array<string>(Math.max(0, 8 - left.length - right.length)).fill("0");
-  const groups = [...left, ...zeros, ...right].slice(0, 4);
-  return `${groups.map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/64`;
+  const groups = [...left, ...zeros, ...right].slice(0, 3);
+  return `${groups.map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/48`;
+}
+
+/** The client key of a request, from the address Cloudflare saw ("local" in tests without one). */
+export function requestClientKey(request: Request): string {
+  return clientKey(request.headers.get("CF-Connecting-IP") ?? "local");
 }
 
 export async function allowRequest(env: Env, request: Request, bucket: RateLimitBucket): Promise<boolean> {
-  const ip = clientKey(request.headers.get("CF-Connecting-IP") ?? "local");
+  const ip = requestClientKey(request);
   const stub = env.RATE_LIMITER.getByName(`${bucket}:${ip}`);
   return stub.hit(RATE_LIMITS[bucket]);
 }

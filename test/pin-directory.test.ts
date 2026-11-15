@@ -146,14 +146,14 @@ describe("PinDirectoryDurableObject", () => {
 });
 
 describe("clientKey", () => {
-  it("groups an IPv6 /64 however it is written", () => {
+  it("groups an IPv6 /48 however it is written, since one customer can hold a whole /48", () => {
     const key = clientKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd");
-    expect(key).toBe("2001:db8:1:2::/64");
+    expect(key).toBe("2001:db8:1::/48");
     expect(clientKey("2001:0DB8:0001:0002::1")).toBe(key);
-    expect(clientKey("2001:db8:1:2::ffff")).toBe(key);
-    expect(clientKey("2001:db8:1:3::1")).not.toBe(key);
-    expect(clientKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
-    expect(clientKey("::1")).toBe("0:0:0:0::/64");
+    expect(clientKey("2001:db8:1:ffff::1")).toBe(key);
+    expect(clientKey("2001:db8:2:2::1")).not.toBe(key);
+    expect(clientKey("2001:db8::1")).toBe("2001:db8:0::/48");
+    expect(clientKey("::1")).toBe("0:0:0::/48");
   });
 
   it("keeps IPv4 addresses apart, including mapped ones", () => {
