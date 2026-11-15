@@ -2,6 +2,8 @@
 // Static assets (the React SPA) are served by Workers static assets for every non-/api path.
 import { z } from "zod";
 import {
+  CLIENT_VERSION,
+  CLIENT_VERSION_HEADER,
   CommandSchema,
   CreateRoomRequestSchema,
   JoinRoomRequestSchema,
@@ -41,6 +43,7 @@ const STATUS_BY_ERROR: Record<ErrorCode, number> = {
   unauthorized: 401,
   forbidden: 403,
   removed: 403,
+  outdated: 426,
   not_found: 404,
   room_full: 409,
   version_conflict: 409,
@@ -118,6 +121,20 @@ function bearerToken(request: Request): string | null {
   return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
 
+/**
+ * Pages from before the v2 socket handshake keep their old code across client-side navigation,
+ * so one that creates or joins a game would take a real seat and then put its fresh token in a
+ * logged socket header. Create and join therefore require the current client's marker. Old pages
+ * show the message where create and join errors already appear.
+ */
+function currentClient(request: Request): boolean {
+  return request.headers.get(CLIENT_VERSION_HEADER) === CLIENT_VERSION;
+}
+
+function outdatedClient(): Response {
+  return error("outdated", "This page is out of date. Reload it and try again.");
+}
+
 function offeredProtocols(request: Request): string[] {
   return (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((p) => p.trim());
 }
@@ -185,6 +202,7 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
   // POST /api/rooms
   if (parts.length === 2 && method === "POST") {
+    if (!currentClient(request)) return outdatedClient();
     if (!(await allowRequest(env, request, "create"))) return error("rate_limited", "Too many rooms. Try again in a minute.");
     const body = await readJson(request, CreateRoomRequestSchema);
     if (body instanceof Response) return body;
@@ -213,6 +231,7 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
   // POST /api/rooms/:code/join
   if (action === "join" && parts.length === 4 && method === "POST") {
+    if (!currentClient(request)) return outdatedClient();
     if (!(await allowRequest(env, request, "join"))) return error("rate_limited", "Too many join attempts. Try again in a minute.");
     const body = await readJson(request, JoinRoomRequestSchema);
     if (body instanceof Response) return body;

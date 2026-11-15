@@ -111,17 +111,26 @@ The room socket handshake (`whoami.v2`) works like this:
    With a valid token for a seat in this room the socket becomes that player's, and from then on behaves as before: presence, the player's own view, away and back, `sync`.
 4. Anything else as the first message closes the socket with 4004 (the page is out of date; it reloads once, and shows a Reload screen if that did not help).
    A wrong token closes it with 4003, or 4002 for a removed player; the page then checks its session over HTTP as after any drop.
-5. A room holds at most 4 sockets that have not said who they are and refuses more with 429.
+5. A room holds at most 4 sockets that have not said who they are.
+   When a fifth arrives, the oldest silent one is closed (4005) to make room, so nobody can hold the slots to keep players out; a real page says hello within milliseconds.
    Silent sockets older than 10 seconds are closed (4005) when the next socket arrives, and they never count as activity, so they cannot keep a room alive.
+6. Socket requests are limited to 30 a minute per client before the room is touched, which also keeps the route from answering room-code guesses faster than the lookup limit.
+7. After a fatal close (room closed, left, removed, out of date) the page opens no more sockets, even when the tab comes back into view.
 
-Pages built before v2 still offer `whoami.v1` plus `token.<token>`.
-The Worker never honours that token: it opens the socket and closes it at once with 4000 (room closed), the one code that makes an old page stop reconnecting without deleting its stored seat.
+Create and join require the header `X-WhoAmI-Client: 2`, which current pages send.
+Without it they answer 426 with "This page is out of date. Reload it and try again.", which pages from before v2 show where create and join errors appear.
+That keeps an old page (which keeps its old code across in-app navigation) from taking a seat and then putting the new token in a socket header.
+
+Pages built before v2 still open sockets offering `whoami.v1` plus `token.<token>`.
+The Worker never honours that token: it opens the socket and closes it at once with 4000 (room closed).
+On those pages, 4000, 4001 and 4002 are the only codes that stop the reconnect loop, and 4000 is the least false of them: 4001 deletes the stored seat at once, and 4002 says the host removed you.
 The old page shows "This room has closed"; a reload loads the new page, which finds the stored seat and carries on.
+This cannot be made fully quiet for pages already open: their code reopens a socket every time the tab comes back into view, even on that screen, and each time sends its token in the header again (the request is limited like any other socket request), until the page is reloaded or closed.
 
 ### Abuse resistance
 
 - Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
-- Join attempts, room lookups and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client) by a small Durable Object.
+- Join attempts, room lookups, room sockets and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client) by a small Durable Object.
 - PINs are short-lived aliases for an open lobby, held in one `PinDirectoryDurableObject`.
   They are chosen at random, last 15 minutes unless the host's lobby stays open, end when the room fills or the game starts, wait out a 10-minute cooldown before reuse, and lookups are limited to 10 per 10 minutes and 30 per hour.
   Unknown and expired PINs get the same response, and a lookup returns only the room preview, never a player id or token.
