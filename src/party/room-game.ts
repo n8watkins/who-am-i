@@ -18,6 +18,7 @@
 import { z } from "zod";
 import {
   DIFFICULTIES,
+  HOST_OVERRIDE_AFTER_MS,
   MODES,
   NicknameSchema,
   PACK_IDS,
@@ -26,6 +27,7 @@ import {
   type RoomView,
   type Settings,
 } from "../shared/protocol";
+import { absentSince } from "../kit/shared/presence";
 import { getIdentity } from "../worker/content";
 import { playerById } from "../worker/engine";
 import {
@@ -57,6 +59,16 @@ export const RoomSettingsSchema = z.object({
   match: z.enum(MATCH_LENGTHS).default("first_to_3"),
 });
 export type RoomSettings = z.infer<typeof RoomSettingsSchema>;
+
+/** How long a dropped phone's seat is held before the room gives up on it (`game.reconnectGraceMs`). */
+export const RECONNECT_GRACE_MS = 10 * 60_000;
+
+/**
+ * How long a player must have been gone (dropped, or their page hidden) before the other leaving
+ * the party no longer hands them the win: the same 30 seconds after which the guesser may confirm
+ * their own guess without them.
+ */
+const ABSENT_MS = HOST_OVERRIDE_AFTER_MS;
 
 /** The longest a carry may be as JSON. The party room keeps at most 4 KB; this leaves room to spare. */
 export const CARRY_MAX_BYTES = 3_500;
@@ -201,8 +213,15 @@ export const game = {
   maxSeats: 2,
   /** Turn-based: the room never ticks it on a timer, and wakes for an input or `nextDeadline`. */
   tickHz: 0,
-  /** A dropped or locked phone keeps its seat while the room lives; the turn timer pauses meanwhile. */
-  reconnectGraceMs: Infinity,
+  /**
+   * A dropped phone keeps its seat for ten minutes (a locked phone, a lost signal, a reload), and
+   * the turn timer pauses meanwhile. A phone that has not come back by then is gone for good: the
+   * room ends the match through `abandon`, and the player who stayed wins it. Without a limit the
+   * player left behind could do nothing but leave, and leaving would hand the win to the one who
+   * vanished. A hidden page whose socket stays open is not a drop: the room closes such a socket
+   * only once it has been silent this long, so a ghost is given up on the same way.
+   */
+  reconnectGraceMs: RECONNECT_GRACE_MS,
   /** A match is people talking, with a tap now and then: two locked phones must not lose it. */
   idleShutdownMs: ROOM_IDLE_MS,
   staleRoomMs: ROOM_IDLE_MS,
@@ -280,20 +299,25 @@ export const game = {
   },
 
   /**
-   * A player left the party (or their phone never came back): the match ends. A match already
+   * A player left the party, or their phone's grace ran out: the match ends. A match already
    * decided (its last round's summary is up) ends as it was decided, whoever leaves. Otherwise the
-   * player who stayed wins it, and the one who left gets no place.
+   * player who stayed wins it and the one who left gets no place, unless the one who stayed is
+   * not here either (dropped, or their page hidden, for 30 seconds or more): then nobody wins,
+   * so leaving a match whose other phone vanished does not hand the vanished player the win.
    */
-  abandon(state: RoomGameState, seat: number, _now: number): { standings: { seat: number; place: number }[]; result: RoomResult | null; events: { k: "abandoned"; seat: number }[] } {
+  abandon(state: RoomGameState, seat: number, now: number): { standings: { seat: number; place: number }[]; result: RoomResult | null; events: { k: "abandoned"; seat: number }[] } {
     const seats = seatList(state);
     const stayed = seats.find((s) => s !== seat);
     if (!seats.includes(seat) || stayed === undefined) return { standings: [], result: null, events: [] };
     if (decided(state)) return { standings: decidedStandings(state), result: decidedResult(state), events: [] };
     const room = state.match.room;
+    const other = playerById(room, playerOf(stayed));
+    const since = other ? absentSince(other) : null;
+    const otherGone = since !== null && now - since >= ABSENT_MS;
     return {
-      standings: [{ seat: stayed, place: 1 }],
+      standings: otherGone ? [] : [{ seat: stayed, place: 1 }],
       result: {
-        winnerSeat: stayed,
+        winnerSeat: otherGone ? null : stayed,
         tie: false,
         rounds: room.roundIndex,
         scores: scoresOf(state),

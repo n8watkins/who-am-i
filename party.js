@@ -38,6 +38,13 @@ var DIFFICULTIES = [
 	"medium",
 	"hard"
 ];
+var FIRST_PLAYER_OPTIONS = [
+	"host",
+	"opponent",
+	"random"
+];
+/** How long the confirming player must be disconnected or away before the host may override. */
+var HOST_OVERRIDE_AFTER_MS = 3e4;
 var SettingsSchema = z.object({
 	packId: z.enum(PACK_IDS),
 	mode: z.enum(MODES),
@@ -47,11 +54,7 @@ var SettingsSchema = z.object({
 		z.literal(90)
 	]),
 	matchType: z.enum(MATCH_TYPES),
-	firstPlayer: z.enum([
-		"host",
-		"opponent",
-		"random"
-	]),
+	firstPlayer: z.enum(FIRST_PLAYER_OPTIONS),
 	hints: z.boolean(),
 	questions: z.enum(QUESTION_MODES),
 	turnFormat: z.enum(TURN_FORMATS).default("keep_going"),
@@ -170,6 +173,16 @@ var CommandSchema = z.discriminatedUnion("type", [
 		type: z.literal("turn.pass")
 	})
 ]);
+// src/kit/shared/presence.ts
+function presenceOf(p) {
+	if (!p.connected) return "offline";
+	return p.away ? "away" : "here";
+}
+/** Since when the player has been unable to act (offline or away), or null while they are here. */
+function absentSince(p) {
+	if (!p.connected) return p.disconnectedAt;
+	return p.away ? p.awaySince ?? null : null;
+}
 // src/shared/packs.ts
 var PACK_META = {
 	mixed: {
@@ -3264,16 +3277,6 @@ function packInfo(packId) {
 		size: packIdentities(packId).length
 	};
 }
-// src/kit/shared/presence.ts
-function presenceOf(p) {
-	if (!p.connected) return "offline";
-	return p.away ? "away" : "here";
-}
-/** Since when the player has been unable to act (offline or away), or null while they are here. */
-function absentSince(p) {
-	if (!p.connected) return p.disconnectedAt;
-	return p.away ? p.awaySince ?? null : null;
-}
 var RECENT_COMMANDS_KEPT = 100;
 var EVENTS_KEPT = 200;
 var fail = (error, message) => ({
@@ -4553,6 +4556,14 @@ var RoomSettingsSchema = z.object({
 	difficulty: z.enum(DIFFICULTIES).default("medium"),
 	match: z.enum(MATCH_LENGTHS).default("first_to_3")
 });
+/** How long a dropped phone's seat is held before the room gives up on it (`game.reconnectGraceMs`). */
+var RECONNECT_GRACE_MS = 6e5;
+/**
+* How long a player must have been gone (dropped, or their page hidden) before the other leaving
+* the party no longer hands them the win: the same 30 seconds after which the guesser may confirm
+* their own guess without them.
+*/
+var ABSENT_MS = HOST_OVERRIDE_AFTER_MS;
 /** The game's own settings and the match target for a room's choices. */
 function engineSettings(settings) {
 	const { match, ...rest } = settings;
@@ -4689,8 +4700,15 @@ var game = {
 	maxSeats: 2,
 	/** Turn-based: the room never ticks it on a timer, and wakes for an input or `nextDeadline`. */
 	tickHz: 0,
-	/** A dropped or locked phone keeps its seat while the room lives; the turn timer pauses meanwhile. */
-	reconnectGraceMs: Infinity,
+	/**
+	* A dropped phone keeps its seat for ten minutes (a locked phone, a lost signal, a reload), and
+	* the turn timer pauses meanwhile. A phone that has not come back by then is gone for good: the
+	* room ends the match through `abandon`, and the player who stayed wins it. Without a limit the
+	* player left behind could do nothing but leave, and leaving would hand the win to the one who
+	* vanished. A hidden page whose socket stays open is not a drop: the room closes such a socket
+	* only once it has been silent this long, so a ghost is given up on the same way.
+	*/
+	reconnectGraceMs: RECONNECT_GRACE_MS,
 	/** A match is people talking, with a tap now and then: two locked phones must not lose it. */
 	idleShutdownMs: ROOM_IDLE_MS,
 	staleRoomMs: ROOM_IDLE_MS,
@@ -4775,11 +4793,13 @@ var game = {
 		return game$1.presence(state.match, seat, report, now, sources);
 	},
 	/**
-	* A player left the party (or their phone never came back): the match ends. A match already
+	* A player left the party, or their phone's grace ran out: the match ends. A match already
 	* decided (its last round's summary is up) ends as it was decided, whoever leaves. Otherwise the
-	* player who stayed wins it, and the one who left gets no place.
+	* player who stayed wins it and the one who left gets no place, unless the one who stayed is
+	* not here either (dropped, or their page hidden, for 30 seconds or more): then nobody wins,
+	* so leaving a match whose other phone vanished does not hand the vanished player the win.
 	*/
-	abandon(state, seat, _now) {
+	abandon(state, seat, now) {
 		const seats = seatList(state);
 		const stayed = seats.find((s) => s !== seat);
 		if (!seats.includes(seat) || stayed === void 0) return {
@@ -4793,13 +4813,16 @@ var game = {
 			events: []
 		};
 		const room = state.match.room;
+		const other = playerById(room, playerOf(stayed));
+		const since = other ? absentSince(other) : null;
+		const otherGone = since !== null && now - since >= ABSENT_MS;
 		return {
-			standings: [{
+			standings: otherGone ? [] : [{
 				seat: stayed,
 				place: 1
 			}],
 			result: {
-				winnerSeat: stayed,
+				winnerSeat: otherGone ? null : stayed,
 				tie: false,
 				rounds: room.roundIndex,
 				scores: scoresOf(state),

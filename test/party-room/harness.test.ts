@@ -307,12 +307,18 @@ describe("Who Am I? in the party room", () => {
     const resumed = lastSnap(ws.screen) as unknown as { turn: { deadline: number } };
     expect(resumed.turn.deadline).toBe(Date.now() + 50_000);
 
-    // The phone drops: the seat is held (no grace runs out: Infinity), and the timer pauses again.
+    // The phone drops: the seat is held for the game's ten minutes, and the timer pauses again.
     ctx.room.webSocketClose(waiting, 1006, "");
     await fake.settle();
     expect(lastSnap(ws.screen)).toMatchObject({ turn: { deadline: null } });
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    await vi.advanceTimersByTimeAsync(game.reconnectGraceMs - 1_000);
     expect(ctx.room.core.activity.kind).toBe("game");
+    // It never comes back: the room gives up on it, and the player who stayed wins the match.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(ctx.room.core.activity.kind).toBe("lobby");
+    const end = ws.screen.messages().find((m: Msg) => m.t === "end");
+    expect(end.last.early).toMatchObject({ seat: first, why: "gone" });
+    expect(end.last.rows).toEqual([expect.objectContaining({ seat: second, place: 1, points: 3 })]);
     secrecy.finalCheck();
   });
 

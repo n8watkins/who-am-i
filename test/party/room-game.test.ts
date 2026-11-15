@@ -88,7 +88,8 @@ describe("the contract surface", () => {
   it("is a turn-based game for exactly two humans, with lifetimes for a long talking match", () => {
     expect(game.id).toBe(manifest.id);
     expect([game.minSeats, game.maxSeats, game.tickHz]).toEqual([2, 2, 0]);
-    expect(game.reconnectGraceMs).toBe(Infinity);
+    // A phone that never comes back is given up on after ten minutes, so the match cannot freeze.
+    expect(game.reconnectGraceMs).toBe(10 * 60_000);
     expect(game.idleShutdownMs).toBe(60 * 60_000);
     expect(game.staleRoomMs).toBe(60 * 60_000);
     // Humans only: nothing for the room to hand a dropped seat to.
@@ -405,6 +406,35 @@ describe("abandon", () => {
     expect(JSON.stringify(ended)).not.toContain(assignment(state, 0)!);
     expect(JSON.stringify(ended)).not.toContain(assignment(state, 2)!);
     expect(game.abandon(state, 5, START)).toEqual({ standings: [], result: null, events: [] });
+  });
+
+  it("gives the one who stayed the win when the other phone's grace runs out", () => {
+    const { state, sources } = start({ turnFormat: "keep_going" });
+    playTurn(state, START, sources);
+    expect(game.presence(state, 2, { connected: false, away: false }, START, sources)).toBe(true);
+    const ended = game.abandon(state, 2, START + game.reconnectGraceMs);
+    expect(ended.standings).toEqual([{ seat: 0, place: 1 }]);
+    expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
+  });
+
+  it("gives nobody the win when a player leaves while the other has been gone for a while", () => {
+    for (const report of [
+      { connected: false, away: false },
+      { connected: true, away: true },
+    ]) {
+      const { state, sources } = start({ turnFormat: "keep_going" });
+      playTurn(state, START, sources);
+      // Seat 0's phone is gone; seat 2 waits a minute and gives up on the match.
+      expect(game.presence(state, 0, report, START, sources)).toBe(true);
+      const ended = game.abandon(state, 2, START + 60_000);
+      expect(ended.standings, JSON.stringify(report)).toEqual([]);
+      expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
+      expect(ended.result).not.toBeNull();
+    }
+    // A phone locked a moment ago is still the player's: the one who stayed wins as before.
+    const { state, sources } = start({ turnFormat: "keep_going" });
+    game.presence(state, 0, { connected: true, away: true }, START, sources);
+    expect(game.abandon(state, 2, START + 10_000).standings).toEqual([{ seat: 0, place: 1 }]);
   });
 });
 
