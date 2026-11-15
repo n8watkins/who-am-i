@@ -536,7 +536,7 @@ describe("WebSocket handshake (the token is the first message, never the address
       attacker.push(await rawSocket(code));
       const player = await rawSocket(code);
       player.ws.send(helloFrame(host.token));
-      await expect.poll(() => player.frames.length, `round ${round}`).toBeGreaterThan(0);
+      await expect.poll(() => player.frames.length, { message: `round ${round}` }).toBeGreaterThan(0);
       expect(JSON.parse(player.frames[0]!)).toMatchObject({ type: "state", view: { youId: host.playerId } });
       player.ws.close();
     }
