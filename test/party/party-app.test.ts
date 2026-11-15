@@ -18,6 +18,9 @@ import { game, type RoomGameState, type Sources } from "../../src/party/room-gam
 import type { PartyHost, Snapshot } from "../../src/party-view/host";
 import { PartyApp } from "../../src/party-view/PartyApp";
 import type { RoomView } from "../../src/shared/protocol";
+import { getIdentity } from "../../src/worker/content";
+
+const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#x27;");
 
 const SEATS = [
   { seat: 0, name: "Ann" },
@@ -89,6 +92,27 @@ describe("the room view's page", () => {
     const screen = render(game.snapshot(state, now, { role: "screen" }), now);
     expect(screen).not.toContain("max-w-lg");
     expect(screen).toContain('data-screen="big"');
+  });
+
+  it("shows a watching phone both identities in a round, and the reveal and the scores after it", () => {
+    const now = Date.now();
+    const { state, sources } = matchFor(0, now);
+    const names = state.match.seats.map((seat) => getIdentity(state.match.room.round!.assignments[`seat-${seat}`]!).canonicalName);
+    const during = render(game.snapshot(state, now, { role: "audience", seat: 1 }), now);
+    for (const name of names) expect(during).toContain(escapeHtml(name));
+    // Ann guesses hers; Bo gives up.
+    game.input(state, 0, command(state, "turn.correct.request"), now, sources);
+    game.input(state, 2, command(state, "turn.correct.confirm"), now, sources);
+    game.input(state, 2, command(state, "turn.skip"), now, sources);
+    expect(state.match.room.status).toBe("round_summary");
+    const after = render(game.snapshot(state, now, { role: "audience", seat: 1 }), now);
+    for (const name of names) expect(after).toContain(escapeHtml(name));
+    expect(after).toContain("Guessed it");
+    expect(after).toContain("Gave up");
+    expect(after).toMatch(/Ann[^]*1[^]*Bo[^]*0/);
+    // The big screen, at the same moment: no identity.
+    const screen = render(game.snapshot(state, now, { role: "screen" }), now);
+    for (const name of names) expect(screen).not.toContain(escapeHtml(name));
   });
 
   it("offers either guesser the button to confirm their own guess once the other phone has been gone 30 seconds", () => {

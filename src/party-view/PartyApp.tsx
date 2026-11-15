@@ -5,7 +5,7 @@
 // else, because that is all their snapshot holds.
 import { Banner, Card, Pill } from "../client/components/ui";
 import { mePlayer, opponentPlayer, useNow } from "../client/lib/hooks";
-import { Game } from "../client/screens/Game";
+import { Game, ResultPill } from "../client/screens/Game";
 import { RoundSummary } from "../client/screens/Summaries";
 import { useWakeLock } from "../kit/client/wake-lock";
 import type { MatchLength } from "../party/manifest";
@@ -61,7 +61,11 @@ function PlayerView({ view, handle }: { view: PlayerSnapshot; handle: ReturnType
   return <p className="py-12 text-center font-semibold text-muted">Drawing identities...</p>;
 }
 
-/** The big screen, and a phone whose seat is not in the match: no identity, no hint, no question. */
+/**
+ * The big screen and a watching phone: whose turn, the timer and the question count, never a hint
+ * or a question. A watching phone (the audience) also sees both identities, the reveal and the
+ * scores; the big screen sees no identity, because its snapshot holds none.
+ */
 function WatchView({ view, offset }: { view: RoomScreenView | AudienceView; offset: number }) {
   const turn = view.turn;
   const timed = turn !== null && (turn.deadline !== null || turn.pausedRemainingMs !== null);
@@ -91,9 +95,18 @@ function WatchView({ view, offset }: { view: RoomScreenView | AudienceView; offs
           </div>
         </>
       ) : (
-        <p className="text-2xl font-black">Between rounds</p>
+        <p className="text-2xl font-black">{view.role === "audience" && view.reveal?.matchOver ? "Match over" : "Between rounds"}</p>
       )}
-      {view.role === "audience" && view.identities.length > 0 && (
+      {view.role === "audience" && <AudienceExtras view={view} name={name} />}
+    </Card>
+  );
+}
+
+/** What only a watching phone sees: both identities in a round, the reveal after it, and the scores. */
+function AudienceExtras({ view, name }: { view: AudienceView; name: (seat: number) => string }) {
+  return (
+    <>
+      {view.identities.length > 0 && (
         <ul className="space-y-1 text-sm font-bold text-muted">
           {view.identities.map((i) => (
             <li key={i.seat}>
@@ -102,6 +115,26 @@ function WatchView({ view, offset }: { view: RoomScreenView | AudienceView; offs
           ))}
         </ul>
       )}
-    </Card>
+      {view.reveal && view.reveal.entries.length > 0 && (
+        <ul className="space-y-2" data-testid="watch-reveal">
+          {view.reveal.entries.map((e) => (
+            <li key={e.seat} className="flex items-center justify-between gap-3 rounded-2xl border-2 border-line bg-field px-3 py-2 text-left">
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-muted">{name(e.seat)} was</span>
+                <span className="block truncate text-lg font-black">{e.identity.canonicalName}</span>
+              </span>
+              <ResultPill result={e.result} />
+            </li>
+          ))}
+        </ul>
+      )}
+      <ul className="flex justify-center gap-6 text-lg font-bold" data-testid="watch-scores" aria-label="Scores">
+        {view.scores.map((s) => (
+          <li key={s.seat}>
+            {name(s.seat)} <span className="font-black tabular-nums">{s.score}</span>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

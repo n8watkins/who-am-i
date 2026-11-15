@@ -8,7 +8,7 @@ import { game } from "../../src/party/room-game";
 import { manifest } from "../../src/party/manifest";
 // The built module a party site imports (the package's "." export): it must be the source.
 import * as built from "../../party.js";
-import { CARRY_MAX_BYTES, RoomSettingsSchema, type RoomGameState, type RoomSnapshot, type Sources } from "../../src/party/room-game";
+import { CARRY_MAX_BYTES, RoomSettingsSchema, type AudienceView, type RoomGameState, type RoomSnapshot, type Sources } from "../../src/party/room-game";
 import { SETTING_FIELDS } from "../../src/party/manifest";
 import { HINTS_PER_TURN, type RoomView } from "../../src/shared/protocol";
 import { getIdentity } from "../../src/worker/content";
@@ -271,6 +271,29 @@ describe("snapshot", () => {
     const watching = game.snapshot(state, START, { role: "audience", seat: 1 });
     expect(watching).toEqual(audience);
     expect(JSON.stringify(watching)).not.toMatch(/"(log|hints|youId)"/);
+  });
+
+  it("shows the audience the round's reveal and the scores between rounds; the screen still sees neither", () => {
+    const { state, sources } = start({ turnFormat: "keep_going" });
+    const drawn = { 0: assignment(state, 0)!, 2: assignment(state, 2)! };
+    while (state.match.room.status !== "round_summary") playTurn(state, START, sources, turnSeat(state) !== 0);
+    const audience = game.snapshot(state, START, { role: "audience", seat: 1 }) as AudienceView;
+    expect(audience.scores).toEqual([
+      { seat: 0, score: 1 },
+      { seat: 2, score: 0 },
+    ]);
+    expect(audience.reveal).toMatchObject({ roundIndex: 1, matchOver: false });
+    expect(audience.reveal!.entries.map((e) => [e.seat, e.identity.id, e.result])).toEqual([
+      [0, drawn[0], "correct"],
+      [2, drawn[2], "skipped"],
+    ]);
+    const screen = JSON.stringify(game.snapshot(state, START, { role: "screen" }));
+    for (const id of Object.values(drawn)) expect(screen).not.toContain(id);
+    // Once the next round is on, the reveal is put away and the new identities shown.
+    game.input(state, 0, command(state, "round.next"), START, sources);
+    const next = game.snapshot(state, START, { role: "audience", seat: 1 }) as AudienceView;
+    expect(next.reveal).toBeNull();
+    expect(next.identities).toHaveLength(2);
   });
 
   it("never gives a seat that is playing the audience's view: it is that player's own, without their identity", () => {

@@ -24,6 +24,7 @@ import {
   PACK_IDS,
   QUESTION_MODES,
   TURN_FORMATS,
+  type PublicIdentity,
   type RoomView,
   type Settings,
 } from "../shared/protocol";
@@ -188,22 +189,38 @@ function screenOf(state: RoomGameState, now: number): RoomScreenView {
   return { ...view, match: state.settings.match };
 }
 
+function publicIdentity(id: string): PublicIdentity {
+  const identity = getIdentity(id);
+  return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId };
+}
+
 function audienceOf(state: RoomGameState, now: number): AudienceView {
   const { role: _role, ...screen } = screenOf(state, now);
   const room = state.match.room;
   const round = room.round;
+  const summary = room.lastRoundSummary;
+  const between = room.status === "round_summary" || room.status === "match_summary";
   return {
     ...screen,
     role: "audience",
-    scores: seatList(state).map((seat) => ({ seat, score: playerById(room, playerOf(seat))?.score ?? 0 })),
+    scores: scoresOf(state),
     identities: round
       ? seatList(state).flatMap((seat) => {
           const id = round.assignments[playerOf(seat)];
-          if (!id) return [];
-          const identity = getIdentity(id);
-          return [{ seat, identity: { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId } }];
+          return id ? [{ seat, identity: publicIdentity(id) }] : [];
         })
       : [],
+    reveal:
+      between && summary
+        ? {
+            roundIndex: summary.roundIndex,
+            matchOver: summary.matchOver,
+            entries: seatList(state).flatMap((seat) => {
+              const entry = summary.entries.find((e) => e.playerId === playerOf(seat));
+              return entry ? [{ seat, identity: publicIdentity(entry.identityId), result: entry.result }] : [];
+            }),
+          }
+        : null,
   };
 }
 

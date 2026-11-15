@@ -3966,7 +3966,7 @@ function completeRound(room, ctx) {
 	emit(room, ctx, "round.completed", { roundIndex: round.index });
 }
 // src/worker/view.ts
-function publicIdentity(identityId) {
+function publicIdentity$1(identityId) {
 	const identity = getIdentity(identityId);
 	return {
 		id: identity.id,
@@ -4021,7 +4021,7 @@ function viewFor(room, viewerId, now) {
 			moveAsked: room.turn.moveAsked ?? false
 		} : null,
 		turnResults: room.round ? { ...room.round.results } : {},
-		opponentIdentity: opponentIdentityId ? publicIdentity(opponentIdentityId) : null,
+		opponentIdentity: opponentIdentityId ? publicIdentity$1(opponentIdentityId) : null,
 		roundSummary: showSummary && room.lastRoundSummary ? {
 			roundIndex: room.lastRoundSummary.roundIndex,
 			matchOver: room.lastRoundSummary.matchOver,
@@ -4029,7 +4029,7 @@ function viewFor(room, viewerId, now) {
 				playerId: e.playerId,
 				result: e.result,
 				hintsUsed: e.hintsUsed ?? 0,
-				identity: publicIdentity(e.identityId)
+				identity: publicIdentity$1(e.identityId)
 			}))
 		} : null,
 		matchSummary: room.status === "match_summary" && room.match ? { ...room.match } : null,
@@ -4688,30 +4688,43 @@ function screenOf(state, now) {
 		match: state.settings.match
 	};
 }
+function publicIdentity(id) {
+	const identity = getIdentity(id);
+	return {
+		id: identity.id,
+		canonicalName: identity.canonicalName,
+		categoryId: identity.categoryId
+	};
+}
 function audienceOf(state, now) {
 	const { role: _role, ...screen } = screenOf(state, now);
 	const room = state.match.room;
 	const round = room.round;
+	const summary = room.lastRoundSummary;
+	const between = room.status === "round_summary" || room.status === "match_summary";
 	return {
 		...screen,
 		role: "audience",
-		scores: seatList(state).map((seat) => ({
-			seat,
-			score: playerById(room, playerOf(seat))?.score ?? 0
-		})),
+		scores: scoresOf(state),
 		identities: round ? seatList(state).flatMap((seat) => {
 			const id = round.assignments[playerOf(seat)];
-			if (!id) return [];
-			const identity = getIdentity(id);
-			return [{
+			return id ? [{
 				seat,
-				identity: {
-					id: identity.id,
-					canonicalName: identity.canonicalName,
-					categoryId: identity.categoryId
-				}
-			}];
-		}) : []
+				identity: publicIdentity(id)
+			}] : [];
+		}) : [],
+		reveal: between && summary ? {
+			roundIndex: summary.roundIndex,
+			matchOver: summary.matchOver,
+			entries: seatList(state).flatMap((seat) => {
+				const entry = summary.entries.find((e) => e.playerId === playerOf(seat));
+				return entry ? [{
+					seat,
+					identity: publicIdentity(entry.identityId),
+					result: entry.result
+				}] : [];
+			})
+		} : null
 	};
 }
 var game = {
