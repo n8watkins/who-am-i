@@ -1,0 +1,425 @@
+// Who Am I? as a game the party room hosts (n8watkins/n8-party-games, party-kit/GAME-CONTRACT.md):
+// the `game` a party site imports from this package (party.ts) and runs in its party room.
+//
+// It is built on the adapter (./game.ts), which is built on the rules engine
+// (src/worker/engine.ts); the engine does not change. What this layer adds is what the party
+// room needs and the adapter did not have: the room's settings (first to 3 by default), the
+// viewers the room passes that the adapter does not know (the audience: the members of a larger
+// party who are not playing, and a watcher's seat), ending early when a player leaves or their
+// phone does not come back, a carry the room can keep, and a save that holds all of it.
+//
+// Secrecy is the point of the game, and holds here too:
+// - A player's snapshot never names their own identity, or a hint for it they did not ask for,
+//   until their round is over, whatever role the room names their seat by.
+// - The screen, a member watching as a screen, and anyone the game does not recognise get the
+//   screen's view: whose turn, the timer, the question count and the scores, and between rounds
+//   the round's reveal (both players have seen it on their own summary by then). Never an
+//   identity while its round is on.
+// - The audience gets the screen's view and both identities while a round is on, never a hint or
+//   a question.
+// - Identities are drawn with crypto.getRandomValues inside the adapter. The room's `seed` is
+//   never read.
+// - `result`, `standings` and events go to everyone, so none of them names an identity. `carry`
+//   names identities, and the room never sends it to a page.
+import { z } from "zod";
+import {
+  DIFFICULTIES,
+  HOST_OVERRIDE_AFTER_MS,
+  MODES,
+  NicknameSchema,
+  PACK_IDS,
+  QUESTION_MODES,
+  TURN_FORMATS,
+  type PublicIdentity,
+  type RoomView,
+  type Settings,
+} from "../shared/protocol";
+import { absentSince } from "../kit/shared/presence";
+import { getIdentity } from "../worker/content";
+import { playerById } from "../worker/engine";
+import {
+  ROOM_IDLE_MS,
+  game as adapter,
+  cryptoSources,
+  type Carry,
+  type GameState as Match,
+  type InputResult,
+  type PresenceReport,
+  type ScreenView,
+  type Sources,
+} from "./game";
+import { MATCH_LENGTHS, SETTING_FIELDS, manifest } from "./manifest";
+import type { AudienceView, PlayerSnapshot, RoomScreenView, RoomSnapshot, RoundReveal } from "./snapshots";
+
+export { cryptoSources, type Carry, type Sources };
+
+/** The host's choices in a party room, as the settings step hands them over. Every field has a default. */
+export const RoomSettingsSchema = z.object({
+  packId: z.enum(PACK_IDS).default("mixed"),
+  mode: z.enum(MODES).default("twenty_questions"),
+  turnFormat: z.enum(TURN_FORMATS).default("trade"),
+  questions: z.enum(QUESTION_MODES).default("both"),
+  timerSeconds: z.union([z.literal(0), z.literal(60), z.literal(90)]).default(0),
+  hints: z.boolean().default(true),
+  difficulty: z.enum(DIFFICULTIES).default("medium"),
+  match: z.enum(MATCH_LENGTHS).default("first_to_3"),
+});
+export type RoomSettings = z.infer<typeof RoomSettingsSchema>;
+
+/**
+ * How long a dropped phone's seat is held before the room gives up on it (`game.reconnectGraceMs`):
+ * a player gone for a minute forfeits (the owner's rule, 2026-11-15).
+ */
+export const RECONNECT_GRACE_MS = 60_000;
+
+/**
+ * How long the one who stayed must have been dropped before the other's forfeit no longer hands
+ * them the win: the same 30 seconds after which the guesser may confirm their own guess without
+ * them, half the minute after which a dropped phone forfeits.
+ */
+const ABSENT_MS = HOST_OVERRIDE_AFTER_MS;
+
+/** The longest a carry may be as JSON. The party room keeps at most 4 KB; this leaves room to spare. */
+export const CARRY_MAX_BYTES = 3_500;
+
+/** The game's state in a party room. Server-only: it holds both identities. */
+export interface RoomGameState {
+  /** The match, as the adapter keeps it. */
+  match: Match;
+  settings: RoomSettings;
+  /** First to this many points ends the match; null leaves it to the engine (first to 5, or 10 rounds). */
+  pointsToWin: number | null;
+}
+
+/** The game's own settings and the match target for a room's choices. */
+function engineSettings(settings: RoomSettings): { settings: Settings; pointsToWin: number | null } {
+  const { match, ...rest } = settings;
+  return {
+    settings: {
+      ...rest,
+      matchType: match === "rounds_10" ? "rounds" : "points",
+      // The party's host may not be playing, so "host" and "opponent" mean nothing here.
+      firstPlayer: "random",
+    },
+    pointsToWin: match === "first_to_3" ? 3 : null,
+  };
+}
+
+export type { AudienceView, PlayerSnapshot, RoomScreenView, RoomSnapshot };
+
+export type Viewer = { role?: unknown; seat?: unknown } | null | undefined;
+
+/**
+ * The result the room sends everyone at the end, in the contract's shape for a game that keeps
+ * score: one row per seat, best first, so the room's end card shows each score beside the place.
+ * No identity. Who won is in the places (`standings`), and why a match ended early in the room's
+ * own card (`last.early`). A match ended early by a seat that went (`abandon`) still lists both
+ * seats, the one that went with `left: true`.
+ */
+export type RoomResult = { seat: number; score: number; left?: true }[];
+
+const playerOf = (seat: number) => `seat-${seat}`;
+
+/** A party name as the engine's own nickname rule has it; a name it refuses becomes "Player". */
+function nicknameOf(name: unknown): string {
+  const parsed = NicknameSchema.safeParse(typeof name === "string" ? name : "");
+  return parsed.success ? parsed.data : "Player";
+}
+
+/** A carry as this game writes it, or null for anything else (it comes back from the room's storage). */
+function carryOf(value: unknown): Carry | null {
+  if (!value || typeof value !== "object") return null;
+  const c = value as Partial<Carry>;
+  const seat = (s: unknown): s is number => Number.isInteger(s);
+  if (!Array.isArray(c.seats) || c.seats.length !== 2 || !c.seats.every(seat)) return null;
+  if (!Array.isArray(c.usedIdentityIds) || !c.usedIdentityIds.every((id) => typeof id === "string")) return null;
+  if (!(c.winnerSeat === null || seat(c.winnerSeat)) || typeof c.tie !== "boolean" || !seat(c.firstSeat)) return null;
+  return { seats: [c.seats[0]!, c.seats[1]!], usedIdentityIds: c.usedIdentityIds, winnerSeat: c.winnerSeat, tie: c.tie, firstSeat: c.firstSeat };
+}
+
+/**
+ * The engine ends a points match at 5. A party room's first to 3 ends it at the end of the round
+ * that reaches 3, the same way the engine ends one at 5: the round's summary says the match is
+ * over, and the next tap there shows the match summary, where the room takes over.
+ */
+function applyTarget(state: RoomGameState): void {
+  const room = state.match.room;
+  const target = state.pointsToWin;
+  if (target === null || room.settings.matchType !== "points") return;
+  if (room.status !== "round_summary" || !room.lastRoundSummary || room.lastRoundSummary.matchOver) return;
+  if (Math.max(...room.players.map((p) => p.score)) < target) return;
+  const next = structuredClone(room);
+  next.lastRoundSummary!.matchOver = true;
+  const [first, second] = [...next.players].sort((x, y) => y.score - x.score);
+  const tie = !!first && !!second && first.score === second.score;
+  next.match = { winnerId: tie || !first ? null : first.id, tie, rounds: next.roundIndex };
+  state.match.room = next;
+}
+
+function seatList(state: RoomGameState): readonly number[] {
+  return state.match.seats;
+}
+
+/**
+ * Whether the match is decided: its last round's summary says the match is over (the engine's
+ * own end, or first to 3), or the match summary is showing. From then on its result and places
+ * are final, whoever leaves; only the tap to the match summary is still to come.
+ */
+function decided(state: RoomGameState): boolean {
+  const room = state.match.room;
+  if (!room.match) return false;
+  return room.status === "match_summary" || (room.status === "round_summary" && !!room.lastRoundSummary?.matchOver);
+}
+
+/** The scores of both seats, from the match as it stands. */
+function scoresOf(state: RoomGameState): { seat: number; score: number }[] {
+  const room = state.match.room;
+  return seatList(state).map((seat) => ({ seat, score: playerById(room, playerOf(seat))?.score ?? 0 }));
+}
+
+/** Both seats' scores, best first (seat order on a tie). */
+function bestFirst(state: RoomGameState): RoomResult {
+  return [...scoresOf(state)].sort((x, y) => y.score - x.score);
+}
+
+/** The final result of a decided match, or null while it is still being played. */
+function decidedResult(state: RoomGameState): RoomResult | null {
+  return decided(state) ? bestFirst(state) : null;
+}
+
+/** Places for a decided match: the winner first, both first after a tie. */
+function decidedStandings(state: RoomGameState): { seat: number; place: number }[] {
+  if (!decided(state)) return [];
+  const sorted = bestFirst(state);
+  return sorted.map((row) => ({ seat: row.seat, place: 1 + sorted.filter((other) => other.score > row.score).length }));
+}
+
+function publicIdentity(id: string): PublicIdentity {
+  const identity = getIdentity(id);
+  return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId };
+}
+
+/**
+ * The round's reveal, only while its summary (or the match's) is up: by then both players have
+ * seen both identities on their own summary. Null while a round is on.
+ */
+function revealOf(state: RoomGameState): RoundReveal | null {
+  const room = state.match.room;
+  const summary = room.lastRoundSummary;
+  const between = room.status === "round_summary" || room.status === "match_summary";
+  if (!between || !summary || room.round) return null;
+  return {
+    roundIndex: summary.roundIndex,
+    matchOver: summary.matchOver,
+    entries: seatList(state).flatMap((seat) => {
+      const entry = summary.entries.find((e) => e.playerId === playerOf(seat));
+      return entry ? [{ seat, identity: publicIdentity(entry.identityId), result: entry.result }] : [];
+    }),
+  };
+}
+
+function screenOf(state: RoomGameState, now: number): RoomScreenView {
+  const view = adapter.snapshot(state.match, now, { role: "screen" }) as ScreenView;
+  return { ...view, match: state.settings.match, scores: scoresOf(state), reveal: revealOf(state) };
+}
+
+function audienceOf(state: RoomGameState, now: number): AudienceView {
+  const { role: _role, ...screen } = screenOf(state, now);
+  const round = state.match.room.round;
+  return {
+    ...screen,
+    role: "audience",
+    identities: round
+      ? seatList(state).flatMap((seat) => {
+          const id = round.assignments[playerOf(seat)];
+          return id ? [{ seat, identity: publicIdentity(id) }] : [];
+        })
+      : [],
+  };
+}
+
+export const game = {
+  id: manifest.id,
+  minSeats: 2,
+  maxSeats: 2,
+  /** Turn-based: the room never ticks it on a timer, and wakes for an input or `nextDeadline`. */
+  tickHz: 0,
+  /**
+   * A dropped phone keeps its seat for a minute (a lost signal, a reload), and the turn timer
+   * pauses meanwhile. A phone that has not come back by then forfeits: the room ends the match
+   * through `abandon`, and the player who stayed wins it. Without a limit the player left behind
+   * could do nothing but leave, and leaving would hand the win to the one who vanished.
+   * A hidden or locked page runs the same clock: the room holds a seat that is away (its page
+   * hidden, its socket open) for this minute too, and gives up on it the same way, through
+   * `abandon`, when it has not come back by then.
+   */
+  reconnectGraceMs: RECONNECT_GRACE_MS,
+  /** A match is people talking, with a tap now and then: two locked phones must not lose it. */
+  idleShutdownMs: ROOM_IDLE_MS,
+  staleRoomMs: ROOM_IDLE_MS,
+
+  /**
+   * Checks the host's choices (the party room's settings step) and returns them clean, with the
+   * defaults filled in, or refuses them. Missing settings are the defaults: a match first to 3.
+   */
+  settings(value: unknown): RoomSettings | { ok: false; error: string; message: string } {
+    const parsed = RoomSettingsSchema.safeParse(value ?? {});
+    if (parsed.success) return parsed.data;
+    const issue = parsed.error.issues[0];
+    return { ok: false, error: "bad_settings", message: issue ? `${issue.path.join(".") || "settings"}: ${issue.message}` : "Those settings cannot be used." };
+  },
+
+  /**
+   * A match begins with the party's two seats, both here (they just voted). `seed` is not read:
+   * the identities come from a secure random source inside the game. `settings` and `carry` are
+   * what the party room passes once it has a settings step and keeps a rematch's carry; without
+   * them the match is the defaults, with a random first guesser.
+   */
+  create(input: { seed?: unknown; seats: readonly { seat: number; name?: unknown }[]; now: number; round?: unknown; settings?: unknown; carry?: unknown; sources?: Sources }): RoomGameState {
+    if (input.seats.length !== 2) throw new Error("Who Am I? takes exactly two seats");
+    const checked = game.settings(input.settings);
+    if ("ok" in checked) throw new Error(checked.message);
+    const { settings, pointsToWin } = engineSettings(checked);
+    const match = adapter.create({
+      seats: input.seats.map((s) => ({ seat: s.seat, name: nicknameOf(s.name) })),
+      settings,
+      now: input.now,
+      carry: carryOf(input.carry),
+      ...(input.sources ? { sources: input.sources } : {}),
+    });
+    return { match, settings: checked, pointsToWin };
+  },
+
+  /**
+   * One command from a seat: the engine's own commands, with `commandId` and `expectedVersion`,
+   * answered `{ok: true}` or `{ok: false, error, message}`. A turn whose deadline has passed ends
+   * first. The lobby's, settings' and rematch commands are refused: the room owns those.
+   */
+  input(state: RoomGameState, seat: number, data: unknown, now: number, sources: Sources = cryptoSources): InputResult {
+    const result = adapter.input(state.match, seat, data, now, sources);
+    applyTarget(state);
+    return result;
+  },
+
+  /**
+   * What this viewer may see. One of the two players gets their own view, whatever role they are
+   * named by: a seat in the match never gets the audience's view, which holds its own identity.
+   * A member watching as the audience gets both identities; the screen, a member watching as a
+   * screen, and anyone not known get the screen's view.
+   */
+  snapshot(state: RoomGameState, now: number, viewer?: Viewer): RoomSnapshot {
+    const role = viewer && typeof viewer === "object" ? viewer.role : undefined;
+    const seat = viewer && typeof viewer === "object" ? viewer.seat : undefined;
+    if ((role === "player" || role === "audience") && typeof seat === "number" && seatList(state).includes(seat)) {
+      const view = adapter.snapshot(state.match, now, { role: "player", seat }) as RoomView;
+      return { ...view, role: "player", seat, match: state.settings.match };
+    }
+    if (role === "audience") return audienceOf(state, now);
+    return screenOf(state, now);
+  },
+
+  /** The turn timer's end, or null when there is none or it is paused. */
+  nextDeadline(state: RoomGameState): number | null {
+    return adapter.nextDeadline(state.match);
+  },
+
+  /** The room's alarm at `nextDeadline`: the turn ends as timed out, and the next one starts with its own deadline. */
+  tick(state: RoomGameState, now: number, sources: Sources = cryptoSources): { k: "timed_out"; seat: number }[] {
+    const events = adapter.tick(state.match, now, sources);
+    applyTarget(state);
+    return events;
+  },
+
+  /** Who is here changed: a phone gone or hidden pauses the timer, and counts towards the host's override. */
+  presence(state: RoomGameState, seat: number, report: PresenceReport, now: number, sources: Sources = cryptoSources): boolean {
+    return adapter.presence(state.match, seat, report, now, sources);
+  },
+
+  /**
+   * A seat is gone for good: the match ends. A match already decided (its last round's summary is
+   * up) ends as it was decided, whoever goes. Otherwise the player who stayed wins it and the one
+   * who went gets no place, except:
+   * - A player who leaves the party (their page here when they go) while the other player is
+   *   away or dropped, for any time at all: nobody wins, so leaving a match whose other phone
+   *   vanished never hands the vanished player the win.
+   * - A player who forfeits (their phone dropped or hidden when the room gives up on it) while the
+   *   one who stayed has been dropped 30 seconds or more too: nobody wins. A stayer whose page is
+   *   merely hidden, its socket still open, wins the forfeit.
+   */
+  abandon(state: RoomGameState, seat: number, now: number): { standings: { seat: number; place: number }[]; result: RoomResult | null; events: { k: "abandoned"; seat: number }[] } {
+    const seats = seatList(state);
+    const stayed = seats.find((s) => s !== seat);
+    if (!seats.includes(seat) || stayed === undefined) return { standings: [], result: null, events: [] };
+    if (decided(state)) return { standings: decidedStandings(state), result: decidedResult(state), events: [] };
+    const room = state.match.room;
+    const went = playerById(room, playerOf(seat));
+    const other = playerById(room, playerOf(stayed));
+    // A seat whose page was not here when it went did not leave: the room gave up on it. (A page
+    // can only tap "Leave" while it is shown; a ghost is still taken for away, never dropped.)
+    const forfeit = !!went && absentSince(went) !== null;
+    // Leaving while the other is away or dropped places nobody, however long they have been gone;
+    // a forfeit places nobody only when the other has been dropped 30 seconds too.
+    const otherGone = !other
+      ? false
+      : forfeit
+        ? !other.connected && other.disconnectedAt !== null && now - other.disconnectedAt >= ABSENT_MS
+        : absentSince(other) !== null;
+    // Both seats with the scores as they stood, the one who went marked as gone; the one who
+    // stayed first when they win it. The room's card shows only the seats placed (the contract
+    // has no row for a seat without a place), so `left` is for whoever reads the result.
+    const rows: RoomResult = bestFirst(state).map((r) => (r.seat === seat ? { ...r, left: true } : r));
+    return {
+      standings: otherGone ? [] : [{ seat: stayed, place: 1 }],
+      result: otherGone ? rows : [...rows.filter((r) => r.seat === stayed), ...rows.filter((r) => r.seat !== stayed)],
+      events: [{ k: "abandoned", seat }],
+    };
+  },
+
+  isOver(state: RoomGameState): boolean {
+    return adapter.isOver(state.match);
+  },
+
+  /** Sent to everyone with the end: each seat's score, best first. No identity. */
+  result(state: RoomGameState): RoomResult | null {
+    return decidedResult(state);
+  },
+
+  /** Places for the night: the winner first, both first after a tie. */
+  standings(state: RoomGameState): { seat: number; place: number }[] {
+    return decidedStandings(state);
+  },
+
+  /**
+   * What a rematch between the same two seats starts from: the identities this match used, so the
+   * next draw avoids them, and who lost, so they guess first. Server-only: the room keeps it for
+   * `create` and never sends it. Kept under the room's 4 KB by dropping the oldest identities.
+   */
+  carry(state: RoomGameState): Carry | null {
+    const carry = adapter.carry(state.match);
+    if (!carry) return null;
+    const used = [...carry.usedIdentityIds];
+    while (used.length && JSON.stringify({ ...carry, usedIdentityIds: used }).length > CARRY_MAX_BYTES) used.shift();
+    return { ...carry, usedIdentityIds: used };
+  },
+
+  /** The whole state, for the room's save after every input. `input` sees `restore(serialize(state))`. */
+  serialize(state: RoomGameState): string {
+    return JSON.stringify({ shape: "who-am-i/party-room/1", state });
+  },
+
+  restore(text: string): RoomGameState {
+    const saved = JSON.parse(text) as { shape?: unknown; state?: Partial<RoomGameState> };
+    if (saved?.shape !== "who-am-i/party-room/1" || !saved.state) throw new Error("Not a saved Who Am I? party game");
+    const { match, settings, pointsToWin } = saved.state;
+    const restoredMatch = adapter.restore(JSON.stringify(match ?? null));
+    const checked = RoomSettingsSchema.safeParse(settings);
+    if (!checked.success) throw new Error("Not a saved Who Am I? party game");
+    if (!(pointsToWin === null || (typeof pointsToWin === "number" && Number.isInteger(pointsToWin) && pointsToWin > 0))) {
+      throw new Error("Not a saved Who Am I? party game");
+    }
+    return { match: restoredMatch, settings: checked.data, pointsToWin };
+  },
+};
+
+/** The settings fields, for a test that keeps the manifest and the check in step. */
+export { SETTING_FIELDS };

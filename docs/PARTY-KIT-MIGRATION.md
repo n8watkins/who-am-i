@@ -1,22 +1,16 @@
-# Moving Who Am I? onto the shared party kit
+# Who Am I? and the shared party kit
 
-Written 2026-11-12 against `main` at `24a5fec` (v0.3.0, live at https://whoami.n8builds.dev) and the party kit in `n8watkins/n8-party-games` at `0a4af80`.
-Updated the same day after two steps on the Who Am I? side, checked against the kit at `088d609` (the party room, first playable version):
+Written 2026-11-12 against `main` at `24a5fec` (v0.3.0, live at https://whoami.n8builds.dev) and the party kit in `n8watkins/n8-party-games` at `0a4af80`, when it assumed the kit's own room would host the game.
+Brought up to date on 2026-11-15 against the party room's turn-based stack in `n8-party-games` (#23 to #29, top branch `feat/party-room-away` at `907721a`), with a look at #30 (settings and a rematch carry), which is open beside it.
+Brought up to date again on 2026-11-15 against #32 (`feat/party-room-audience` at `9911f1c`), which carries the whole stack with #30's settings step and carry, and adds spots, the audience and the upright phone.
 
-- GitHub sign-in and the difficulty recording are gone (PR #45), so the game has no accounts and writes nothing to D1 during play.
-- The rules sit behind one adapter, `src/party/game.ts`, in the shape the kit will need (step 2 below, done).
-  The game's own room already calls the engine only through it.
+There are two moves, and they are now separate:
 
-This is still a plan for the rest: nothing has moved onto the kit.
-The move is not clean, because the kit is built for real-time games with bots and Who Am I? is a turn-based, two-human game whose core rule is secrecy.
-It needs kit changes first, and those belong in `n8-party-games`, where the shared lobby is being built in parallel.
-
-## The goal
-
-- Who Am I? stays playable on its own site, and can also be attached to the party room as one of its games.
-- It becomes a game repository like `n8watkins/cork-and-bell`: clone, `npm install`, `npm run dev`, play.
-- It takes the kit as a pinned git dependency (`"n8-party-games": "github:n8watkins/n8-party-games#<tag>"`, `.npmrc` already has `allow-git=root`).
-- It exports `game` and `manifest` from its package's `.` export, per `party-kit/GAME-CONTRACT.md`, so the party site can list and host it.
+1. **Into the party room** (partygames.n8builds.dev): Who Am I? as one of the games a party votes for, played inside the party room.
+   Built on branch `feat/party-room-game` (step W7).
+   It needs nothing from this site's rooms and changes nothing here; it waits only on the party room's stack merging.
+2. **This site onto the kit** (whoami.n8builds.dev running on `createPartyRoom` instead of its own rooms).
+   Still a plan, and still blocked: the kit's own room does not run turn-based games, and the kit has no routes or data for a game.
 
 ## Where Who Am I? stands
 
@@ -26,190 +20,187 @@ It needs kit changes first, and those belong in `n8-party-games`, where the shar
 - D1 holds `share_cards` (shared result images, 90-day expiry), which every `/s/<id>` link depends on.
   It also still holds the unused `users` and `identity_plays` tables; dropping them is an owner decision.
 - One secret by name: `SESSION_SECRET` (signs room sessions; local runs make their own).
-- Tests: lint, typecheck, Vitest in the Workers runtime and, for the adapter, in plain Node, and a Playwright suite that records every HTTP body and WebSocket frame to prove a player never receives their own identity.
+- No accounts and nothing written to D1 during play (PR #45).
 
-## The adapter
+## The layers
 
-`src/party/game.ts` is a thin wrapper over the engine (`src/worker/engine.ts`) and the per-player views (`src/worker/view.ts`), which it does not change.
-It imports nothing from Cloudflare or from the room: lint enforces that, it typechecks under plain Node types, and `test/party/game.test.ts` runs in a plain Node Vitest project.
-It has two layers:
+| Layer | File | Who uses it |
+| --- | --- | --- |
+| Rules engine | `src/worker/engine.ts` | Unchanged. Pure state machine. |
+| Per-player views | `src/worker/view.ts` | Unchanged. The secrecy boundary. |
+| Adapter, `rules` | `src/party/game.ts` | This site's room (`src/worker/room.ts`) reaches the engine only through it. |
+| Adapter, `game` | `src/party/game.ts` | The kit's shape by seat number: settings, carry, viewer, presence. Kept for the kit's own room. |
+| Party room game | `src/party/room-game.ts` | The party room. Built on the adapter's `game`. |
+| Manifest | `src/party/manifest.ts` | Any host: id, path, players, devices, room view, settings fields, public files. |
+| Package export | `party.ts`, built to `party.js` | A party site's `games.js`. |
+| Room view | `src/party-view/`, built to `party-view/` | The party room's page mounts `party-view/view.js`. |
 
-- `rules` addresses players by id and returns new states.
-  `RoomDurableObject` reaches the engine only through it, so the live site and the existing Worker and E2E suites exercise it.
-- `game` addresses players by the party room's seat numbers and keeps its state in a holder the room may mutate, as the kit's games do.
+## Into the party room
 
-| `game` member | What it does |
+### The game as built
+
+| Contract member | What it does |
 | --- | --- |
-| `id`, `minSeats: 2`, `maxSeats: 2` | As the contract asks. |
-| `tickHz: 0`, `bots: false`, `reconnectGraceMs: Infinity`, `idleShutdownMs` and `staleRoomMs` (an hour), `privateSeed: true`, `screens: true` | What the game asks of the room (KR-1, KR-2, KR-4, KR-6). The kit reads none of these yet. |
-| `settings(value)` | Checks the host's settings, defaults when missing (KR-8). |
-| `create({ seats, settings, now, carry })` | Starts a match at once with exactly two seats, both connected. The lower seat is the match's host (the one who may confirm their own guess when the other phone has been gone 30 seconds). With a carry from the same two seats it is a rematch: the loser guesses first and the last match's identities stay out of the draw. Identities come from `crypto.getRandomValues`, never from the room's seed. |
-| `input(state, seat, command, now)` | `{ok: true, duplicate}` or `{ok: false, error, message}` (KR-7). Commands are the existing Zod-checked ones with `commandId` and `expectedVersion`; lobby, settings, seat and rematch commands are refused, because the room owns those. A turn whose deadline has passed ends first. |
-| `snapshot(state, now, viewer)` | `viewer` is `{role: "player", seat}` or `{role: "screen"}` (KR-1). A player gets the existing filtered view; a screen, or a seat not in the game, gets turn, timer and question count only, never an identity, hint or question. |
-| `nextDeadline(state)`, `tick(state, now)` | The turn deadline for the room's alarm, and the timeout at it (KR-2). `tick` returns `[{k: "timed_out", seat}]` or nothing. |
-| `presence(state, seat, {connected, away}, now)` | Pauses the timer and counts towards the host override (KR-4, KR-5). Returns whether anything changed. |
-| `isOver`, `result`, `standings` | Over at the match summary. Places for the night score: the winner first, both first after a tie. The result names no identity. |
-| `carry(state)` | What a rematch between the same two seats starts from (KR-8). Server-only: it lists identity ids. |
-| `serialize`, `restore` | Plain JSON, saved after every input (KR-3). |
+| `id`, `minSeats: 2`, `maxSeats: 2`, `tickHz: 0` | A turn-based game for exactly two humans; no `bot`. |
+| `create({seed, seats, now, round, settings, carry})` | Starts the match with the two seats the room hands over after its settings step (cleaned to the game's nickname rule). `seed` is never read: the identities come from `crypto.getRandomValues` inside the game. `settings` are the host's picks (first to 3 by default); `carry` from the same two seats makes it a rematch. |
+| `input(state, seat, data, now)` | The engine's own commands (with `commandId` and `expectedVersion`). `{ok: true, duplicate}` or `{ok: false, error, message}`. A turn whose deadline has passed ends first. Lobby, settings and rematch commands are refused. Either guesser may confirm their own guess once the other phone has been gone 30 seconds. |
+| `snapshot(state, now, viewer)` | A seat in the match gets its own view, as on this site, plus `role`, `seat` and `match`, whatever role it is named by. The screen, a member watching as a screen and anything unknown get whose turn, the timer, the question count and the scores, and between rounds the round's reveal (null while a round is on). The audience gets the same and both identities while a round is on. |
+| `nextDeadline`, `tick` | The turn timer on the room's alarm; `tick` ends the turn as timed out and the next one sets its own deadline. Events: `{k: "timed_out", seat}`. |
+| `presence(state, seat, {connected, away}, now)` | Pauses and resumes the timer, and counts towards the override. Returns whether anything changed. |
+| `abandon(state, seat, now)` | A decided match (its last round's summary is up) ends as decided, whoever leaves. Otherwise the player who stayed wins (`standings` with only them), unless the other left (tapped "Leave") while they were away or dropped, for any time, or the other forfeited while they had been dropped 30 seconds or more: then nobody places. `result` is both seats' score rows, the one that went marked `left: true`; event `{k: "abandoned", seat}`. |
+| `isOver`, `result`, `standings` | Over at the match summary. `result` is one row per seat, `[{seat, score}]`, best first, so the room's end card shows the score; it names no identity. A tie shares first place. |
+| `settings(value)` | The clean choices with their defaults, or `{ok: false, error: "bad_settings", message}`. |
+| `carry(state)` | The last match's identities (oldest dropped to stay under the room's 4 KB) and who lost. Server-only. |
+| `serialize`, `restore` | The whole state as one string; `restore` refuses anything else. `input` is proved on `restore(serialize(state))`. |
+| `reconnectGraceMs` a minute, `idleShutdownMs` and `staleRoomMs` an hour | A dropped phone keeps its seat for a minute; one that does not come back by then forfeits, and the room ends the match for the player who stayed (the owner's rule). A locked phone or a hidden page whose socket stays open is away, and runs the same minute on the same clock (item 13 below). |
 
-`manifest` is `{id: "who-am-i", name: "Who Am I?", blurb, path: "/who-am-i/", players: {min: 2, max: 2, solo: false}, devices: {phone: true, desktop: true, sharedScreen: true, sideways: false}, public: []}`.
-`sharedScreen: true` means a big screen may join; the adapter makes sure it only ever sees turn, timer and question count.
-`public` stays empty until the client is packaged for the party site (steps 5 and 7).
+`manifest` adds `audience: true`, `devices: {phone: true, desktop: false, sharedScreen: true, sideways: false, upright: true}`, `lobby: {view: "party-view/view.js"}`, `settings` (the fields below) and `public: [{from: "party-view", to: "party-view"}]`.
+`desktop` is false as in the contract's own example for Who Am I?: each player needs a phone of their own, since it holds the other player's identity, and the room's badge then reads "A phone each".
 
-## Where the kit and the adapter disagree
+The settings fields are the game's own choices with two changes: the match length is one field (`first_to_3`, the default, `first_to_5` and `rounds_10`), and who guesses first is not offered, because the party's host need not be playing; the first match starts with a random guesser and a rematch with the loser.
+First to 3 is the adapter's, not the engine's: at the end of the round that reaches 3, the round's summary says the match is over, as the engine does at 5.
 
-Checked against `party-kit/GAME-CONTRACT.md` and `lobby/server/lobby-core.js` at `088d609`.
-Each line is something the kit has to add or change; the adapter does not work around any of them.
+### What each device sees
 
-1. **`create`.** The party room calls `create({seed, seats, now, round})`; the adapter needs `settings` and `carry` as well (KR-8) and ignores `seed`.
-   `seats` already has the right shape (`{seat, name, kind, colour}`).
-2. **`input`.** The room ignores what `input` returns and answers nobody; the adapter returns ok or an error for the sender (KR-7).
-   The room also drops input from a seat whose socket is closed, which is fine.
-3. **`snapshot`.** The room sends one `game.snapshot(state, now)` to every socket, and `start` carries it too; the adapter needs the viewer, and must be called once per socket (KR-1).
-   The room view still carries the room's `seed` to every client (`seed: this.seed` in the room view); it must stay out of it, or a game that drew from it would leak (KR-1).
-4. **Ticks.** In a game the room ticks at `tickHz` and is billed for all of it; `tickHz: 0` has no meaning yet.
-   The room needs to sleep between inputs and wake at `game.nextDeadline(state)` (KR-2).
-5. **Bots and drops.** The room hands a dropped seat to `game.bot` and has no presence hook; the adapter has no bot and needs `presence` with `connected` and `away` (KR-4, KR-5).
-6. **Saving.** "A game in progress is not saved": a restart sends everyone back to the lobby, which would end a 10 to 30 minute match (KR-3).
-7. **Settings and carry.** The vote starts the game with no settings step and nothing carried from the last round (KR-8, and the phone section below).
-8. **Lifetimes.** The party room closes a quiet room after its stale limit and any room after 4 hours; a match with two locked phones needs about an hour of quiet (KR-6).
-9. **Exactly two players.** The party room starts a game with every member present, and the game's box lights only when the party has 2 to `players.max`.
-   A party of three or more could never pick Who Am I?.
-   **New, KR-12:** let a game for fewer players than the party be started with chosen seats (the two who want to play, or two picked by the room), while the others watch as screens.
-10. **Ending early.** "A game runs to its end", but a player can leave the party.
-    With no bots, a two-player match whose other player has left cannot end.
-    **New, KR-13:** the room ends a game whose seats fall below `minSeats` (or calls an optional `game.abandon(state, seat, now)`), with no standings or with the game's.
-11. **Holding the phone upright.** `devices.sideways` is `"preferred"`, `"required"` or `false`, and the party room itself is held sideways ("Turn your phone sideways to see the whole room").
-    There is no way to say a game wants the phone upright, so the room cannot ask for the turn on the way in and back on the way out.
-    **New, KR-14:** `devices.upright: true` (or `orientation: "portrait"`), which the room uses for both prompts (see the phone section below).
-12. **The game's view on the room's page.** The contract proposes `mount(container, {room, you, snapshot})` named in the manifest (`lobby.view`), but it is not built (KR-10).
-    `you` is already `{role, seat}`, which matches the adapter's viewer.
-13. **Routes and data.** The party site still cannot serve a game's own routes: Who Am I? needs `/api/packs`, `/api/share/*`, `/s/<id>`, `/api/version` and its D1 database for shared cards (KR-9).
+| Who | Viewer the room passes | Sees |
+| --- | --- | --- |
+| A player's phone | `{role: "player", seat}` | The other player's identity, the questions and answers, the guesser's controls, hints, the log, the timer. Their own identity only in a finished round's summary. |
+| The big screen | `{role: "screen"}` | Both names and scores, whose turn, the timer, the question count, filling the screen in large type; between rounds the round's reveal and, at the end, who won. Never an identity while its round is on. |
+| A member who is not playing | `{role: "audience", seat}` | The screen's view, and both identities while a round is on. Never a hint, a question or the log. |
+| A member who joined after the match began | `{role: "screen", seat}` | The screen's view, laid out as a phone (a screen with a seat is a phone; the big screen has seat -1). |
 
-## Why the kit does not fit yet
+### The language decision
 
-| Who Am I? needs | The kit today |
-| --- | --- |
-| Each player gets a different view: the opponent's identity, never their own. | Every socket gets the same `game.snapshot(state)` and the same events. A shared screen sees everything. |
-| A match of 10 to 30 minutes of talking, with the room asleep between taps and an alarm only for the turn timer. | A round runs a `setInterval` at `tickHz` (default 30) for its whole length, and the room stays awake and is billed the whole time. Clients ping every 2 seconds during a round. |
-| A match survives the object being evicted or a deploy: every command is saved before it is acknowledged. | A round in progress lives in memory only. |
-| Two humans, always. Nobody can stand in: a bot cannot see your identity and answer your questions. | Empty seats are filled with bots at the start, and a dropped player is replaced by a bot at once. |
-| A dropped or locked phone keeps its seat; the turn timer pauses; after 30 seconds the host may confirm their own guess. | The seat is held for 30 seconds, then the bot keeps it for good. |
-| "Away": the socket is open but the page is hidden (phone locked). | `away` means "a bot is standing in"; no hidden-page signal. |
-| A room lives an hour without activity, so two locked phones do not lose the game. | An empty room closes after 1 minute, a quiet one after 10. |
-| Commands are validated, answered (ok or a clear error), idempotent by command id, and checked against the state version (409 with the right state). | `in {d}` is fire and forget: no reply, no error, no retry safety. |
-| The host picks settings (category, mode, timer, questions, hints, difficulty, who starts, match length), and "Change settings" returns there after a match. | `create({seed, seats, now, round})` takes no settings, and there is no way back to the lobby after a round. |
-| A rematch avoids the last match's identities and lets the loser start. | Each round's `create` starts from nothing. |
-| Identities are drawn with `crypto.getRandomValues`. | The room's `seed` is sent to every client in the room view. If identities were drawn from it, anyone could work out their own from the public repository's content. |
-| Host tools: remove a player, New PIN, the PIN kept alive while the host's lobby is open. | Add or remove a bot; the PIN is fixed for 15 minutes. |
-| Its own HTTP routes: `/api/packs`, shared result cards (`/api/share`, `/s/:id`) and `/api/version`. | A host serves only `/api/party/*` and the game's static files; the contract has no routes, bindings or secrets for a game. |
-| Its own React lobby with category art, settings and invite (QR, link, PIN, code). | `mountLobby` "is the only join flow; games do not build their own". |
-| A seat survives closing the tab (session in `localStorage`). | The token is in `sessionStorage`. |
+The plan recommended letting the contract accept TypeScript.
+Checked on a scratch copy of the party site (not pushed) with Who Am I? as a pinned git dependency in its `games.js`:
 
-## Kit change requests
+- Vitest compiled the TypeScript export from `node_modules` and ran the party site's whole suite.
+- esbuild, as wrangler uses it, bundled it.
+- The party site's own build, `scripts/build-public.mjs`, which wrangler runs before every `dev` and `deploy`, imports `games.js` in plain Node, and Node refuses to strip types under `node_modules` (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`). There is no flag for it.
 
-These are for `n8watkins/n8-party-games` (party kit).
-KR-1 to KR-8 block running Who Am I? on the kit at all.
-KR-9 and KR-10 block the party site hosting it.
-KR-12 to KR-14 block attaching it to the party room.
-KR-11 is optional.
+Accepting TypeScript would mean running the party site's scripts under a TypeScript loader, a new dependency in another repository for one game.
+So the package ships a committed, built `party.js` (Vite library mode, not minified, zod left as an import), and `npm run check:party`, which CI runs, rebuilds it and fails when the committed file differs.
+With the built `party.js`, the scratch party site built its public files, bundled its Worker in a wrangler dry run, and passed its suite apart from three tests that expect Who Am I? to be an outside game (the wall's list of boxes, and "opens in 3" becoming "starts in 3").
 
-1. **KR-1 Per-seat views.** Let a game shape what each socket receives: `game.snapshot(state, now, viewer)` with `viewer` = `{role: "player", seat}` or `{role: "screen"}`, used for `hello`, `start`, `snap` and `end`, and events filtered the same way (for example `tick` and `input` events carrying an optional `to: seat`).
-   A screen, and a member who joined after the game started, is sent the screen view.
-   Add an option to keep the room seed out of the room view (`game.privateSeed: true`), or stop sending it; the party room's view sends it today.
-2. **KR-2 Turn-based rounds with no tick loop.** With `tickHz: 0`, the room runs no interval: it applies each input at once, sends fresh snapshots and goes back to sleep.
-   A `game.nextDeadline(state)` puts the turn timer on the alarm, and the alarm calls `game.tick(state, now)`.
-   In this mode the client pings only for liveness (or uses the runtime's auto-response, as Who Am I? does with `setWebSocketAutoResponse`), and the room budget counts only real wake time.
-   Without this, one Who Am I? match keeps a room awake for its whole length and spends the shared room budget fast.
-3. **KR-3 Saved rounds.** A turn-based round is saved after every input and restored on wake (`game.serialize` and `game.restore`, or plain JSON state), so a match survives eviction and deploys.
-4. **KR-4 Humans only.** `game.bots: false`: no bots fill seats, start needs `minSeats` connected humans, and a dropped player keeps the seat (no stand-in) for a game-chosen grace (`game.reconnectGraceMs`, Infinity for "while the room lives").
-   The game hears about it through `game.presence(state, seat, {connected, away}, now)`, so it can pause the timer and allow the host override.
-5. **KR-5 Away presence.** Accept `away` and `back` from the client (Who Am I?'s `src/kit/shared/presence.ts` and `src/kit/client/visibility.ts` can move into the kit as they are), show it on the seat, and pass it to the game.
-   Rename the seat's current `away` (a bot is standing in) to something like `standIn`, so the two do not clash.
-6. **KR-6 Room lifetimes per game.** `game.idleShutdownMs` and `game.staleRoomMs`, defaulting to today's values.
-   Who Am I? needs about an hour.
-7. **KR-7 Answered inputs.** `game.input` may return `{ok: false, error, message}`; the room answers the sender (`ack {id}` or `error {id, error, message}`), drops a repeated input id instead of applying it again, and `PartyClient.sendInput` returns a promise.
-   After every input, answered either way, the room sends fresh snapshots: an input can end a timed-out turn before it is refused.
-   Who Am I?'s double-tap safety (a guess is confirmed and scored once) depends on this.
-8. **KR-8 Settings, carry and the way back to the lobby.** The host sets a game's settings in a short step after the vote (checked by `game.settings(v)`), and `create` receives them.
-   `create` also receives what the last match between the same seats left behind (`game.carry(state)`), so a rematch can avoid repeats and let the loser start.
-   On a game's own site: the joiner's preview shows the settings, the host may send the room back to the lobby after a round (`toLobby`), and the host tools stay (remove a player, New PIN, a PIN that stays alive while the host's lobby is open).
-9. **KR-9 Game routes and data in the contract.** An optional `api(request, env, ctx)` export for `/api/<id>/*` (or `/<path>api/*`), and `manifest.bindings` (a D1 database and its migrations folder).
-   Without it the party site cannot serve packs, shared result cards or `/s/<id>` links.
-   With sign-in and the difficulty recording gone, Who Am I? needs no secrets and no round-end hook from the kit.
-10. **KR-10 A game's own lobby and view.** Build the proposed `mount(container, {room, you, snapshot})` view hook with the module named in the manifest, or allow a game to draw its own waiting room on `PartyClient` (the contract's "only join flow" rule today).
-    Agree a join link the game can keep: the kit uses `<path>?join=<PIN>`, Who Am I? uses `/r/<code>` and `/join`.
-    Let the client keep its session in `localStorage` (`new PartyClient({storage: "local"})`).
-11. **KR-11 Phone comforts (optional).** Who Am I?'s `src/kit` was written for the collection and is free of Who Am I? code: screen wake lock, sound and haptics, light and dark themes, `/api/version`, the footer and shared result cards on D1.
-    They could move into the kit for every game.
-12. **KR-12 Games for fewer players than the party.** Let the room start a two-player game with two chosen seats while the rest of the party watches as screens, instead of with every member present.
-13. **KR-13 Ending a game early.** When a game's seats fall below `minSeats` for good (a player left the party), the room ends it, optionally through `game.abandon(state, seat, now)`, and everyone goes back to the lobby.
-14. **KR-14 Upright games.** `devices.upright: true` (or `orientation: "portrait"`), so the room can ask for the phone to turn upright when such a game starts and sideways again when it ends.
+### Change requests: what the party room now meets
 
-## The language question
+| Request | Status in the party room (`9911f1c`, #32) | By what name |
+| --- | --- | --- |
+| KR-1 Per-seat views | Met | `game.snapshot(state, now, viewer)` for every message with game state; events with `only`; the room's seed is never sent, and each game gets its own seed from the secure source. `privateSeed` is not needed. |
+| KR-2 No tick loop | Met | `tickHz: 0`; `nextDeadline(state)` is the alarm and calls `tick` once; pages keep to the keep-alive (`turns: true`). |
+| KR-3 Saved rounds | Met | `serialize` and `restore`, saved after every input and restored on wake; `input` sees `restore(serialize(state))`. |
+| KR-4 Humans only | Met | A turn-based game is humans only (`bot` is never called); `reconnectGraceMs` (Who Am I? asks for a minute); `presence(state, seat, {connected, away}, now)`. The adapter's `bots: false` is not read. |
+| KR-5 Away | Met | `away` and `back` on the socket, `away: true` on the member, and the room's page says it when hidden during a turn-based game. |
+| KR-6 Lifetimes | Met | `idleShutdownMs` and `staleRoomMs`. |
+| KR-7 Answered inputs | Met | `{ok: false, error, message}` from `input`; `in {d, id}`, answered `ack {id}` or `error {id, error, message}`; `id_reused`; `inputId()` in the view; `send(data, {id})` returns a promise. |
+| KR-8 Settings and carry | Met (#30, carried in #32) | `game.settings(value)` (returns the clean object), `manifest.settings` fields, a settings step after the vote (`settings` changes and `settings-start` from the host), and `game.carry(state)` passed back as `create({carry})` for the same seats. "Back to the lobby" mid-game is not built. |
+| KR-9 Routes and data | Not needed there | In the party room the packs ship in the package and there are no shared result cards; still needed to move this site onto the kit. |
+| KR-10 A game's view | Met | `mount(container, {room, you, upright, snapshot, send, inputId, now, inset, params})`, named by `manifest.lobby.view`. A game's own lobby on `PartyClient` and `localStorage` sessions are only for moving this site. |
+| KR-11 Phone comforts | Not in the kit; done in the view | The room view holds its own screen wake lock while a match is shown (the frame allows it). |
+| KR-12 Fewer players than the party | Met (#32) | `manifest.audience: true`: a party larger than two may vote for it, the room chooses its two players on spots, and everyone else watches as `{role: "audience", seat}`. |
+| KR-13 Ending early | Met | `abandon(state, seat, now)` returning `{standings, result, events}`, a note and `last.early`. |
+| KR-14 Upright games | Met (#32) | `manifest.devices.upright: true`: the room stops asking the players and the audience for sideways, letterboxes the stage on a phone held sideways, and tells the view `upright`. |
 
-The contract says a game's server code is "plain JavaScript" with no kit import, and the package's `.` export is `party.js`.
-Who Am I? is TypeScript, with Zod checking every command and setting; the adapter imports the engine, the views, the content and `src/shared/protocol.ts`, all TypeScript.
+### Where the contract did not fit, and what was done instead
 
-Recommendation: let the contract accept TypeScript source for a game's server code, exported as `party.ts`, and keep every other rule (no kit import, nothing served but `public`).
-Wrangler's esbuild, Vite and Vitest all compile TypeScript from a dependency with no setup, so the party site needs no build step for it, and the rule that matters, one copy of the kit in a site's bundle, is unchanged.
-The other way, committing a built `party.js` next to the source, keeps the contract as it is but adds a build output that can drift from the source, and the contract bans a `prepare` script that could rebuild it on install.
-If the owner wants the contract to stay JavaScript, choose the committed build, with a CI check that it matches the source.
+1. **TypeScript.** The contract says plain JavaScript; the party site's build cannot load TypeScript from a package. A committed `party.js` with a check against its source (above).
+2. **No `prepare` script.** The contract forbids one; release-kit adds `prepare` to every repository it manages (`git config core.hooksPath .githooks`), and its own README says why the kit has none.
+   npm 12 on the party site holds it back with a warning ("install scripts blocked"), and the install works.
+   It is left as it is; whether this repository drops it is an owner decision, since release-kit would add it back.
+3. **Settings shape.** The adapter's `settings` returns `{ok: true, settings}`; the room takes the returned object as the settings themselves.
+   The room game returns the clean object, and declares `manifest.settings`, which the room requires of a game with `settings`.
+4. **First to 3.** Not an engine setting; done in the room game at the end of a round, the way the engine ends a match at 5.
+5. **Who starts.** The game's own "host" and "opponent" choices have no meaning when the party's host may not be playing; not offered.
+6. **The match's end.** The room unmounts the view and shows its own card right after the last snapshot, so the game's own match summary (rematch, share card) is never seen.
+   The last round's reveal is: the match ends only when a player taps on from it.
+   The match is decided from the moment that round's summary says so: when a player leaves then (or their phone never comes back), `abandon` returns the match's real standings (the winner first) and scores, not the leave's.
+   What the room's end card shows is the room's doing: at `9911f1c` its `finishGame` skips a place for a seat whose member has left the party, so when the winner is the one who leaves, the card has only the loser, at place 2 (a fix is being made in `n8-party-games`).
+   `isOver` stays false until the tap, so the last reveal is still shown; the cost is that a decided match nobody taps on from for the stale limit (an hour) ends with no points.
+7. **The rematch.** Only through the room's carry. Without it, every match is a first match.
+8. **A carry's size.** The room keeps at most 4 KB; a long match's identities can pass that, so the oldest are dropped.
+9. **A party of three or four.** Two take the spots and the others watch (KR-12).
+10. **`create` that throws.** The room calls `create` without a guard; it hands over exactly two seats, so it should not happen, but what a room does with a throw there is not defined.
+11. **The override.** On this site only the room's host may confirm their own guess when the other phone is gone; in the party room neither player made the room, so either guesser may (the adapter checks the engine's rule with the guesser standing in as host for that one command).
+12. **A watcher's `you`.** A member who is not playing is `{role: "audience", seat}` in `you` and in the snapshot.
+13. **Ending early.** The contract leaves the grace to the game. A grace that never ends froze a match whose other phone vanished: on that player's move nothing could happen, and leaving handed them the win.
+   The owner's rule (2026-11-15): a player who has vanished for a minute forfeits, so the grace is 60 seconds, after which the room ends the match and the player who stayed wins it.
+   A forfeit always makes the player who stayed first, also when their own page was hidden meanwhile (switched to another app, phone locked, socket still open).
+   The one exception: when the player who stayed has been dropped (no socket) for 30 seconds or more too, nobody is placed.
+   Decided by the orchestrator, not the owner: a player who leaves the party (taps "Leave", their page shown) while the other is away or dropped, for any time at all, ends it with nobody placed, so leaving never hands the win to a player who is not there (until 2026-11-15 this needed the other to have been gone 30 seconds, and leaving sooner handed them the win).
+   `abandon` tells a forfeit from a leave by the going player's own record: a page can only tap "Leave" while it is shown, so a seat that was dropped or hidden when it went was given up on by the room.
+   "Nobody placed" rather than the leaver first, because the room drops the leaver's seat from the party before it asks `abandon`, so a place for them would not be counted.
+   The owner's rule (2026-11-15) for a hidden page: "put a timer so they can't hide their page, and if they don't come back they just lose".
+   The party room now runs one clock per seat for a phone that dropped and a page that is away (hidden, socket open), so the minute runs for both, and a page hidden and then dropped gets one minute, not two (n8-party-games `feat/away-forfeits`, `presence.js` `absenceClock`).
+   Back within the minute, the clock winds back up at the speed it ran (a move the game takes gives the whole minute back), so hiding and showing the page over and over cannot stall a match.
+   The room wakes itself at the end of the minute, so the player forfeits then even while nobody else does anything; the other phone and the big screen show "Bo is away: back within 0:45 or the match ends" from the room's own time (`awayIn`).
+   The game needed no change: `abandon` already treats a seat that goes while hidden as a forfeit, with the player who stayed first.
+   What that means for the player left waiting: one who waits out the minute wins the match with their points; one who taps "Leave" while the other is gone ends it with nobody placed, however soon.
+   The harness proves each of these on the room class ("a phone locked for 90 seconds", and "ends a stall").
+14. **The result's shape.** The room shows each score on its end card only when `result` is a list of rows, so `result` is `[{seat, score}]`, best first, and who won is in the places; the winner and the rounds are not in it. A match ended early lists both seats, the one that went with `left: true`; the room's card still shows only the seats placed, because the contract has no row for a seat without a place.
+15. **The party site's tests** assume Who Am I? is an outside game: hosting it changes three of them.
+16. **npm.** `npm install github:n8watkins/who-am-i#<commit>` over an existing git dependency was refused (`EALLOWGIT`, "non-root"); setting the commit in `package.json` and running `npm install` worked.
 
-## On the phone during a match in the party room
+### The room view
 
-The party room is held sideways; a match of Who Am I? is played upright.
+The module the room mounts, `party-view/view.js`, is plain JavaScript (`src/party-view/public/view.js`, copied as it is).
+It puts one frame in the container with the room view's page (`party-view/index.html`, built from `src/party-view/`), and hands the frame the room's context on its element, as Cork & Bell does.
+The page draws the game's own screens, `Game` and `RoundSummary` from `src/client/screens`, over a small stand-in for this site's `RoomHandle` (`src/party-view/useParty.ts`): every command goes to the room as an answered input whose id is also the engine's `commandId`, a version conflict that did not change the game's position is sent again, as on this site, and buttons wait while a command is out.
+The big screen and a watching phone get their own views (`src/party-view/Watch.tsx`): the big screen fills a TV with both names and scores, whose turn, the timer and the question count, and between rounds the round's reveal; a watching phone shows the same as a column, and an audience phone puts both identities first, large, under whose they are.
+A player's phone is told, above the game, when their turn timed out (the room's `timed_out` event) and when the other confirmed their own guess while this page was hidden; on the last round's summary every device says who won the match, by name.
+Everything the view makes lives in the frame's document, so unmounting removes it all.
+The page holds a screen wake lock while it is up.
+On a phone or a laptop the frame is a column at most 480 CSS pixels wide, centred; on an upright phone that is the whole width, and on a phone held sideways the room letterboxes the stage to an upright shape in the middle.
+The column starts below the room's door button only where it really reaches that corner of the room's page, so the letterboxed stage is not pushed down.
+The big screen gets the whole width, and its type grows with the screen.
+A page that reloads in the frame attaches again (`partyHost.attach()`), starts from the latest snapshot, and the handlers of the page before it are dropped.
+The look is plain on purpose; the owner judges it in a preview.
 
-- **Choosing it.** When Who Am I? wins the vote, the room does not start it straight away.
-  The two players' phones show a short settings step, with the host's choices (category, mode, timer, questions, hints, difficulty, who starts, points or rounds) and a Start button; everyone else's phone shows "Choosing settings" (KR-8, KR-12).
-- **Going in.** Starting the match asks both players to turn their phone upright, with a picture of a phone turning, and the match screen appears once the phone is upright (KR-14).
-  A phone that stays sideways still works, with the same screen letterboxed in the middle.
-- **During the match.** Each phone shows the other player's identity (name and category), the answer buttons (Yes, No, Sort of, Don't know) when a question is waiting, and the guesser's own controls (ask, hint, I guessed it, pass, give up) on their turn.
-  A phone never shows its own player's identity; the wake lock keeps the screen on, and a locked phone shows as "stepped away" on the other one and pauses the timer.
-- **The big screen.** The room's screen shows only whose turn it is, the timer and the question count, and "Checking a guess" while a guess waits for confirmation.
-  It never shows an identity, a hint or a typed question, so it can sit in front of both players.
-  Everyone else in the party watches the same: their phones get the screen view.
-- **Coming out.** At the match summary the phones show the result and both identities, and the room asks for the phone to turn sideways again before everyone is back in the room, with the points on the Tonight board.
+### Secrecy in the party room
 
-## What Who Am I? would gain, lose or change
+- `test/party/room-game.test.ts` drives the game through whole matches the way the room runs them: each input on `restore(serialize(state))`, kept unless refused with nothing changed, the alarm at the deadline, presence changes, and a player leaving.
+  After every change it scans every snapshot and event sent to both players, the screen, a member watching as a screen and the audience: a player is never sent the identity they are guessing (its id, name or a long alias) or a hint for it they did not ask for before their round is over; the audience is sent both identities while a round is on and never a hint, a typed question or a log; the screen is never sent an identity, a hint, a typed question or a log.
+- `test/party-room/harness.test.ts` runs the built `party.js` with its real manifest in the party room's real room class with the fake runtime its own tests use, fetched at a pinned commit (`scripts/party-room-checkout.mjs`, `6ef88d6` on `feat/away-forfeits`): the vote and the settings step, a whole match with ids, a double tap, refusals (from the audience too), the room rebuilt in the middle, the host's 60 second timer on the alarm with a page hidden and a phone dropped until its grace runs out, a player who stalls by hiding their page on their own turn, a player leaving, a player leaving while the other is gone, and a party of four whose two players take the spots while the host and the other member watch.
+  Every frame each socket is sent is checked as it is sent, by that socket's role.
+- `test/party/party-app.test.ts` renders the room view's page from real snapshots in plain Node: either guesser's override button, the wake lock, the audience's reveal and scores, and the big screen's layout.
+- `scripts/check-bundle.mjs` scans `party-view/` for every identity name and id, as it does this site's bundle.
 
-- Gains: no `SESSION_SECRET` (kit tokens need no signing key), the kit's origin check and Turnstile option, the room budget, and one room implementation to maintain instead of two.
-- Loses or changes: the HTTP command API becomes socket inputs (KR-7 keeps the safety); signed sessions become kit tokens, so open rooms end at the switch; room links move from `/r/<code>` to the kit's join link; the 6-character code alphabet and rate limits become the kit's; the site moves from `/` to `/who-am-i/` (the root redirects, as Cork & Bell's does).
-- Must keep: the secrecy rules and the E2E capture that proves them (extended to `/api/party/*` and the kit's frames), `check-bundle.mjs`, the adapter's secrecy tests, the D1 data and every `/s/<id>` link already shared.
-- Risk to watch: the room budget answers `battles_full` once the shared allowance is spent, which would stop new Who Am I? rooms on its own site too.
-  Who Am I? has no solo mode to fall back on, so the owner should decide whether its own site runs with a budget.
+Nothing of this was checked in a browser or on a phone.
 
-## Steps, once the kit has KR-1 to KR-8
+### Steps left for the party room
 
-All of this happens on a branch (`feat/party-kit`, worktree `~/worktrees/who-am-i-feat-party-kit`) and changes nothing live.
+1. Merge the party room's stack (#23 to #30 and #32, with the review fixes in #34).
+2. Merge `feat/party-room-game` here.
+3. In `n8-party-games`: add `"who-am-i": "github:n8watkins/who-am-i#<commit>"` to `devDependencies`, import it in `games.js`, take it out of `OUTSIDE` in `lobby/wall.js`, and update the three wall tests.
+4. Play it on two phones, a third phone watching and a screen in the party room, and judge the room view's look in a preview.
 
-1. Pin the kit tag in `devDependencies`, as Cork & Bell does, and keep `.npmrc`.
-2. ~~Write the game adapter (`src/party/game.ts`).~~ Done: see "The adapter" above.
-   The engine (`src/worker/engine.ts`) and its tests stay as they are.
-3. Export `game` and `manifest` from the package's `.` export (`party.ts` or a built `party.js`, per the language question).
-4. Rewrite `src/worker/index.ts` around `handlePartyApi` and `createPartyRoom(game)`, with Who Am I?'s own routes (KR-9) beside it, and move `wrangler.jsonc` to the kit's bindings with a `local` environment, keeping the `DB` binding.
-5. Point the client at `/party-kit/client/party-client.js` (a Vite external), set Vite's `base` to `/who-am-i/`, and swap `src/client/lib/api.ts` and `useRoom.ts` for a small wrapper around `PartyClient`.
-6. Port the tests: engine, view, content, adapter and share-card tests stay; `test/worker.test.ts` and `test/pin-directory.test.ts` move to the kit's API or are dropped where the kit's own tests cover them; the E2E suite keeps every scenario and the secrecy capture, on the new paths.
-7. Add a README section on running it alone, check the MIT license and the `files` list, run the full suite and a two-phone playtest, and open a PR.
-8. Try it on the party site locally (add it to the games list on a scratch branch), with KR-12 to KR-14 in place.
+## This site onto the kit
 
-## Going live (owner only, later)
+Unchanged from the first plan, with what the party room work settled:
+
+- The kit's own room (`createPartyRoom`) still ticks every game on a timer and keeps a round in memory only ("do not give it a game with `tickHz: 0`").
+  The turn-based logic is plain in `party-kit/src/core/turns.js`, `presence.js` and `answers.js`, so the kit's room can take it from the party room.
+- KR-9 (a game's routes and its D1 data) is still needed for packs, shared result cards and `/s/<id>` links.
+- KR-10's other half: this site's own React lobby and settings, or the kit's plain lobby; a join link the game can keep; sessions in `localStorage`.
+
+### What this site would gain, lose or change
+
+- Gains: no `SESSION_SECRET`, the kit's origin check and Turnstile option, the room budget, and one room implementation instead of two.
+- Loses or changes: the HTTP command API becomes socket inputs (answered inputs keep the safety); signed sessions become kit tokens, so open rooms end at the switch; room links move from `/r/<code>` to the kit's join link; the site moves from `/` to `/who-am-i/`.
+- Must keep: the secrecy rules and the E2E capture that proves them, `check-bundle.mjs`, the adapter's secrecy tests, the D1 data and every `/s/<id>` link already shared.
+- Risk: the room budget answers `battles_full` once the shared allowance is spent, which would stop new rooms on this site too, and Who Am I? has no solo mode to fall back on.
+
+### Going live (owner only, later)
 
 - The live Worker keeps its name and custom domain.
 - The deploy adds the kit's classes and retires the three old ones in a Durable Object migration; rooms open at that moment end, so it should go out at a quiet time.
 - D1 is untouched, and `/s/<id>` and `/api/share/*` keep answering.
 - Rolling back means redeploying the previous commit with a migration that brings the old classes back (empty), so test the rollback on a preview Worker first.
 
-## A cheaper first step
-
-The party site could list Who Am I? as a link to `https://whoami.n8builds.dev` before any of this, if the contract gains `manifest.href` for games hosted elsewhere.
-Who Am I? would then ship only its manifest, and nothing live would change.
-
 ## Decisions for the owner
 
-1. Build KR-1 to KR-8 and KR-12 to KR-14 into the kit (turn-based, two-player support in the party room for every future game), or keep Who Am I? on its own room code and list it as a link.
-2. Whether Who Am I?'s own site runs under the shared room budget.
-3. Whether the kit's plain lobby replaces Who Am I?'s React lobby on its own site, or games may keep their own (KR-10).
-4. Whether a game may ship TypeScript through its package export (recommended above).
-5. Whether Who Am I?'s phone comforts move into the kit (KR-11).
+1. Whether this repository drops release-kit's `prepare` script, as the party kit's contract asks (the party site's install works with it, with a warning).
+2. Whether the contract should say that a game ships built JavaScript (as here) or the party site's scripts should load TypeScript.
+3. Whether a player who leaves should hand the win to the one who stayed (as built) or end the match with no points (the one-minute forfeit is decided; the no-winner rule for leaving while the other is gone was chosen by the orchestrator).
+4. The room view's look, from a preview on a phone.
+5. Whether this site moves onto the kit at all once KR-9 exists, and whether it runs under the shared room budget.
 6. Whether to drop the unused `users` and `identity_plays` tables from the live D1 database.

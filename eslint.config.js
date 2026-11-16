@@ -4,7 +4,8 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".wrangler", "node_modules", "test-results", "playwright-report", "src/worker/worker-configuration.d.ts"] },
+  // .cache holds the party room's own code for the harness test; party.js and party-view are built (npm run build:party).
+  { ignores: ["dist", ".wrangler", ".cache", "party.js", "party-view", "node_modules", "test-results", "playwright-report", "src/worker/worker-configuration.d.ts"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -41,7 +42,7 @@ export default tseslint.config(
   {
     // The party adapter (src/party) is the game's edge for the party kit: plain TypeScript over the
     // pure rules, with no Cloudflare runtime and no room, so any host (and plain Vitest) can run it.
-    files: ["src/party/**/*.ts", "test/party/**/*.ts"],
+    files: ["party.ts", "src/party/**/*.ts", "test/party/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -53,6 +54,26 @@ export default tseslint.config(
               message: "The party adapter wraps only the pure rules: engine, view and content.",
             },
             { group: ["**/kit/worker/**", "**/kit/client/**"], message: "The party adapter uses no host or browser code." },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The room view a party room shows (src/party-view): browser code like the client, built
+    // from the game's own screens. It never imports the rules or the content: a phone gets an
+    // identity only in its own snapshot (scripts/check-bundle.mjs checks the build too).
+    files: ["src/party-view/**/*.{ts,tsx,js}"],
+    languageOptions: { globals: globals.browser },
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["**/worker/**"], message: "The room view must not import Worker modules (identity content is server-only)." },
+            { group: ["**/party/*", "!**/party/snapshots", "!**/party/manifest"], message: "The room view takes only the snapshot types and the manifest from src/party." },
           ],
         },
       ],

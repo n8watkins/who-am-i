@@ -3,11 +3,25 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./party.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "party.js",
+    "party-view",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "setup": "node scripts/ensure-dev-vars.mjs",
     "dev": "npm run setup && vite build && wrangler dev",
     "dev:ui": "vite",
     "build": "vite build && node scripts/check-bundle.mjs && wrangler deploy --dry-run --outdir dist/worker",
+    "build:party": "vite build --config vite.party.config.ts && vite build --config vite.party-view.config.ts && node scripts/check-bundle.mjs --party-view",
+    "check:party": "node scripts/check-party-build.mjs",
+    "test:party-room": "vitest run --project party-room",
     "cf-typegen": "wrangler types src/worker/worker-configuration.d.ts",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json",
     "lint": "eslint .",

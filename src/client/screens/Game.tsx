@@ -26,7 +26,11 @@ export const RESULT_LABELS: Record<TurnResult, { text: string; tone: "mint" | "n
   beaten: { text: "Beaten to it", tone: "neutral" },
 };
 
-export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
+/**
+ * `eitherMayOverride`: either guesser may confirm their own guess once the other phone has been
+ * gone a while, not only the room's host (a party room, where neither player made the room).
+ */
+export function Game({ room, view, eitherMayOverride = false }: { room: RoomHandle; view: RoomView; eitherMayOverride?: boolean }) {
   const me = mePlayer(view);
   const opponent = opponentPlayer(view)!;
   const turn = view.turn;
@@ -39,7 +43,7 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const opponentAbsentSince = absentSince(opponent);
   const now = useNow(500, opponentAbsentSince !== null || view.settings.timerSeconds > 0);
   const opponentGoneFor = opponentAbsentSince !== null ? now + room.serverOffset - opponentAbsentSince : 0;
-  const canOverride = myTurn && pendingConfirm && isHost && opponentAbsentSince !== null && opponentGoneFor >= HOST_OVERRIDE_AFTER_MS;
+  const canOverride = myTurn && pendingConfirm && (isHost || eitherMayOverride) && opponentAbsentSince !== null && opponentGoneFor >= HOST_OVERRIDE_AFTER_MS;
   const identityName = view.opponentIdentity?.canonicalName ?? "";
   const hintsOn = view.settings.hints !== false;
   const questionMode = view.settings.questions ?? "both";
@@ -195,7 +199,8 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
                 </p>
                 {canOverride && (
                   <Button block disabled={room.pending} onClick={() => room.send("turn.correct.override")}>
-                    Confirm without {opponent.nickname} (host)
+                    Confirm without {opponent.nickname}
+                    {eitherMayOverride ? "" : " (host)"}
                   </Button>
                 )}
                 {!trade && (

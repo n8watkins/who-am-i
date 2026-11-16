@@ -66,6 +66,9 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 | `npm run build` | Builds the client, checks the bundle, and bundles the Worker with a Wrangler dry run |
 | `E2E_BASE_URL=https://whoami.n8builds.dev npx playwright test acceptance` | Runs the acceptance scenario against a deployed Worker |
 | `SCREENSHOTS=1 npx playwright test screenshots` | Regenerates `docs/screenshots` at 1280x800 and 390x844 (after `vite build`) |
+| `npm run build:party` | Builds what a party site takes from this package: `party.js` and `party-view/` (see "In the party room"), and checks the view for identity content |
+| `npm run check:party` | Rebuilds both into a temporary folder and fails when the committed copies differ |
+| `npm run test:party-room` | Only the harness test in the party room's real room class |
 
 ## Tests
 
@@ -184,13 +187,72 @@ Browser (React SPA)  --HTTP-->  Worker (src/worker/index.ts)  --RPC/fetch-->  Ro
 ```
 src/
   kit/       the party kit: game-agnostic phone comforts (wake lock, away presence, sound and haptics, result cards, version, light and dark themes) shared by every game in the collection
-  party/     the game adapter: the rules by player id for the room, and by seat for the party kit
+  party/     the game adapter: the rules by player id for the room, and by seat for the party kit; the party room's game and manifest
+  party-view/ the room view a party room shows (built into party-view/ at the root)
   shared/    protocol types, Zod schemas, pack metadata (safe for the client)
   worker/    Worker entry, Room and RateLimiter Durable Objects, engine, view filter, sessions, content packs
   client/    React screens (landing, setup, join, lobby, game, round summary, match summary)
 test/        Vitest tests (Workers runtime)
 e2e/         Playwright tests
 ```
+
+## In the party room
+
+Who Am I? can also be played inside the shared party room at partygames.n8builds.dev ([n8watkins/n8-party-games](https://github.com/n8watkins/n8-party-games)), as one of the games a party votes for.
+Nothing about this site changes: whoami.n8builds.dev keeps its own rooms, routes and lobby.
+The party room needs its turn-based stack (n8-party-games #23 to #30 and #32) merged first; until then the party site lists Who Am I? as a link here.
+
+The package keeps the party kit's game contract (`party-kit/GAME-CONTRACT.md` in that repository).
+Its `.` export is `party.js`, which exports `game` and `manifest`:
+
+| Part | Where | What it is |
+| --- | --- | --- |
+| `game` | `src/party/room-game.ts` | The match for the party room, on the adapter (`src/party/game.ts`) and the unchanged engine. Turn-based (`tickHz: 0`), two humans, saved after every input. |
+| `manifest` | `src/party/manifest.ts` | Id, name, `/who-am-i/` path, two players with an audience (`audience: true`), a phone each held upright (`devices.upright`), the room view (`lobby.view`), the settings fields and the public files. |
+| Room view | `src/party-view/` | `view.js`, the module the room mounts, shows the game's own React screens (`Game`, `RoundSummary`) on a page in a frame. |
+
+To host it, a party site adds the package as a pinned git dependency (`"who-am-i": "github:n8watkins/who-am-i#<commit>"`), imports it in its `games.js`, and takes Who Am I? off its list of outside games.
+The site's build copies `party-view/` under `/who-am-i/`, as the manifest says; nothing else in the package is served, and the game has no HTTP routes, database or secrets of its own there.
+
+**Why a built `party.js`.**
+The contract asks for plain JavaScript, and the party site's own build (`scripts/build-public.mjs`) imports every game's package in plain Node, which refuses to load TypeScript from `node_modules` (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`).
+Wrangler's esbuild and Vitest would compile TypeScript, but that one script would not.
+So `party.ts` is the source, `npm run build:party` writes `party.js` (zod stays an import), and `npm run check:party`, which CI runs, fails when the committed file is not what the source builds to.
+The room view is committed built for the same reason: a party site runs no build of a game's.
+
+**What each device sees.**
+
+| Who | Sees |
+| --- | --- |
+| A player's phone | The match as on this site: the other player's identity, the questions and answers, the guesser's controls, hints, the log and the timer. Never their own identity before their round is over. |
+| A phone in the party that is not playing (the audience) | Both identities while a round is on, large and named by whose they are, with whose turn it is, the timer, the question count and the scores; the round's reveal between rounds, and who won the match. No hint, question or log. |
+| A phone that joined after the match began | The big screen's view, laid out as a phone. |
+| The big screen | Both players' names and scores, whose turn it is, the timer and the question count, filling the screen in large type; between rounds the round's reveal (both identities and how each went), and who won the match. No identity while its round is on, and no hint, question or log. |
+
+**How a match runs there.**
+
+- In a party of two, both play; in a party of three or four, two take the spots on the wall and the others watch.
+- After the vote the party's host picks the settings: the game's own (category, mode, turns, questions, timer, hints, difficulty) and the match length, which adds first to 3, the default there.
+- The first guesser is random, and a rematch between the same two players starts with the loser and avoids the last match's identities.
+- Every tap is an answered input with an id: the room applies it once however often it arrives, and a tap made against an old view is refused.
+- A locked or dropped phone pauses the timer.
+  A phone whose connection is gone keeps its seat for a minute; one that is not back by then forfeits, and the player who stayed wins.
+  A locked phone or a page switched away from that keeps its connection is away, and runs the same minute: not back within it, it forfeits too (the room wakes itself for it), and the other phone and the big screen show the time left.
+  Coming back winds the minute back up at the speed it ran, so hiding and showing the page over and over cannot stall a match.
+  Either guesser may confirm their own guess once the other phone has been gone 30 seconds.
+- A player who leaves the party ends the match, and the one who stayed wins it, unless that player is away or dropped at that moment, however briefly; then nobody places, so leaving never hands the win to a player who is not there.
+  A forfeit always goes to the one who stayed, even if their own page was hidden meanwhile; only if their phone has been dropped 30 seconds too does nobody place.
+  Once the last round's summary says who won, the match is decided: whoever leaves, the game reports the real result and places (the room's own end card leaves out a winner who has left the party; that is being fixed in the party room).
+- The end card shows each player's score beside their place.
+- The room may sleep between taps, and is closed only after an hour with nobody doing anything.
+- The game is laid out upright: the room stops asking for sideways while it is played, and on a phone held sideways the room letterboxes it in the middle.
+  The view keeps each phone's screen awake.
+
+**Tests.**
+`test/party/room-game.test.ts` covers every function of the contract and plays whole matches the way the room runs them (each input on `restore(serialize(state))`), scanning every snapshot and event sent to both players, the screen, a watcher and the audience for each player's own identity, its aliases and unrequested hints.
+`test/party/party-view.test.ts` covers the module the room mounts, and `test/party/party-app.test.ts` the page it shows, rendered from real snapshots.
+`test/party-room/harness.test.ts` runs the built `party.js` with its manifest in the party room's real room class, fetched at a pinned commit into `.cache/` (`scripts/party-room-checkout.mjs`; `PARTY_ROOM_COMMIT=<sha>` tries another), through the vote and the settings step, whole matches with a rebuild of the room in the middle, the turn timer on the room's alarm, presence, a phone that never comes back, a player leaving, and a party of four with spots and an audience, checking every frame every socket is sent.
+`scripts/check-bundle.mjs` also scans `party-view/` for identity content.
 
 ## Content
 

@@ -23,10 +23,8 @@ import {
   type CommandType,
   type ErrorCode,
   type RoomPreview,
-  type RoomStatus,
   type RoomView,
   type Settings,
-  type TurnPhase,
 } from "../shared/protocol";
 import { getIdentity } from "../worker/content";
 import {
@@ -46,6 +44,8 @@ import {
   type RoomState,
 } from "../worker/engine";
 import { previewOf, viewFor } from "../worker/view";
+import { manifest } from "./manifest";
+import type { ScreenView } from "./snapshots";
 
 export type { RoomState };
 
@@ -173,16 +173,7 @@ export interface Carry {
 
 export type InputResult = { ok: true; duplicate: boolean } | { ok: false; error: ErrorCode; message: string };
 
-/** What a shared screen shows: turn, timer and question count. Never an identity, a hint or a question. */
-export interface ScreenView {
-  role: "screen";
-  version: number;
-  serverNow: number;
-  status: RoomStatus;
-  roundIndex: number;
-  players: { seat: number; name: string }[];
-  turn: { seat: number; phase: TurnPhase; deadline: number | null; pausedRemainingMs: number | null; questionCount: number } | null;
-}
+export type { ScreenView };
 
 export type Snapshot = RoomView | ScreenView;
 
@@ -234,17 +225,7 @@ function sameSeats(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((s) => b.includes(s));
 }
 
-export const manifest = {
-  id: "who-am-i",
-  name: "Who Am I?",
-  blurb: "Guess the secret identity only your friend can see",
-  path: "/who-am-i/",
-  players: { min: 2, max: 2, solo: false },
-  // Phones upright. A big screen may join, and it only ever shows turn, timer and question count.
-  devices: { phone: true, desktop: true, sharedScreen: true, sideways: false },
-  // The client is not packaged for the party site yet (docs/PARTY-KIT-MIGRATION.md).
-  public: [] as { from: string; to: string }[],
-} as const;
+export { manifest };
 
 export const game = {
   id: manifest.id,
@@ -274,8 +255,8 @@ export const game = {
 
   /**
    * A match begins with the party's two seats, both connected (they just voted). The first seat
-   * is the match's host: the one who may confirm their own guess when the other phone is gone.
-   * With a carry from the same two seats it starts as a rematch: the loser guesses first and the
+   * is the engine's host; in a party room that means nothing a player sees (either guesser may
+   * confirm their own guess when the other phone is gone: overrideAsGuesser). With a carry from the same two seats it starts as a rematch: the loser guesses first and the
    * last match's identities stay out of the draw.
    */
   create(input: { seats: readonly PartySeat[]; settings?: unknown; now: number; carry?: Carry | null; sources?: Sources }): GameState {
@@ -325,7 +306,9 @@ export const game = {
     if (!parsed.success) return { ok: false, error: "bad_request", message: parsed.error.issues[0]?.message ?? "Invalid command." };
     if (!PARTY_COMMANDS.has(parsed.data.type)) return { ok: false, error: "forbidden", message: "The party room does that, not the game." };
     game.tick(state, now, sources);
-    const result: Result<{ room: RoomState; duplicate: boolean }> = rules.command(state.room, playerOf(seat), parsed.data, now, sources);
+    const playerId = playerOf(seat);
+    const result: Result<{ room: RoomState; duplicate: boolean }> =
+      parsed.data.type === "turn.correct.override" ? overrideAsGuesser(state.room, playerId, parsed.data, now, sources) : rules.command(state.room, playerId, parsed.data, now, sources);
     if (!result.ok) return result;
     state.room = result.room;
     return { ok: true, duplicate: result.duplicate };
@@ -406,6 +389,25 @@ export const game = {
     return { room: state.room, seats: [seats[0]!, seats[1]!] };
   },
 };
+
+/**
+ * "Confirm my own guess": on the game's own site only the room's host may, because the host made
+ * the room. In a party room neither player made it, so either guesser may, on the same terms
+ * (their own turn, a guess waiting, the other phone gone or hidden for 30 seconds). The engine
+ * checks those terms with the guesser standing in as host for this one command, and the host is
+ * put back after, so nothing else changes hands.
+ */
+function overrideAsGuesser(room: RoomState, playerId: string, command: Command, now: number, sources: Sources): Result<{ room: RoomState; duplicate: boolean }> {
+  const host = room.hostPlayerId;
+  // A command already applied is the engine's to answer (a repeat, never applied twice).
+  const repeat = room.recentCommands.some((c) => c.id === command.commandId && c.playerId === playerId);
+  // The engine's own refusal speaks of the host; in a party room it is about who is guessing.
+  if (!repeat && room.turn && room.turn.playerId !== playerId) return { ok: false, error: "forbidden", message: "Only the player who is guessing can confirm their own guess." };
+  if (host === playerId || !room.turn) return rules.command(room, playerId, command, now, sources);
+  const result = rules.command({ ...room, hostPlayerId: playerId }, playerId, command, now, sources);
+  if (!result.ok) return result;
+  return { ...result, room: { ...result.room, hostPlayerId: host } };
+}
 
 function screenView(state: GameState, now: number): ScreenView {
   const { room } = state;

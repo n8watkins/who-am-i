@@ -3,8 +3,20 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+// The same holds for the room view a party room shows (party-view/, built from src/party-view):
+// a phone there gets identities only in its own snapshots.
+import { existsSync } from "node:fs";
+
 const contentDir = new URL("../src/worker/content/", import.meta.url);
-const distDir = new URL("../dist/client/", import.meta.url);
+// `--party-view`: only the room view (npm run build:party), otherwise the site and the room view.
+const names = process.argv.includes("--party-view") ? ["party-view"] : ["dist/client", "party-view"];
+const bundles = names.map((dir) => new URL(`../${dir}/`, import.meta.url));
+for (const dir of bundles) {
+  if (!existsSync(dir)) {
+    console.error(`check-bundle: ${dir.pathname} does not exist. Build it first.`);
+    process.exit(1);
+  }
+}
 
 const identities = [];
 for (const file of readdirSync(contentDir)) {
@@ -28,7 +40,7 @@ function files(dir) {
 }
 
 const leaks = [];
-for (const path of files(distDir.pathname)) {
+for (const path of bundles.flatMap((dir) => files(dir.pathname))) {
   const text = readFileSync(path, "latin1");
   for (const { id, name } of identities) {
     if (text.includes(id)) leaks.push(`${path}: id ${id}`);
@@ -39,4 +51,4 @@ if (leaks.length) {
   console.error("check-bundle: identity content found in the client bundle:\n" + leaks.join("\n"));
   process.exit(1);
 }
-console.log(`check-bundle: ${identities.length} identities, none present in dist/client.`);
+console.log(`check-bundle: ${identities.length} identities, none present in ${names.join(" or ")}.`);

@@ -26,6 +26,9 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      # What a party site takes from this package is committed built (party.js, party-view/): it must match its source.
+      - run: npm run check:party
+      # Includes the party-room project, which fetches the party room's code at a pinned commit.
       - run: npm test
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium

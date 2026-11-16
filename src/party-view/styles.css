@@ -1,0 +1,12 @@
+/* The room view's page uses the game's own look: the same tokens and Tailwind build as the game's
+   own site, with the room view's files added to what Tailwind scans. */
+@import "../client/styles.css";
+
+@source "../client";
+@source "../kit/client";
+@source "./";
+
+/* The big screen (main.tsx): the root size grows with the screen, so every rem-sized thing does. */
+:root[data-screen="big"] {
+  font-size: clamp(16px, 1.6vw, 40px);
+}
