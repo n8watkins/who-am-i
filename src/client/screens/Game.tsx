@@ -119,16 +119,19 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
           </details>
         ) : picture ? (
           // The headband card: the opponent's identity as a big picture with the name under it.
-          <Card className="flex flex-col items-center gap-3 border-2 border-brand/30 py-4 text-center short:flex-row short:gap-5 short:text-left">
+          // Short screens (a phone sideways) keep the turn status and +1 in view: below the md
+          // breakpoint they sit in a bar fixed to the bottom, which the card must clear; from md
+          // (844x390) they sit in this column under the card, so the picture shrinks further.
+          <Card className="flex flex-col items-center gap-3 border-2 border-brand/30 py-4 text-center short:flex-row short:gap-5 short:text-left md:short:gap-4 md:short:py-3">
             <PictureImage
               picture={picture}
               name={identityName}
               onError={onPictureError}
-              className="aspect-[4/5] h-[min(34dvh,20rem)] md:h-56 w-auto max-w-full rounded-2xl short:h-[52dvh]"
+              className="aspect-[4/5] h-[min(34dvh,20rem)] md:h-56 w-auto max-w-full rounded-2xl short:h-[34dvh] md:short:h-[22dvh] md:short:rounded-xl"
             />
             <div className="min-w-0 max-w-full">
               <p className="text-xs font-extrabold uppercase tracking-wide text-muted">Answer as</p>
-              <p className="text-3xl font-black leading-tight text-balance" data-testid="opponent-identity">
+              <p className="text-3xl font-black leading-tight text-balance md:short:text-2xl" data-testid="opponent-identity">
                 {identityName}
               </p>
               <PictureCredit picture={picture} className="mt-1" />
