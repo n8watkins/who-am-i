@@ -5,8 +5,7 @@ import { checkCardPng, handleShareApi, shareCardPage } from "../src/kit/worker/s
 import { getIdentity, packIdentities } from "../src/worker/content";
 import type { RoomState } from "../src/worker/engine";
 import type { RoomDurableObject } from "../src/worker/room";
-import { CLIENT_VERSION, CLIENT_VERSION_HEADER, DEFAULT_SETTINGS, type SessionResponse } from "../src/shared/protocol";
-
+import { CLIENT_VERSION, CLIENT_VERSION_HEADER, DEFAULT_SETTINGS, PICTURE_HOST, type SessionResponse } from "../src/shared/protocol";
 const BASE = "http://who-am-i.test";
 let ip = 0;
 
@@ -145,6 +144,21 @@ describe("shared result cards", () => {
     expect(used.length).toBe(16);
     const text = await (await call(`/api/share/${created.id}`)).text();
     for (const id of used) expect(text).not.toContain(getIdentity(id).canonicalName);
+  });
+
+  it("never carries an identity picture: not in its details or its page", async () => {
+    const { code, host, finish } = await finishedMatch();
+    await finish();
+    const created = (await (await share(code, host.token, fakePng())).json()) as CreatedCard;
+    await setPublic(created.id, created.ownerKey, true);
+    const details = await (await call(`/api/share/${created.id}`)).text();
+    const page = await (await pageFor(created.id)).text();
+    for (const text of [details, page]) {
+      expect(text).not.toContain(PICTURE_HOST);
+      expect(text).not.toContain("thumb.wikimedia.org");
+    }
+    // The card image itself is painted in the browser: test/client/result-card.test.ts checks the
+    // painter draws no picture and no identity, and view.test.ts that the card's words carry none.
   });
 
   it("expires after 90 days", async () => {

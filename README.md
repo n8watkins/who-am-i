@@ -86,6 +86,7 @@ Keeping your own identity secret is the core of the game, so it is enforced on t
 - Every payload sent to a browser is built by `viewFor(room, playerId)` in `src/worker/view.ts`.
   It contains the public room state plus only the identity your opponent is guessing.
   Your own identity is included only in the summary of a round that has already ended.
+  An identity's picture is part of that identity in the view, so the same rule covers it: tests check that your own picture's address is in no HTTP response or socket frame you receive before the summary, and that your browser never loads it before then.
 - Each WebSocket records its player in its attachment once its hello is accepted, and every broadcast is rendered separately per socket; a socket that has not said who it is gets nothing.
 - Command responses and errors carry the same filtered view.
 - Clients send commands, never identities or scores; the server ignores anything else.
@@ -194,10 +195,26 @@ e2e/         Playwright tests
 
 ## Content
 
-Each pack is a typed data file in `src/worker/content` using the `Identity` shape (`id`, `canonicalName`, `aliases`, `categoryId`, `tags`, `difficulty`, `active`, optional `imageUrl`) plus exactly three curated `hints`, vague to strong.
+Each pack is a typed data file in `src/worker/content` using the `Identity` shape (`id`, `canonicalName`, `aliases`, `categoryId`, `tags`, `difficulty`, `active`, optional `picture`) plus exactly three curated `hints`, vague to strong.
 Ids are `<pack>.<slug>` and must stay stable once published.
-Names only, no images.
 A unit test rejects duplicate ids, names that overlap across packs, and hints that are missing, too long, or contain any identity's name or alias.
+
+### Pictures
+
+Most identities have a picture, listed one per line in `src/worker/content/picture-data.ts` (read by `pictures.ts`): a thumbnail address on `upload.wikimedia.org`, the file's page, the author, the licence and whether it is free.
+No picture is copied into this repo or the site; the phone loads the thumbnail straight from Wikimedia with no referrer, and the page's `img-src` allows that one host.
+Real people have a free photo or portrait from Wikimedia Commons, chosen by hand.
+Film, TV, game and cartoon characters and brand mascots have the lead image of their own English Wikipedia article (`free: false` when it is a non-free image); those images belong to their owners and are used by the owner's decision, knowing a rights holder may ask for one to be taken down.
+Identities without an article of their own, or without a suitable image, stay text-only.
+The footer's **Pictures** note says where pictures come from and links to a new GitHub issue for reporting one.
+
+- **Pull one picture:** delete its line in `picture-data.ts` and deploy; that identity goes back to the text card.
+- **Turn all pictures off:** in the Cloudflare dashboard, open the `who-am-i-game` Worker, Settings, Variables and secrets, and add the text variable `PICTURES` with the value `off`.
+  It takes effect on save, with no code change, and `keep_vars` in `wrangler.jsonc` keeps it across later deploys.
+  Delete the variable to turn pictures back on.
+- A picture travels only inside the identity it shows (`publicIdentity` in `src/worker/view.ts`), so it reaches a phone exactly when that identity's name does: your opponent's during a round, both in the round summary, and never your own before then.
+- Pictures never appear on share cards, link previews, the landing page or the screenshots in `docs/screenshots` (the screenshot run makes every picture fail to load).
+- E2E tests answer picture requests with a stand-in image and never reach Wikimedia; `E2E_PICTURES=live` lets them through when you want to look at the real pictures.
 
 ## License
 

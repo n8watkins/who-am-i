@@ -15,6 +15,7 @@ import {
 } from "../shared/protocol";
 import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence";
 import { ROOM_IDLE_MS, rules, type RoomState } from "../party/game";
+import { picturesOn, type PicturesEnv } from "./content/pictures";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { resultCardText } from "./result-card";
 import { requestSocketClientKey } from "./rate-limiter";
@@ -87,6 +88,11 @@ export class RoomDurableObject extends DurableObject<Env> {
     });
   }
 
+  /** One player's view, with pictures unless this Worker's PICTURES variable is "off". */
+  private viewOf(playerId: string, now: number): RoomView {
+    return rules.view(this.room!, playerId, now, picturesOn((this.env as Env & PicturesEnv).PICTURES));
+  }
+
   // -------------------------------------------------------------------------
   // RPC (called only by the Worker, after it has verified the session token)
 
@@ -97,7 +103,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.commit(room);
     // The host has no socket yet, but their lobby is about to open.
     await this.enqueuePinWork(() => this.reconcilePin(true));
-    return { ok: true, roomId: room.roomId, playerId, view: rules.view(this.room!, playerId, now) };
+    return { ok: true, roomId: room.roomId, playerId, view: this.viewOf(playerId, now) };
   }
 
   async preview(): Promise<RoomPreview | null> {
@@ -116,14 +122,14 @@ export class RoomDurableObject extends DurableObject<Env> {
     const result = rules.join(room, nickname, now);
     if (!result.ok) return result;
     await this.commit(result.room);
-    return { ok: true, playerId: result.playerId, view: rules.view(this.room!, result.playerId, now) };
+    return { ok: true, playerId: result.playerId, view: this.viewOf(result.playerId, now) };
   }
 
   async getView(roomId: string, playerId: string): Promise<ViewResult> {
     const room = this.authorized(roomId, playerId);
     if (!room) return this.denied(roomId, playerId);
     await this.expireIfDue();
-    return { ok: true, view: rules.view(this.room!, playerId, Date.now()) };
+    return { ok: true, view: this.viewOf(playerId, Date.now()) };
   }
 
   /** The words for a shared result card, once the match is over. */
@@ -146,7 +152,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       await this.storePin(null);
       await this.reconcilePin(true);
     });
-    return { ok: true, view: rules.view(this.room!, playerId, Date.now()) };
+    return { ok: true, view: this.viewOf(playerId, Date.now()) };
   }
 
   async command(roomId: string, playerId: string, command: Command): Promise<CommandResult> {
@@ -157,7 +163,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     const result = rules.command(this.room!, playerId, command, now);
     if (!result.ok) {
       const stillPlayer = rules.player(this.room!, playerId);
-      return stillPlayer ? { ...result, view: rules.view(this.room!, playerId, now) } : result;
+      return stillPlayer ? { ...result, view: this.viewOf(playerId, now) } : result;
     }
     if (!result.duplicate) await this.commit(result.room, command.type === "player.remove" ? CLOSE_REMOVED : CLOSE_LEFT_ROOM);
     if (command.type === "player.leave") {
@@ -166,7 +172,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       // The leaver gets no further view of the room.
       return { ok: true, duplicate: result.duplicate, view: leftView(result.room, playerId, now) };
     }
-    return { ok: true, duplicate: result.duplicate, view: rules.view(this.room!, playerId, now) };
+    return { ok: true, duplicate: result.duplicate, view: this.viewOf(playerId, now) };
   }
 
   // -------------------------------------------------------------------------
@@ -503,7 +509,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   /** Each socket receives only its own player's filtered view. */
   private sendView(ws: WebSocket, playerId: string): void {
     if (!this.room) return;
-    const message: ServerMessage = { type: "state", view: rules.view(this.room, playerId, Date.now()) };
+    const message: ServerMessage = { type: "state", view: this.viewOf(playerId, Date.now()) };
     try {
       ws.send(JSON.stringify(message));
     } catch {

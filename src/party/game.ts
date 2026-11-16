@@ -48,6 +48,8 @@ import {
 import { previewOf, viewFor } from "../worker/view";
 
 export type { RoomState };
+/** Reads a host's PICTURES variable for `game.create({ pictures })` and `rules.view`. */
+export { picturesOn } from "../worker/content/pictures";
 
 /** A room is deleted after this long without any player activity: two locked phones must not lose the game. */
 export const ROOM_IDLE_MS = 60 * 60 * 1000;
@@ -118,9 +120,12 @@ export const rules = {
     return setAway(connected ?? room, playerId, report.away, ctx) ?? connected;
   },
 
-  /** What one player may see: never the identity they are guessing before their round is over. */
-  view(room: RoomState, playerId: string, now: number): RoomView {
-    return viewFor(room, playerId, now);
+  /**
+   * What one player may see: never the identity they are guessing before their round is over.
+   * `pictures` is the host's PICTURES switch (picturesOn): false sends no identity pictures.
+   */
+  view(room: RoomState, playerId: string, now: number, pictures: boolean): RoomView {
+    return viewFor(room, playerId, now, pictures);
   },
 
   /** What the join screen may see: no identities, no player ids. */
@@ -159,6 +164,8 @@ export interface GameState {
   room: RoomState;
   /** The two party seats, in the engine's seat order (A, then B). */
   seats: [number, number];
+  /** Whether snapshots carry identity pictures: the host's PICTURES switch, fixed when the match is created. */
+  pictures: boolean;
 }
 
 /** What one match leaves for the next, so a rematch avoids its identities and the loser starts. Server-only. */
@@ -277,9 +284,20 @@ export const game = {
    * is the match's host: the one who may confirm their own guess when the other phone is gone.
    * With a carry from the same two seats it starts as a rematch: the loser guesses first and the
    * last match's identities stay out of the draw.
+   *
+   * `pictures` is the host's PICTURES switch: the party room passes `picturesOn(env.PICTURES)`
+   * (src/worker/content/pictures.ts), and false keeps every snapshot text-only. Unset means on,
+   * as an unset PICTURES variable does.
    */
-  create(input: { seats: readonly PartySeat[]; settings?: unknown; now: number; carry?: Carry | null; sources?: Sources }): GameState {
-    const { now, sources = cryptoSources } = input;
+  create(input: {
+    seats: readonly PartySeat[];
+    settings?: unknown;
+    now: number;
+    carry?: Carry | null;
+    sources?: Sources;
+    pictures?: boolean;
+  }): GameState {
+    const { now, sources = cryptoSources, pictures = true } = input;
     if (input.seats.length !== 2) throw new Error("Who Am I? takes exactly two seats");
     const checked = game.settings(input.settings);
     if (!checked.ok) throw new Error(checked.message);
@@ -311,7 +329,7 @@ export const game = {
     } else {
       room = mustApply(room, host, "match.start", ctx);
     }
-    return { room, seats };
+    return { room, seats, pictures };
   },
 
   /**
@@ -333,7 +351,7 @@ export const game = {
 
   /** KR-1: a player sees their own filtered view; a screen, or a seat not in this game, sees the screen view. */
   snapshot(state: GameState, now: number, viewer: Viewer): Snapshot {
-    if (viewer.role === "player" && state.seats.includes(viewer.seat)) return rules.view(state.room, playerOf(viewer.seat), now);
+    if (viewer.role === "player" && state.seats.includes(viewer.seat)) return rules.view(state.room, playerOf(viewer.seat), now, state.pictures);
     return screenView(state, now);
   },
 
@@ -397,13 +415,18 @@ export const game = {
     return JSON.stringify(state);
   },
 
-  restore(text: string): GameState {
+  /**
+   * `pictures` is the host's PICTURES switch as it is now. A room restarts when its Worker's
+   * variables change, so passing it here makes "off" reach a match already in play. Unset keeps
+   * the saved value (on for a game saved before the switch existed).
+   */
+  restore(text: string, options: { pictures?: boolean } = {}): GameState {
     const state = JSON.parse(text) as Partial<GameState>;
     const seats = state.seats;
     if (!state.room || state.room.schema !== 1 || !Array.isArray(seats) || seats.length !== 2 || !seats.every(Number.isInteger)) {
       throw new Error("Not a saved Who Am I? game");
     }
-    return { room: state.room, seats: [seats[0]!, seats[1]!] };
+    return { room: state.room, seats: [seats[0]!, seats[1]!], pictures: options.pictures ?? state.pictures !== false };
   },
 };
 

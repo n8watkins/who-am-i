@@ -1,6 +1,8 @@
-import type { Difficulty, PackId } from "../../shared/protocol";
+import type { Difficulty, IdentityPicture, PackId } from "../../shared/protocol";
 
-export type { Difficulty };
+import { PICTURES } from "./pictures";
+
+export type { Difficulty, IdentityPicture };
 
 /** A guessable identity. Server-only: never import this module from client code. */
 export interface Identity {
@@ -11,7 +13,8 @@ export interface Identity {
   tags: string[];
   difficulty: Difficulty;
   active: boolean;
-  imageUrl?: string;
+  /** A Wikimedia-hosted picture and its credit, from picture-data.ts. Absent: the card stays text-only. */
+  picture?: IdentityPicture;
   /** Exactly three hints, from vague to strong. Never contain the name or an alias. */
   hints: Hints;
 }
@@ -31,14 +34,17 @@ export function definePack(packId: SourcePackId, rows: readonly IdentityRow[], h
   return rows.map(([slug, canonicalName, difficulty, aliases = [], tags = []]) => {
     const identityHints = hints[slug];
     if (!identityHints) throw new Error(`Missing hints for ${packId}.${slug}`);
+    const id = `${packId}.${slug}`;
+    const picture = PICTURES[id];
     return {
-      id: `${packId}.${slug}`,
+      id,
       canonicalName,
       aliases: [...aliases],
       categoryId: packId,
       tags: [...tags],
       difficulty,
       active: true,
+      ...(picture ? { picture } : {}),
       hints: identityHints,
     };
   });

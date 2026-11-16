@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { canNativeShare, useShareCard } from "../../kit/client/share";
-import type { RoomView } from "../../shared/protocol";
+import type { RoomView, RoundSummaryEntry } from "../../shared/protocol";
+import { PictureCredit, PictureImage, usablePicture, usePictureFallback } from "../components/IdentityPicture";
 import { Portrait } from "../components/PackArt";
 import { OpponentPresenceBanner } from "../components/Presence";
 import { Scoreboard } from "../components/Scoreboard";
@@ -29,25 +30,7 @@ export function RoundSummary({ room, view }: { room: RoomHandle; view: RoomView 
         {entries.map((entry) => {
           const player = view.players.find((p) => p.playerId === entry.playerId);
           const isMe = entry.playerId === me.playerId;
-          return (
-            <Card key={entry.playerId} className={`animate-pop ${isMe ? "border-2 border-brand/40" : ""}`}>
-              <div className="flex items-center gap-4">
-                <Portrait name={entry.identity.canonicalName} categoryId={entry.identity.categoryId} className="size-16 text-xl" />
-                <div className="min-w-0">
-                  <p className="text-sm font-extrabold uppercase tracking-wide text-muted">{isMe ? "You were" : `${player?.nickname ?? "Opponent"} was`}</p>
-                  <p className="mt-1 text-3xl font-black leading-tight" data-testid={isMe ? "reveal-self" : "reveal-opponent"}>
-                    {entry.identity.canonicalName}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <ResultPill result={entry.result} />
-                <span className="text-sm font-semibold text-muted" data-testid={isMe ? "hints-self" : "hints-opponent"}>
-                  {entry.hintsUsed === 0 ? "No hints" : entry.hintsUsed === 1 ? "1 hint used" : `${entry.hintsUsed} hints used`}
-                </span>
-              </div>
-            </Card>
-          );
+          return <RevealCard key={entry.playerId} entry={entry} isMe={isMe} label={isMe ? "You were" : `${player?.nickname ?? "Opponent"} was`} />;
         })}
       </div>
       <Scoreboard view={view} />
@@ -56,6 +39,37 @@ export function RoundSummary({ room, view }: { room: RoomHandle; view: RoomView 
       </Button>
       <p className="text-center text-sm text-muted">Either player can continue.</p>
     </div>
+  );
+}
+
+/** One revealed identity: its picture (or the initials card), the name, the result and the hints. */
+function RevealCard({ entry, isMe, label }: { entry: RoundSummaryEntry; isMe: boolean; label: string }) {
+  const [failed, onError] = usePictureFallback();
+  const picture = usablePicture(entry.identity, failed);
+  const name = entry.identity.canonicalName;
+  return (
+    <Card className={`animate-pop ${isMe ? "border-2 border-brand/40" : ""}`}>
+      <div className="flex items-center gap-4">
+        {picture ? (
+          <PictureImage picture={picture} name={name} onError={onError} className="aspect-[4/5] h-28 w-auto shrink-0 rounded-2xl short:h-24" />
+        ) : (
+          <Portrait name={name} categoryId={entry.identity.categoryId} className="size-16 text-xl" />
+        )}
+        <div className="min-w-0">
+          <p className="text-sm font-extrabold uppercase tracking-wide text-muted">{label}</p>
+          <p className="mt-1 text-3xl font-black leading-tight" data-testid={isMe ? "reveal-self" : "reveal-opponent"}>
+            {name}
+          </p>
+          {picture && <PictureCredit picture={picture} className="mt-1" />}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <ResultPill result={entry.result} />
+        <span className="text-sm font-semibold text-muted" data-testid={isMe ? "hints-self" : "hints-opponent"}>
+          {entry.hintsUsed === 0 ? "No hints" : entry.hintsUsed === 1 ? "1 hint used" : `${entry.hintsUsed} hints used`}
+        </span>
+      </div>
+    </Card>
   );
 }
 

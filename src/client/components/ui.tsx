@@ -1,8 +1,8 @@
 import { KitFooter } from "../../kit/client/Footer";
 import { SoundToggle } from "../../kit/client/SoundToggle";
 import { ThemeSwitch } from "../../kit/client/ThemeSwitch";
-import { APP_VERSION, CHANGELOG_URL } from "../lib/app";
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import { APP_VERSION, CHANGELOG_URL, REPORT_PICTURE_URL } from "../lib/app";
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { navigate } from "../lib/router";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "success";
@@ -54,6 +54,7 @@ export function Logo({ size = 40 }: { size?: number }) {
 }
 
 export function Shell({ children, wide = false, aside }: { children: ReactNode; wide?: boolean; aside?: ReactNode }) {
+  const [picturesOpen, setPicturesOpen] = useState(false);
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 pt-4 sm:px-6">
@@ -80,8 +81,47 @@ export function Shell({ children, wide = false, aside }: { children: ReactNode; 
       </main>
       {/* On phones the footer also reserves room for the sticky turn action bar (its height is published as --action-bar-h). */}
       <KitFooter version={APP_VERSION} changelogUrl={CHANGELOG_URL}>
+        <button
+          type="button"
+          onClick={() => setPicturesOpen(true)}
+          className="inline-flex min-h-11 items-center rounded-xl px-2 hover:text-brand-ink"
+          data-testid="pictures-credits"
+        >
+          Pictures
+        </button>
         <ThemeSwitch />
       </KitFooter>
+      <Dialog open={picturesOpen} onClose={() => setPicturesOpen(false)} title="Pictures">
+        <PicturesNote />
+      </Dialog>
+    </div>
+  );
+}
+
+/** Where the identity pictures come from, and how to report one. */
+export function PicturesNote() {
+  return (
+    <div className="space-y-3 text-[15px] leading-relaxed">
+      <p>
+        Pictures of identities come from Wikimedia Commons and Wikipedia and load straight from Wikimedia. This site does not copy or
+        keep them.
+      </p>
+      <p>
+        Pictures of real people are free photos and portraits from Wikimedia Commons, credited under each picture with their author
+        and licence. Tap a credit to see the file's page.
+      </p>
+      <p>
+        Pictures of film, TV, game and cartoon characters and of brand mascots are the images on each character's Wikipedia article.
+        They belong to their owners, are shown only so players can recognise who they are guessing, and do not mean anyone endorses
+        this game.
+      </p>
+      <p className="rounded-2xl bg-paper p-3 text-sm text-muted">
+        A picture that is wrong, unkind or yours?{" "}
+        <a href={REPORT_PICTURE_URL} target="_blank" rel="noopener noreferrer" className="font-bold text-brand-ink underline underline-offset-2">
+          Report it on GitHub
+        </a>{" "}
+        and it comes down.
+      </p>
     </div>
   );
 }

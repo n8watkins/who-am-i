@@ -12,6 +12,7 @@ import {
 } from "../../shared/protocol";
 import { pickSuggestions } from "../../shared/questions";
 import { absentSince, presenceOf } from "../../kit/shared/presence";
+import { PictureCredit, PictureImage, usablePicture, usePictureFallback } from "../components/IdentityPicture";
 import { Portrait } from "../components/PackArt";
 import { OpponentPresenceBanner } from "../components/Presence";
 import { MODE_LABELS } from "../components/SettingsForm";
@@ -41,6 +42,8 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
   const opponentGoneFor = opponentAbsentSince !== null ? now + room.serverOffset - opponentAbsentSince : 0;
   const canOverride = myTurn && pendingConfirm && isHost && opponentAbsentSince !== null && opponentGoneFor >= HOST_OVERRIDE_AFTER_MS;
   const identityName = view.opponentIdentity?.canonicalName ?? "";
+  const [failedPicture, onPictureError] = usePictureFallback();
+  const picture = usablePicture(view.opponentIdentity, failedPicture);
   const hintsOn = view.settings.hints !== false;
   const questionMode = view.settings.questions ?? "both";
   const appOn = twentyQ && questionMode !== "spoken";
@@ -92,7 +95,11 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
         {myTurn ? (
           <details className="group rounded-2xl border-2 border-brand/25 bg-card px-4 py-1">
             <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3">
-              {view.opponentIdentity && <Portrait name={identityName} categoryId={view.opponentIdentity.categoryId} className="size-9 text-sm" />}
+              {picture ? (
+                <PictureImage picture={picture} name={identityName} onError={onPictureError} className="size-9 shrink-0 rounded-xl" />
+              ) : (
+                view.opponentIdentity && <Portrait name={identityName} categoryId={view.opponentIdentity.categoryId} className="size-9 text-sm" />
+              )}
               <span className="min-w-0 flex-1 text-sm font-bold text-muted">
                 {opponent.nickname} is <span className="text-base font-black text-ink" data-testid="opponent-identity">{identityName}</span>
                 {opponentResult ? " " : ", up next"}
@@ -100,6 +107,7 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
               </span>
               <span aria-hidden="true" className="text-muted transition group-open:rotate-180">{"▾"}</span>
             </summary>
+            {picture && <PictureCredit picture={picture} className="mt-1" />}
             <RulesList view={view} />
             {trade && !myResult && (
               <div className="pb-2">
@@ -109,6 +117,31 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
               </div>
             )}
           </details>
+        ) : picture ? (
+          // The headband card: the opponent's identity as a big picture with the name under it.
+          // Short screens (a phone sideways) keep the turn status and +1 in view: below the md
+          // breakpoint they sit in a bar fixed to the bottom, which the card must clear; from md
+          // (844x390) they sit in this column under the card, so the picture shrinks further.
+          <Card className="flex flex-col items-center gap-3 border-2 border-brand/30 py-4 text-center short:flex-row short:gap-5 short:text-left md:short:gap-4 md:short:py-3">
+            <PictureImage
+              picture={picture}
+              name={identityName}
+              onError={onPictureError}
+              className="aspect-[4/5] h-[min(34dvh,20rem)] md:h-56 w-auto max-w-full rounded-2xl short:h-[34dvh] md:short:h-[22dvh] md:short:rounded-xl"
+            />
+            <div className="min-w-0 max-w-full">
+              <p className="text-xs font-extrabold uppercase tracking-wide text-muted">Answer as</p>
+              <p className="text-3xl font-black leading-tight text-balance md:short:text-2xl" data-testid="opponent-identity">
+                {identityName}
+              </p>
+              <PictureCredit picture={picture} className="mt-1" />
+              {myResult && (
+                <p className="mt-1.5 text-sm font-bold text-muted">
+                  Your turn: <ResultPill result={myResult} />
+                </p>
+              )}
+            </div>
+          </Card>
         ) : (
           <Card className="flex items-center gap-4 border-2 border-brand/30 py-4">
             {view.opponentIdentity && <Portrait name={identityName} categoryId={view.opponentIdentity.categoryId} className="size-16 text-xl" />}

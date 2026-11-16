@@ -12,6 +12,10 @@
   "routes": [{ "pattern": "whoami.n8builds.dev", "custom_domain": true }],
   "workers_dev": false,
   "preview_urls": false,
+  // Keeps variables set in the Cloudflare dashboard across deploys. The one the game reads is
+  // PICTURES: set it to "off" there to turn identity pictures off (text-only cards) at once,
+  // with no code change; delete it to turn them back on. See README, "Pictures".
+  "keep_vars": true,
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",

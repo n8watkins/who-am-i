@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 const EM_DASH = String.fromCharCode(0x2014);
 import { PACK_META } from "../src/shared/packs";
-import { PACK_IDS } from "../src/shared/protocol";
+import { PACK_IDS, PICTURE_HOST } from "../src/shared/protocol";
 import { ALL_PACK_IDENTITIES, packIdentities, SOURCE_PACKS } from "../src/worker/content";
+import { PICTURES } from "../src/worker/content/pictures";
+import headersSource from "../public/_headers?raw";
 import { identitiesClash, normalizeName } from "../src/worker/engine";
 
 describe("content packs", () => {
@@ -90,6 +92,51 @@ describe("hints", () => {
       }
     }
     expect(problems).toEqual([]);
+  });
+
+  it("gives every picture a Wikimedia thumbnail, its file page and a credit, and only to known identities", () => {
+    const ids = new Set(ALL_PACK_IDENTITIES.map((i) => i.id));
+    const problems: string[] = [];
+    for (const [id, picture] of Object.entries(PICTURES)) {
+      if (!ids.has(id)) problems.push(`${id}: no such identity`);
+      if (!picture.imageUrl.startsWith(`https://${PICTURE_HOST}/wikipedia/`)) problems.push(`${id}: image not on ${PICTURE_HOST}`);
+      if (/[?#]/.test(picture.imageUrl)) problems.push(`${id}: image address carries a query or fragment`);
+      if (!/^https:\/\/(commons\.wikimedia\.org|en\.wikipedia\.org)\/wiki\/File:/.test(picture.filePage)) problems.push(`${id}: file page ${picture.filePage}`);
+      if (!picture.license.trim()) problems.push(`${id}: no licence`);
+      if (picture.author !== null && !picture.author.trim()) problems.push(`${id}: empty author`);
+      if (JSON.stringify(picture).includes(EM_DASH)) problems.push(`${id}: em dash`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("credits an author for every picture whose licence requires attribution (CC BY, CC BY-SA)", () => {
+    const missing = Object.entries(PICTURES)
+      .filter(([, picture]) => picture.free && picture.license.startsWith("CC BY") && picture.author === null)
+      .map(([id, picture]) => `${id}: ${picture.license} with no author (${picture.filePage})`);
+    expect(missing).toEqual([]);
+  });
+
+  it("writes authors as the card prints them: no field labels, life dates or footnote marks", () => {
+    // The card reads "Picture: <author> · <licence>", so "Author: X Cropped by: Y" would print the labels.
+    const problems: string[] = [];
+    for (const [id, picture] of Object.entries(PICTURES)) {
+      const author = picture.author;
+      if (author === null) continue;
+      if (/\b[A-Za-z ]+:\s/.test(author)) problems.push(`${id}: label in "${author}"`);
+      if (/^(illustrated|photo(graph)?(ed)?|painted|drawn) by\b/i.test(author)) problems.push(`${id}: "${author}" starts with a role`);
+      if (/\([^)]*\d{3,4}[^)]*\)/.test(author)) problems.push(`${id}: dates in "${author}"`);
+      if (/\[\d+\]/.test(author)) problems.push(`${id}: footnote mark in "${author}"`);
+      if (author !== author.trim() || /\s{2,}/.test(author)) problems.push(`${id}: stray spaces in "${author}"`);
+    }
+    expect(problems).toEqual([]);
+    for (const identity of ALL_PACK_IDENTITIES) expect(identity.picture ?? null).toEqual(PICTURES[identity.id] ?? null);
+  });
+
+  it("lets the page load images from its own origin and the one picture host, nothing wider", () => {
+    const csp = /Content-Security-Policy: (.*)/.exec(headersSource)![1]!;
+    const imgSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("img-src"));
+    expect(imgSrc).toBe(`img-src 'self' data: https://${PICTURE_HOST}`);
+    expect(/Referrer-Policy: no-referrer/.test(headersSource)).toBe(true);
   });
 
   it("never names any other identity, so a hint cannot reveal the opponent's identity", () => {

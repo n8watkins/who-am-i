@@ -27,6 +27,14 @@ function files(dir) {
   });
 }
 
+// Picture addresses travel only in per-player views too, never in the bundle.
+const pictureSource = readFileSync(new URL("picture-data.ts", contentDir), "utf8");
+const pictureUrls = [...pictureSource.matchAll(/"(https:\/\/[^"]+)"/g)].map((m) => m[1]);
+if (pictureUrls.length < 100) {
+  console.error(`check-bundle: expected 100+ picture addresses, parsed ${pictureUrls.length}. Did the picture data format change?`);
+  process.exit(1);
+}
+
 const leaks = [];
 for (const path of files(distDir.pathname)) {
   const text = readFileSync(path, "latin1");
@@ -34,9 +42,10 @@ for (const path of files(distDir.pathname)) {
     if (text.includes(id)) leaks.push(`${path}: id ${id}`);
     if (text.includes(name)) leaks.push(`${path}: name "${name}"`);
   }
+  for (const url of pictureUrls) if (text.includes(url)) leaks.push(`${path}: picture ${url}`);
 }
 if (leaks.length) {
   console.error("check-bundle: identity content found in the client bundle:\n" + leaks.join("\n"));
   process.exit(1);
 }
-console.log(`check-bundle: ${identities.length} identities, none present in dist/client.`);
+console.log(`check-bundle: ${identities.length} identities and ${pictureUrls.length} picture addresses, none present in dist/client.`);

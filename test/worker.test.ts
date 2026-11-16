@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   LEGACY_WS_PROTOCOL,
   LEGACY_WS_TOKEN_PREFIX,
+  PICTURE_HOST,
   WS_CLOSE,
   WS_PROTOCOL,
   type ApiError,
@@ -18,12 +19,15 @@ import {
   type Settings,
   type ViewResponse,
 } from "../src/shared/protocol";
+import { getIdentity } from "../src/worker/content";
+import { PICTURES } from "../src/worker/content/pictures";
 import type { RoomState } from "../src/worker/engine";
 import { HELLO_TIMEOUT_MS, MAX_SILENT_PER_CLIENT, MAX_SILENT_SOCKETS, type RoomDurableObject } from "../src/worker/room";
 import { helloFrame } from "../src/client/lib/roomSocket";
 import { PIN_DIRECTORY_NAME, PIN_TTL_MS, type PinDirectoryDurableObject } from "../src/worker/pin-directory";
 import { RATE_LIMITS } from "../src/worker/rate-limiter";
 import { signSession } from "../src/worker/session";
+import { pictureNeedles } from "./helpers";
 
 const BASE = "http://who-am-i.test";
 let ipCounter = 0;
@@ -123,6 +127,24 @@ async function openSocket(code: string, token: string) {
 
 function roomStub(code: string): DurableObjectStub<RoomDurableObject> {
   return env.ROOMS.getByName(code);
+}
+
+/**
+ * Re-deals a started room's round so both players hold an identity from its pack that has a
+ * picture (none of the ones dealt, so no earlier view can carry them). Returns [first, second].
+ */
+async function withPicturedIdentities(code: string, first: string, second: string): Promise<[string, string]> {
+  return runInDurableObject(roomStub(code), async (instance, state) => {
+    const self = instance as unknown as { room: RoomState };
+    const round = self.room.round!;
+    const dealt = new Set(Object.values(round.assignments));
+    const pictured = Object.keys(PICTURES).filter((id) => id.startsWith(`${self.room.settings.packId}.`) && !dealt.has(id));
+    expect(pictured.length, "at least two undealt identities in the pack have pictures").toBeGreaterThanOrEqual(2);
+    const [a, b] = pictured as [string, string];
+    self.room = { ...self.room, round: { ...round, assignments: { ...round.assignments, [first]: a, [second]: b } } };
+    await state.storage.put("room", self.room);
+    return [a, b];
+  });
 }
 
 describe("HTTP API", () => {
@@ -285,6 +307,59 @@ describe("WebSockets", () => {
     for (const frame of beforeReveal) expect(frame).not.toContain(ownA);
     a.ws.close();
     b.ws.close();
+  });
+
+  it("sends a picture only beside its name: never a player's own before the summary, over HTTP or the socket", async () => {
+    const { code, host, guest, view } = await startedRoom({ packId: "actors" });
+    // Give both players an actor known to have a picture, so pulling any one picture never breaks this test.
+    const [ownId, opponentId] = await withPicturedIdentities(code, host.playerId, guest.playerId);
+    const ownPicture = getIdentity(ownId).picture!;
+    const opponentPicture = getIdentity(opponentId).picture!;
+    const a = await openSocket(code, host.token);
+    const viewA = await a.next((v) => v.players.every((p) => p.connected) || v.status !== "lobby");
+    expect(viewA.opponentIdentity?.picture).toEqual(opponentPicture);
+
+    // Everything the host's phone receives before the summary: HTTP bodies and socket frames.
+    const httpToHost: string[] = [JSON.stringify(host), JSON.stringify(view)];
+    const r1 = await send(code, host.token, viewA, "turn.hint");
+    httpToHost.push(JSON.stringify(r1.body));
+    const r2 = await send(code, host.token, r1.body.view, "turn.correct.request");
+    httpToHost.push(JSON.stringify(r2.body));
+    httpToHost.push(JSON.stringify((await api<ViewResponse>(`/api/rooms/${code}/state`, { token: host.token })).body));
+    httpToHost.push(JSON.stringify((await api<unknown>(`/api/rooms/${code}`)).body));
+    const v = (await send(code, guest.token, r2.body.view, "turn.correct.confirm")).body.view;
+    await send(code, guest.token, v, "turn.skip");
+    const summary = await a.next((s) => s.status === "round_summary");
+    const leaks = pictureNeedles(ownPicture);
+    for (const body of httpToHost) for (const leak of leaks) expect(body).not.toContain(leak);
+    const beforeSummary = a.frames.filter((f) => !f.includes('"round_summary"'));
+    expect(beforeSummary.length).toBeGreaterThan(0);
+    for (const frame of beforeSummary) for (const leak of leaks) expect(frame).not.toContain(leak);
+    // The summary shows both, whole.
+    expect(summary.roundSummary!.entries.map((e) => e.identity.picture)).toEqual(
+      expect.arrayContaining([ownPicture, opponentPicture]),
+    );
+    a.ws.close();
+  });
+
+  it("reads the Worker's PICTURES variable: off sends no picture over HTTP or the socket", async () => {
+    const { code, host, guest } = await startedRoom({ packId: "actors" });
+    await withPicturedIdentities(code, host.playerId, guest.playerId);
+    const state = () => api<ViewResponse>(`/api/rooms/${code}/state`, { token: host.token });
+    expect((await state()).body.view.opponentIdentity?.picture).not.toBeNull();
+
+    // As the dashboard's PICTURES variable reaches a room: through the env it was started with.
+    await runInDurableObject(roomStub(code), async (instance) => {
+      (instance as unknown as { env: typeof env & { PICTURES?: string } }).env = { ...env, PICTURES: " OFF " };
+    });
+    const off = (await state()).body.view;
+    expect(off.opponentIdentity).not.toBeNull();
+    expect(off.opponentIdentity?.picture).toBeNull();
+    const a = await openSocket(code, host.token);
+    const socketView = await a.next((v) => v.opponentIdentity !== null);
+    expect(socketView.opponentIdentity?.picture).toBeNull();
+    for (const frame of a.frames) expect(frame).not.toContain(PICTURE_HOST);
+    a.ws.close();
   });
 
   it("marks a player disconnected when their socket closes", async () => {

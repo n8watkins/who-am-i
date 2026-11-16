@@ -164,11 +164,33 @@ export type RoomStatus =
 export type TurnResult = "correct" | "skipped" | "timed_out" | "beaten";
 export type TurnPhase = "asking" | "pending_confirm";
 
+/**
+ * A picture of an identity: a Wikimedia-hosted thumbnail and its credit. It travels only inside a
+ * PublicIdentity, so it reaches a phone exactly when that identity's name does.
+ */
+export interface IdentityPicture {
+  /** A thumbnail on upload.wikimedia.org, about 480 pixels wide. Never copied into this site. */
+  imageUrl: string;
+  /** The file's page on Wikimedia Commons or Wikipedia, with its full credit and licence. */
+  filePage: string;
+  /** The author as the file page credits them, or null when unknown. */
+  author: string | null;
+  /** The licence's short name, for example "CC BY-SA 4.0" or "Public domain". */
+  license: string;
+  /** True for a free licence or public domain; false for a non-free image used on Wikipedia's article. */
+  free: boolean;
+}
+
+/** The only host identity pictures may come from (the page's img-src allows exactly this one). */
+export const PICTURE_HOST = "upload.wikimedia.org";
+
 /** What a client may see of an identity. Sent only for identities the viewer is allowed to see. */
 export interface PublicIdentity {
   id: string;
   canonicalName: string;
   categoryId: string;
+  /** Null when the identity has no picture, or pictures are switched off. */
+  picture: IdentityPicture | null;
 }
 
 export interface PlayerView {

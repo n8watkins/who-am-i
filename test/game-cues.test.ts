@@ -6,7 +6,7 @@ import { cmd, mustApply, setupRoom } from "./helpers";
 
 /** The cues each player hears when the room goes from `before` to `after`. */
 function heard(before: RoomState, after: RoomState, players: string[], now: number) {
-  return players.map((p) => cuesFor(viewFor(before, p, now), viewFor(after, p, now)));
+  return players.map((p) => cuesFor(viewFor(before, p, now, true), viewFor(after, p, now, true)));
 }
 
 describe("sound and haptic cues", () => {

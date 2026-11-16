@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Short screens: a phone held sideways (844x390). Pictures sit beside the name there. */
+@custom-variant short (@media (max-height: 32rem));
+
 @theme {
   --font-sans: "Nunito Variable", "Segoe UI", system-ui, sans-serif;
   --color-ink: #1d1a2e;

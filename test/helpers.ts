@@ -1,5 +1,15 @@
-import { DEFAULT_SETTINGS, type Command, type Settings } from "../src/shared/protocol";
+import { DEFAULT_SETTINGS, type Command, type IdentityPicture, type Settings } from "../src/shared/protocol";
 import { applyCommand, createRoom, joinRoom, setPresence, type EngineContext, type RoomState } from "../src/worker/engine";
+
+/**
+ * Every way a picture could show up in a message, as JSON writes it: the whole picture object
+ * (every credit field together, in the order views send it), its thumbnail address and its file
+ * page. The author and licence are not searched alone: another identity may share them.
+ */
+export function pictureNeedles(picture: IdentityPicture): string[] {
+  const inJson = (text: string) => JSON.stringify(text).slice(1, -1);
+  return [JSON.stringify(picture), inJson(picture.imageUrl), inJson(picture.filePage)];
+}
 
 let counter = 0;
 
