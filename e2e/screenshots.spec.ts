@@ -40,8 +40,10 @@ for (const device of ["desktop", "mobile"] as const) {
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({ path: `${OUT}/mobile-fold-${name}.png`, animations: "disabled" });
     };
-    const alice = await newPlayer(browser, { mobile });
-    const bob = await newPlayer(browser, { mobile });
+    // Screenshots are committed to the repo, so they never show a picture of a real person or an
+    // owned character: every picture fails to load and the cards fall back to text.
+    const alice = await newPlayer(browser, { mobile, pictures: "fail" });
+    const bob = await newPlayer(browser, { mobile, pictures: "fail" });
     const A = alice.page;
     const B = bob.page;
 

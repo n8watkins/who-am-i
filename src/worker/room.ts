@@ -15,6 +15,7 @@ import {
 } from "../shared/protocol";
 import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence";
 import { ROOM_IDLE_MS, rules, type RoomState } from "../party/game";
+import { configurePictures, type PicturesEnv } from "./content/pictures";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { resultCardText } from "./result-card";
 import { requestSocketClientKey } from "./rate-limiter";
@@ -81,6 +82,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    configurePictures((env as Env & PicturesEnv).PICTURES);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     void ctx.blockConcurrencyWhile(async () => {
       this.room = (await ctx.storage.get<RoomState>(STORAGE_KEY)) ?? null;

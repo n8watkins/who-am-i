@@ -5,7 +5,10 @@ import { checkCardPng, handleShareApi, shareCardPage } from "../src/kit/worker/s
 import { getIdentity, packIdentities } from "../src/worker/content";
 import type { RoomState } from "../src/worker/engine";
 import type { RoomDurableObject } from "../src/worker/room";
-import { CLIENT_VERSION, CLIENT_VERSION_HEADER, DEFAULT_SETTINGS, type SessionResponse } from "../src/shared/protocol";
+import { CLIENT_VERSION, CLIENT_VERSION_HEADER, DEFAULT_SETTINGS, PICTURE_HOST, type SessionResponse } from "../src/shared/protocol";
+import resultCardSource from "../src/client/lib/resultCard.ts?raw";
+import shareCardsSource from "../src/kit/worker/share-cards.ts?raw";
+import resultCardTextSource from "../src/worker/result-card.ts?raw";
 
 const BASE = "http://who-am-i.test";
 let ip = 0;
@@ -145,6 +148,26 @@ describe("shared result cards", () => {
     expect(used.length).toBe(16);
     const text = await (await call(`/api/share/${created.id}`)).text();
     for (const id of used) expect(text).not.toContain(getIdentity(id).canonicalName);
+  });
+
+  it("never carries an identity picture: not in its details, its page, or the code that paints it", async () => {
+    const { code, host, finish } = await finishedMatch();
+    await finish();
+    const created = (await (await share(code, host.token, fakePng())).json()) as CreatedCard;
+    await setPublic(created.id, created.ownerKey, true);
+    const details = await (await call(`/api/share/${created.id}`)).text();
+    const page = await (await pageFor(created.id)).text();
+    for (const text of [details, page]) {
+      expect(text).not.toContain(PICTURE_HOST);
+      expect(text).not.toContain("thumb.wikimedia.org");
+    }
+    // The card image is painted in the browser from the match summary; the painter, the share page
+    // and the card's words must never read an identity, let alone its picture.
+    for (const [file, source] of Object.entries({ resultCardSource, shareCardsSource, resultCardTextSource })) {
+      for (const forbidden of ["picture", "Picture", "wikimedia", "opponentIdentity", "roundSummary"]) {
+        expect(source.includes(forbidden), `${file} mentions ${forbidden}`).toBe(false);
+      }
+    }
   });
 
   it("expires after 90 days", async () => {

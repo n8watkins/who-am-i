@@ -3,11 +3,15 @@
 // the summary of a round that has already been completed.
 import type { Notice, PublicIdentity, RoomPreview, RoomView } from "../shared/protocol";
 import { getIdentity, packInfo } from "./content";
+import { picturesEnabled } from "./content/pictures";
 import { isGuessing, opponentOf, playerById, rematchFirstPlayer, type RoomState } from "./engine";
 
+// The only place an identity's picture enters a view: beside its name, so a picture reaches a
+// phone exactly when (and only where) that identity's name does.
 function publicIdentity(identityId: string): PublicIdentity {
   const identity = getIdentity(identityId);
-  return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId };
+  const picture = picturesEnabled() && identity.picture ? { ...identity.picture } : null;
+  return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId, picture };
 }
 
 export function viewFor(room: RoomState, viewerId: string, now: number): RoomView {

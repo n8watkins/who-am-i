@@ -18,6 +18,7 @@ import {
   type Settings,
   type ViewResponse,
 } from "../src/shared/protocol";
+import { getIdentity } from "../src/worker/content";
 import type { RoomState } from "../src/worker/engine";
 import { HELLO_TIMEOUT_MS, MAX_SILENT_PER_CLIENT, MAX_SILENT_SOCKETS, type RoomDurableObject } from "../src/worker/room";
 import { helloFrame } from "../src/client/lib/roomSocket";
@@ -285,6 +286,35 @@ describe("WebSockets", () => {
     for (const frame of beforeReveal) expect(frame).not.toContain(ownA);
     a.ws.close();
     b.ws.close();
+  });
+
+  it("sends a picture only beside its name: never a player's own before the summary, over HTTP or the socket", async () => {
+    const { code, host, guest, view } = await startedRoom({ packId: "actors" });
+    const a = await openSocket(code, host.token);
+    const viewA = await a.next((v) => v.players.every((p) => p.connected) || v.status !== "lobby");
+    const assignments = await runInDurableObject(roomStub(code), async (instance) => (instance as unknown as { room: RoomState }).room.round!.assignments);
+    const ownPicture = getIdentity(assignments[host.playerId]!).picture;
+    const opponentPicture = getIdentity(assignments[guest.playerId]!).picture;
+    expect(ownPicture && opponentPicture, "every actor has a picture").toBeTruthy();
+    expect(viewA.opponentIdentity?.picture).toEqual(opponentPicture);
+
+    // Everything the host's phone receives before the summary: HTTP bodies and socket frames.
+    const httpToHost: string[] = [JSON.stringify(host), JSON.stringify(view)];
+    const r1 = await send(code, host.token, viewA, "turn.hint");
+    httpToHost.push(JSON.stringify(r1.body));
+    const r2 = await send(code, host.token, r1.body.view, "turn.correct.request");
+    httpToHost.push(JSON.stringify(r2.body));
+    httpToHost.push(JSON.stringify((await api<ViewResponse>(`/api/rooms/${code}/state`, { token: host.token })).body));
+    httpToHost.push(JSON.stringify((await api<unknown>(`/api/rooms/${code}`)).body));
+    const v = (await send(code, guest.token, r2.body.view, "turn.correct.confirm")).body.view;
+    await send(code, guest.token, v, "turn.skip");
+    const summary = await a.next((s) => s.status === "round_summary");
+    const leaks = [ownPicture!.imageUrl, ownPicture!.filePage];
+    for (const body of httpToHost) for (const leak of leaks) expect(body).not.toContain(leak);
+    for (const frame of a.frames.filter((f) => !f.includes('"round_summary"'))) for (const leak of leaks) expect(frame).not.toContain(leak);
+    // The summary shows both.
+    expect(summary.roundSummary!.entries.map((e) => e.identity.picture?.imageUrl).sort()).toEqual([ownPicture!.imageUrl, opponentPicture!.imageUrl].sort());
+    a.ws.close();
   });
 
   it("marks a player disconnected when their socket closes", async () => {

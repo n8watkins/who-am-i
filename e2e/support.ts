@@ -1,4 +1,5 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { PICTURE_HOST } from "../src/shared/protocol";
 import { getIdentity } from "../src/worker/content";
 
 /**
@@ -59,13 +60,19 @@ export class Capture {
   }
 }
 
+interface RevealedIdentity {
+  id: string;
+  canonicalName: string;
+  picture: { imageUrl: string; filePage: string } | null;
+}
+
 interface ViewLike {
   youId: string;
-  roundSummary: { roundIndex: number; entries: { playerId: string; identity: { id: string; canonicalName: string } }[] } | null;
+  roundSummary: { roundIndex: number; entries: { playerId: string; identity: RevealedIdentity }[] } | null;
 }
 
 /** Reads the viewer's own identity for a round from the reveal message. */
-export function ownIdentityFromReveal(text: string): { id: string; canonicalName: string } {
+export function ownIdentityFromReveal(text: string): RevealedIdentity {
   const parsed = JSON.parse(text) as { view: ViewLike };
   const entry = parsed.view.roundSummary!.entries.find((e) => e.playerId === parsed.view.youId)!;
   return entry.identity;
@@ -96,9 +103,25 @@ export async function assertNoLeakBeforeReveal(capture: Capture, roundIndex: num
     expect(item.text.includes(own.canonicalName), `own identity "${own.canonicalName}" leaked in ${context}`).toBe(false);
     const escaped = JSON.stringify(own.canonicalName).slice(1, -1);
     expect(item.text.includes(escaped), `own identity (escaped) leaked in ${context}`).toBe(false);
+    if (own.picture) {
+      // Neither the picture's address nor its file page, and the browser never asked for it.
+      expect(item.text.includes(own.picture.imageUrl), `own picture address leaked in ${context}`).toBe(false);
+      expect(item.text.includes(own.picture.filePage), `own picture file page leaked in ${context}`).toBe(false);
+      expect(item.source, `own picture was loaded before the reveal (seq ${item.seq})`).not.toBe(own.picture.imageUrl);
+    }
   }
   return before.length;
 }
+
+/** A 1x1 PNG that stands in for every Wikimedia picture, so tests never reach Wikimedia. */
+const STAND_IN_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", "base64");
+
+/**
+ * How picture requests are answered: "stand-in" (default) serves the 1x1 PNG, "fail" makes every
+ * picture fail to load (the text card shows; screenshots for the repo use this), and "live"
+ * (E2E_PICTURES=live) lets them reach Wikimedia, for looking at real pictures locally.
+ */
+export type PictureMode = "stand-in" | "fail" | "live";
 
 let playerCount = 0;
 
@@ -113,13 +136,22 @@ function playerAddress(): Record<string, string> {
   return { "CF-Connecting-IP": `10.${process.pid % 256}.${(n >> 8) % 256}.${n % 256}` };
 }
 
-export async function newPlayer(browser: Browser, opts: { mobile?: boolean } = {}): Promise<{ context: BrowserContext; page: Page; capture: Capture }> {
+export async function newPlayer(
+  browser: Browser,
+  opts: { mobile?: boolean; pictures?: PictureMode } = {},
+): Promise<{ context: BrowserContext; page: Page; capture: Capture }> {
   const context = await browser.newContext({
     ...(opts.mobile
       ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
       : { viewport: { width: 1280, height: 800 } }),
     extraHTTPHeaders: playerAddress(),
   });
+  const pictures = opts.pictures ?? (process.env.E2E_PICTURES === "live" ? "live" : "stand-in");
+  if (pictures !== "live") {
+    await context.route(`https://${PICTURE_HOST}/**`, (route) =>
+      pictures === "fail" ? route.abort() : route.fulfill({ status: 200, contentType: "image/png", body: STAND_IN_PNG }),
+    );
+  }
   const page = await context.newPage();
   const capture = new Capture(page);
   return { context, page, capture };
