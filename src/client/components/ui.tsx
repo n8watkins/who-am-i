@@ -107,8 +107,8 @@ export function PicturesNote() {
         keep them.
       </p>
       <p>
-        Photos of real people are free pictures from Wikimedia Commons, credited under each picture with their author and licence. Tap
-        a credit to see the file's page.
+        Pictures of real people are free photos and portraits from Wikimedia Commons, credited under each picture with their author
+        and licence. Tap a credit to see the file's page.
       </p>
       <p>
         Pictures of film, TV, game and cartoon characters and of brand mascots are the images on each character's Wikipedia article.
