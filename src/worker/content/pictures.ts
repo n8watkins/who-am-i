@@ -21,15 +21,13 @@ export interface PicturesEnv {
   PICTURES?: string;
 }
 
-let enabled = true;
-
-/** Applies the PICTURES variable. Called by each room when it starts. */
-export function configurePictures(value: string | undefined): void {
-  enabled = value?.trim().toLowerCase() !== "off";
-}
-
-export function picturesEnabled(): boolean {
-  return enabled;
+/**
+ * Reads the PICTURES variable: "off" (any case, any spaces) turns pictures off, anything else
+ * leaves them on. Whoever builds a view passes the result to it (viewFor's `pictures`), so there
+ * is no module state for one room or runtime to forget to set.
+ */
+export function picturesOn(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() !== "off";
 }
 
 export const PICTURES: Readonly<Record<string, IdentityPicture>> = Object.fromEntries(

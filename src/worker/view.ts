@@ -3,18 +3,21 @@
 // the summary of a round that has already been completed.
 import type { Notice, PublicIdentity, RoomPreview, RoomView } from "../shared/protocol";
 import { getIdentity, packInfo } from "./content";
-import { picturesEnabled } from "./content/pictures";
 import { isGuessing, opponentOf, playerById, rematchFirstPlayer, type RoomState } from "./engine";
 
 // The only place an identity's picture enters a view: beside its name, so a picture reaches a
 // phone exactly when (and only where) that identity's name does.
-function publicIdentity(identityId: string): PublicIdentity {
+function publicIdentity(identityId: string, pictures: boolean): PublicIdentity {
   const identity = getIdentity(identityId);
-  const picture = picturesEnabled() && identity.picture ? { ...identity.picture } : null;
+  const picture = pictures && identity.picture ? { ...identity.picture } : null;
   return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId, picture };
 }
 
-export function viewFor(room: RoomState, viewerId: string, now: number): RoomView {
+/**
+ * What one player may see of the room. `pictures` is the host's PICTURES switch (picturesOn in
+ * ./content/pictures): false sends every identity without its picture.
+ */
+export function viewFor(room: RoomState, viewerId: string, now: number, pictures: boolean): RoomView {
   if (!playerById(room, viewerId)) throw new Error("viewFor called for a player not in the room");
   const opponent = opponentOf(room, viewerId);
 
@@ -68,7 +71,7 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
         }
       : null,
     turnResults: room.round ? { ...room.round.results } : {},
-    opponentIdentity: opponentIdentityId ? publicIdentity(opponentIdentityId) : null,
+    opponentIdentity: opponentIdentityId ? publicIdentity(opponentIdentityId, pictures) : null,
     roundSummary:
       showSummary && room.lastRoundSummary
         ? {
@@ -78,7 +81,7 @@ export function viewFor(room: RoomState, viewerId: string, now: number): RoomVie
               playerId: e.playerId,
               result: e.result,
               hintsUsed: e.hintsUsed ?? 0,
-              identity: publicIdentity(e.identityId),
+              identity: publicIdentity(e.identityId, pictures),
             })),
           }
         : null,

@@ -1,9 +1,10 @@
 // The party adapter (src/party/game.ts), in plain Node: the game in the shape the party kit will
 // host, and the secrecy rules at that edge.
 import { describe, expect, it } from "vitest";
-import { game, manifest, type Carry, type GameState, type Sources } from "../../src/party/game";
-import { DEFAULT_SETTINGS, HINTS_PER_TURN, type Settings } from "../../src/shared/protocol";
+import { game, manifest, picturesOn, type Carry, type GameState, type Sources } from "../../src/party/game";
+import { DEFAULT_SETTINGS, HINTS_PER_TURN, PICTURE_HOST, type Settings } from "../../src/shared/protocol";
 import { getIdentity } from "../../src/worker/content";
+import { PICTURES } from "../../src/worker/content/pictures";
 
 const START = 1_000_000;
 const SEATS = [
@@ -241,6 +242,50 @@ describe("the end of a match", () => {
     const { state } = start({ firstPlayer: "host" }, { carry });
     expect(turnSeat(state)).toBe(1);
     expect(state.room.usedIdentityIds).toHaveLength(2);
+  });
+});
+
+describe("pictures", () => {
+  /** A started match where both seats hold an identity that has a picture. */
+  function pictured(pictures?: boolean) {
+    const sources = seeded(3);
+    const state = game.create({ seats: SEATS, settings: { ...DEFAULT_SETTINGS, packId: "mixed" }, now: START, sources, pictures });
+    const [one, four] = Object.keys(PICTURES) as [string, string];
+    state.room.round!.assignments["seat-1"] = one;
+    state.room.round!.assignments["seat-4"] = four;
+    return state;
+  }
+  const opponentPicture = (state: GameState, seat: number) => {
+    const view = game.snapshot(state, START, { role: "player", seat });
+    return "youId" in view ? view.opponentIdentity?.picture : undefined;
+  };
+
+  it("shows the opponent's picture when the host leaves PICTURES on or unset", () => {
+    for (const state of [pictured(), pictured(true)]) {
+      expect(state.pictures).toBe(true);
+      expect(opponentPicture(state, 1)).toEqual(PICTURES[assignmentOf(state, 4)!]);
+      expect(opponentPicture(state, 4)).toEqual(PICTURES[assignmentOf(state, 1)!]);
+    }
+  });
+
+  it("sends no picture in any snapshot when the host's PICTURES is off", () => {
+    const state = pictured(picturesOn("off"));
+    expect(state.pictures).toBe(false);
+    for (const seat of [1, 4]) {
+      expect(opponentPicture(state, seat)).toBeNull();
+      expect(JSON.stringify(game.snapshot(state, START, { role: "player", seat }))).not.toContain(PICTURE_HOST);
+    }
+  });
+
+  it("takes the switch as it is now when a saved match is restored", () => {
+    const on = pictured(true);
+    const off = game.restore(game.serialize(on), { pictures: false });
+    expect(opponentPicture(off, 1)).toBeNull();
+    expect(game.restore(game.serialize(off)).pictures).toBe(false);
+    expect(game.restore(game.serialize(off), { pictures: true }).pictures).toBe(true);
+    // A game saved before the switch existed has pictures on.
+    const { pictures: _dropped, ...legacy } = on;
+    expect(game.restore(JSON.stringify(legacy)).pictures).toBe(true);
   });
 });
 

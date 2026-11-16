@@ -315,7 +315,7 @@ describe("away (phone locked or another app)", () => {
     ctx.advance(1_000);
     room = setAway(room, b, true, ctx)!;
     expect(room.lastActivityAt).toBe(before);
-    expect(viewFor(room, a, ctx.now).players.find((p) => p.playerId === b)).toMatchObject({ away: true, awaySince: ctx.now });
+    expect(viewFor(room, a, ctx.now, true).players.find((p) => p.playerId === b)).toMatchObject({ away: true, awaySince: ctx.now });
   });
 
   it("changes nothing when repeated, or for a disconnected player, and a reconnect clears it", () => {
@@ -524,7 +524,7 @@ describe("turn order", () => {
 
   it("exposes who goes first in the view", () => {
     const { room, a, b, ctx } = setupRoom({ settings: { firstPlayer: "opponent" } });
-    expect(viewFor(room, a, ctx.now).firstPlayerId).toBe(b);
+    expect(viewFor(room, a, ctx.now, true).firstPlayerId).toBe(b);
   });
 });
 
@@ -536,12 +536,12 @@ describe("hints", () => {
     for (let i = 0; i < 3; i++) {
       // Nothing about the next hint is in either player's view before it is requested.
       for (const viewer of [a, b]) {
-        const json = JSON.stringify(viewFor(room, viewer, ctx.now));
+        const json = JSON.stringify(viewFor(room, viewer, ctx.now, true));
         for (const hint of identity.hints.slice(i)) expect(json).not.toContain(hint);
       }
       room = mustApply(room, a, cmd(room, "turn.hint"), ctx);
       expect(room.turn!.log.at(-1)).toMatchObject({ kind: "hint", index: i + 1, text: identity.hints[i] });
-      expect(viewFor(room, b, ctx.now).turn!.log.map((e) => e.text)).toEqual(identity.hints.slice(0, i + 1));
+      expect(viewFor(room, b, ctx.now, true).turn!.log.map((e) => e.text)).toEqual(identity.hints.slice(0, i + 1));
     }
     expect(applyCommand(room, a, cmd(room, "turn.hint"), ctx)).toMatchObject({ ok: false, error: "invalid_transition" });
     expect(room.players.find((p) => p.id === a)!.hintsUsed).toBe(3);
@@ -551,7 +551,7 @@ describe("hints", () => {
     let { room, a, ctx } = setupRoom();
     const identity = getIdentity(room.round!.assignments[a]!);
     for (let i = 0; i < 3; i++) room = mustApply(room, a, cmd(room, "turn.hint"), ctx);
-    const json = JSON.stringify(viewFor(room, a, ctx.now));
+    const json = JSON.stringify(viewFor(room, a, ctx.now, true));
     expect(json).not.toContain(identity.id);
     expect(json).not.toContain(identity.canonicalName);
   });
@@ -573,7 +573,7 @@ describe("hints", () => {
     expect(room.turn!.log).toEqual([]);
     room = mustApply(room, b, cmd(room, "turn.hint"), ctx);
     room = mustApply(room, b, cmd(room, "turn.skip"), ctx);
-    const summary = viewFor(room, a, ctx.now).roundSummary!;
+    const summary = viewFor(room, a, ctx.now, true).roundSummary!;
     expect(Object.fromEntries(summary.entries.map((e) => [e.playerId, e.hintsUsed]))).toEqual({ [a]: 2, [b]: 1 });
     expect(room.players.find((p) => p.id === a)!.score).toBe(1);
   });
@@ -596,7 +596,7 @@ describe("in-app questions", () => {
     });
     room = mustApply(room, b, cmd(room, "turn.answer", { questionId: question.id, answer: "sort_of" }), ctx);
     for (const viewer of [a, b]) {
-      expect(viewFor(room, viewer, ctx.now).turn!.log).toEqual([expect.objectContaining({ text: "Am I a real person?", answer: "sort_of" })]);
+      expect(viewFor(room, viewer, ctx.now, true).turn!.log).toEqual([expect.objectContaining({ text: "Am I a real person?", answer: "sort_of" })]);
     }
     expect(applyCommand(room, b, cmd(room, "turn.answer", { questionId: question.id, answer: "no" }), ctx)).toMatchObject({
       ok: false,
@@ -759,7 +759,7 @@ describe("difficulty", () => {
       expect(pair[1].difficulty).toBe("easy");
     }
     r = mustApply(r, b, cmd(r, "player.difficulty", { difficulty: null }), ctx);
-    expect(viewFor(r, a, ctx.now).players.map((p) => p.difficulty)).toEqual(["hard", null]);
+    expect(viewFor(r, a, ctx.now, true).players.map((p) => p.difficulty)).toEqual(["hard", null]);
   });
 
   it("only changes between matches", () => {
