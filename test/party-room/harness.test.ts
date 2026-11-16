@@ -169,7 +169,8 @@ const stateOf = (ctx: any): RoomGameState | null => (ctx.room.core.activity.kind
  *   hint for it they did not ask for;
  * - the audience is sent both identities in every snapshot while a round is on, and never a
  *   hint, a typed question, a log or a player's own view;
- * - the big screen is never sent any identity, hint, typed question or log.
+ * - the big screen is never sent an identity while its round is on, a hint, a typed question or
+ *   a log; between rounds it is sent the round's reveal, exactly the round's summary.
  * Records every identity the match assigned, to check the whole of each socket at the end.
  */
 function watch(ctx: any, sockets: Record<string, Socket>, roles: Record<string, Role>) {
@@ -226,31 +227,60 @@ function watch(ctx: any, sockets: Record<string, Socket>, roles: Record<string, 
       if (!/"role":"audience"/.test(text)) problems.push(`${who} was not sent the audience's view`);
       for (const identity of shown) if (!text.includes(escaped(identity.canonicalName))) problems.push(`${who} was not sent ${identity.id}`);
     }
-    // Between rounds, the reveal is exactly the round's summary: each seat, its identity and how it went.
+    checkReveal(who, text, state);
+  };
+  /**
+   * Between rounds, a watching device's reveal is exactly the round's summary: each seat, its
+   * identity and how it went; during a round there is none. Returns the identities it showed.
+   */
+  const checkReveal = (who: string, text: string, state: RoomGameState | null): string[] => {
+    if (!/^\{"t":"(start|snap)"/.test(text)) return [];
+    const got = JSON.parse(text).s?.reveal;
+    // The last frames after the game has ended (the room is back in the lobby): the reveal the
+    // device was last shown, or none.
+    if (!state) {
+      const ids: string[] = (got?.entries ?? []).map((e: { identity: { id: string } }) => e.identity.id);
+      if (ids.some((id) => !revealedTo.get(who)?.has(id))) problems.push(`${who} was sent a reveal after the game it had not been shown`);
+      return ids;
+    }
     const room = state?.match.room;
     const summary = room?.lastRoundSummary;
-    if (/^\{"t":"(start|snap)"/.test(text) && state && room && summary && (room.status === "round_summary" || room.status === "match_summary")) {
-      const want = {
-        roundIndex: summary.roundIndex,
-        matchOver: summary.matchOver,
-        entries: state.match.seats.map((seat) => {
-          const entry = summary.entries.find((e) => e.playerId === playerOf(seat))!;
-          const identity = getIdentity(entry.identityId);
-          return { seat, identity: { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId }, result: entry.result };
-        }),
-      };
-      const got = JSON.parse(text).s?.reveal;
-      if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`${who} was sent the reveal ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
-      checked.reveals++;
+    if (!state || !room || !summary || !(room.status === "round_summary" || room.status === "match_summary")) {
+      if (got !== null && got !== undefined) problems.push(`${who} was sent a reveal during a round`);
+      return [];
     }
+    const want = {
+      roundIndex: summary.roundIndex,
+      matchOver: summary.matchOver,
+      entries: state.match.seats.map((seat) => {
+        const entry = summary.entries.find((e) => e.playerId === playerOf(seat))!;
+        const identity = getIdentity(entry.identityId);
+        return { seat, identity: { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId }, result: entry.result };
+      }),
+    };
+    if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`${who} was sent the reveal ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
+    checked.reveals++;
+    const ids = summary.entries.map((e) => e.identityId);
+    if (!revealedTo.has(who)) revealedTo.set(who, new Set());
+    for (const id of ids) revealedTo.get(who)!.add(id);
+    return ids;
   };
-  const checkScreen = (who: string, text: string) => {
-    record(stateOf(ctx));
-    const key = /"(log|opponentIdentity|roundSummary|identity|identities|reveal|assignments|youId)"/.exec(text);
+  /** The identities each watching device was shown in a reveal, once their round was over. */
+  const revealedTo = new Map<string, Set<string>>();
+  const checkScreen = (who: string, text: string, whole = false) => {
+    const state = stateOf(ctx);
+    record(state);
+    // The round's reveal between rounds (both players have seen it by then), and no other identity.
+    const shown = whole ? [] : checkReveal(who, text, state);
+    const key = /"(log|opponentIdentity|roundSummary|identities|assignments|youId)"/.exec(text);
     if (key) problems.push(`${who} was sent ${key[0]}`);
+    if (!whole && !shown.length && /"identity"/.test(text)) problems.push(`${who} was sent "identity" outside a reveal`);
     for (const id of assigned.keys()) {
       const identity = getIdentity(id);
-      for (const secret of [identity.id, identity.canonicalName, ...identity.hints].map(escaped)) mustNotHave(text, secret, `${who} was sent an identity`);
+      for (const hint of identity.hints.map(escaped)) mustNotHave(text, hint, `${who} was sent a hint`);
+      // A whole socket's text may name an identity the screen was shown in a reveal, never another.
+      if (shown.includes(id) || (whole && revealedTo.get(who)?.has(id))) continue;
+      for (const secret of [identity.id, identity.canonicalName].map(escaped)) mustNotHave(text, secret, `${who} was sent an identity`);
     }
     for (const question of questions) mustNotHave(text, escaped(question), `${who} was sent a question`);
   };
@@ -276,7 +306,7 @@ function watch(ctx: any, sockets: Record<string, Socket>, roles: Record<string, 
      */
     finalCheck() {
       for (const [who, { ws, role }] of known) {
-        if (role.kind === "screen") checkScreen(who, ws.text());
+        if (role.kind === "screen") checkScreen(who, ws.text(), true);
         if (role.kind === "audience") for (const id of assigned.keys()) expect(ws.text(), `${who} saw ${id}`).toContain(escaped(getIdentity(id).canonicalName));
       }
       expect(problems).toEqual([]);
@@ -693,22 +723,30 @@ describe("Who Am I? in the party room", () => {
     secrecy.finalCheck();
   });
 
-  it("gives nobody the win when a player leaves while the other's phone has been gone a while", async () => {
-    const { ctx, say, ws, secrecy } = await party();
-    ctx.room.webSocketClose(ws.bo, 1006, "");
-    await fake.settle();
-    // Gone 40 seconds: past the 30 that make him absent, short of the minute that would forfeit him.
-    await vi.advanceTimersByTimeAsync(40_000);
-    expect(ctx.room.core.activity.kind).toBe("game");
-    say(ws.ann, { t: "leave" });
-    await fake.settle();
-    expect(ctx.room.core.activity.kind).toBe("lobby");
-    const end = ws.screen.messages().find((m: Msg) => m.t === "end");
-    expect(end.last.early).toMatchObject({ seat: 0, why: "left" });
-    expect(end.last.rows).toEqual([]);
-    expect(ctx.room.core.members[1]?.points ?? 0).toBe(0);
-    secrecy.finalCheck();
-  });
+  // Ann taps Leave while Bo's phone is dropped or his page hidden: under the 30 seconds of the
+  // override and past them, short of the minute that would forfeit him. Bo is never handed the win.
+  for (const how of ["dropped", "away"] as const) {
+    for (const gone of [5_000, 40_000]) {
+      it(`gives nobody the win when a player leaves while the other's phone is ${how}, ${gone / 1000} seconds in`, async () => {
+        const { ctx, say, ws, secrecy } = await party();
+        if (how === "dropped") ctx.room.webSocketClose(ws.bo, 1006, "");
+        else say(ws.bo, { t: "away" });
+        await fake.settle();
+        await vi.advanceTimersByTimeAsync(gone);
+        expect(ctx.room.core.activity.kind).toBe("game");
+        say(ws.ann, { t: "leave" });
+        await fake.settle();
+        expect(ctx.room.core.activity.kind).toBe("lobby");
+        const end = ws.screen.messages().find((m: Msg) => m.t === "end");
+        expect(end.last.early).toMatchObject({ seat: 0, why: "left" });
+        expect(end.last.rows).toEqual([]);
+        // Both seats in the game's own result, Ann marked as having left.
+        expect(end.result).toEqual(expect.arrayContaining([expect.objectContaining({ seat: 0, left: true }), { seat: 1, score: expect.any(Number) }]));
+        expect(ctx.room.core.members[1]?.points ?? 0).toBe(0);
+        secrecy.finalCheck();
+      });
+    }
+  }
 
   it("plays in a party of four: two take the spots, the other two watch as the audience, and only the players place", async () => {
     const r = await turns.spotsFor4(createLobbyRoom, drawn(DRAW + 7), ROOM_OPTIONS);

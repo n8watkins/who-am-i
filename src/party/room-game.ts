@@ -11,9 +11,12 @@
 // Secrecy is the point of the game, and holds here too:
 // - A player's snapshot never names their own identity, or a hint for it they did not ask for,
 //   until their round is over, whatever role the room names their seat by.
-// - The audience sees both identities, the reveal and the scores, never a hint or a question.
 // - The screen, a member watching as a screen, and anyone the game does not recognise get the
-//   screen's view: whose turn, the timer and the question count.
+//   screen's view: whose turn, the timer, the question count and the scores, and between rounds
+//   the round's reveal (both players have seen it on their own summary by then). Never an
+//   identity while its round is on.
+// - The audience gets the screen's view and both identities while a round is on, never a hint or
+//   a question.
 // - Identities are drawn with crypto.getRandomValues inside the adapter. The room's `seed` is
 //   never read.
 // - `result`, `standings` and events go to everyone, so none of them names an identity. `carry`
@@ -46,7 +49,7 @@ import {
   type Sources,
 } from "./game";
 import { MATCH_LENGTHS, SETTING_FIELDS, manifest } from "./manifest";
-import type { AudienceView, PlayerSnapshot, RoomScreenView, RoomSnapshot } from "./snapshots";
+import type { AudienceView, PlayerSnapshot, RoomScreenView, RoomSnapshot, RoundReveal } from "./snapshots";
 
 export { cryptoSources, type Carry, type Sources };
 
@@ -70,9 +73,9 @@ export type RoomSettings = z.infer<typeof RoomSettingsSchema>;
 export const RECONNECT_GRACE_MS = 60_000;
 
 /**
- * How long a player must have been gone (dropped, or their page hidden) before the other leaving
- * the party no longer hands them the win: the same 30 seconds after which the guesser may confirm
- * their own guess without them, half the minute after which a dropped phone forfeits.
+ * How long the one who stayed must have been dropped before the other's forfeit no longer hands
+ * them the win: the same 30 seconds after which the guesser may confirm their own guess without
+ * them, half the minute after which a dropped phone forfeits.
  */
 const ABSENT_MS = HOST_OVERRIDE_AFTER_MS;
 
@@ -110,9 +113,10 @@ export type Viewer = { role?: unknown; seat?: unknown } | null | undefined;
  * The result the room sends everyone at the end, in the contract's shape for a game that keeps
  * score: one row per seat, best first, so the room's end card shows each score beside the place.
  * No identity. Who won is in the places (`standings`), and why a match ended early in the room's
- * own card (`last.early`).
+ * own card (`last.early`). A match ended early by a seat that went (`abandon`) still lists both
+ * seats, the one that went with `left: true`.
  */
-export type RoomResult = { seat: number; score: number }[];
+export type RoomResult = { seat: number; score: number; left?: true }[];
 
 const playerOf = (seat: number) => `seat-${seat}`;
 
@@ -190,43 +194,47 @@ function decidedStandings(state: RoomGameState): { seat: number; place: number }
   return sorted.map((row) => ({ seat: row.seat, place: 1 + sorted.filter((other) => other.score > row.score).length }));
 }
 
-function screenOf(state: RoomGameState, now: number): RoomScreenView {
-  const view = adapter.snapshot(state.match, now, { role: "screen" }) as ScreenView;
-  return { ...view, match: state.settings.match };
-}
-
 function publicIdentity(id: string): PublicIdentity {
   const identity = getIdentity(id);
   return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId };
 }
 
-function audienceOf(state: RoomGameState, now: number): AudienceView {
-  const { role: _role, ...screen } = screenOf(state, now);
+/**
+ * The round's reveal, only while its summary (or the match's) is up: by then both players have
+ * seen both identities on their own summary. Null while a round is on.
+ */
+function revealOf(state: RoomGameState): RoundReveal | null {
   const room = state.match.room;
-  const round = room.round;
   const summary = room.lastRoundSummary;
   const between = room.status === "round_summary" || room.status === "match_summary";
+  if (!between || !summary || room.round) return null;
+  return {
+    roundIndex: summary.roundIndex,
+    matchOver: summary.matchOver,
+    entries: seatList(state).flatMap((seat) => {
+      const entry = summary.entries.find((e) => e.playerId === playerOf(seat));
+      return entry ? [{ seat, identity: publicIdentity(entry.identityId), result: entry.result }] : [];
+    }),
+  };
+}
+
+function screenOf(state: RoomGameState, now: number): RoomScreenView {
+  const view = adapter.snapshot(state.match, now, { role: "screen" }) as ScreenView;
+  return { ...view, match: state.settings.match, scores: scoresOf(state), reveal: revealOf(state) };
+}
+
+function audienceOf(state: RoomGameState, now: number): AudienceView {
+  const { role: _role, ...screen } = screenOf(state, now);
+  const round = state.match.room.round;
   return {
     ...screen,
     role: "audience",
-    scores: scoresOf(state),
     identities: round
       ? seatList(state).flatMap((seat) => {
           const id = round.assignments[playerOf(seat)];
           return id ? [{ seat, identity: publicIdentity(id) }] : [];
         })
       : [],
-    reveal:
-      between && summary
-        ? {
-            roundIndex: summary.roundIndex,
-            matchOver: summary.matchOver,
-            entries: seatList(state).flatMap((seat) => {
-              const entry = summary.entries.find((e) => e.playerId === playerOf(seat));
-              return entry ? [{ seat, identity: publicIdentity(entry.identityId), result: entry.result }] : [];
-            }),
-          }
-        : null,
   };
 }
 
@@ -241,9 +249,9 @@ export const game = {
    * pauses meanwhile. A phone that has not come back by then forfeits: the room ends the match
    * through `abandon`, and the player who stayed wins it. Without a limit the player left behind
    * could do nothing but leave, and leaving would hand the win to the one who vanished.
-   * A hidden or locked page whose socket stays open is away, not dropped: the room closes such a
-   * socket only once it has said nothing (not even its keep-alive) for this long, and then counts
-   * it gone at once, so a frozen page is given up on the same way at the room's next wake-up.
+   * A hidden or locked page runs the same clock: the room holds a seat that is away (its page
+   * hidden, its socket open) for this minute too, and gives up on it the same way, through
+   * `abandon`, when it has not come back by then.
    */
   reconnectGraceMs: RECONNECT_GRACE_MS,
   /** A match is people talking, with a tap now and then: two locked phones must not lose it. */
@@ -331,9 +339,9 @@ export const game = {
    * A seat is gone for good: the match ends. A match already decided (its last round's summary is
    * up) ends as it was decided, whoever goes. Otherwise the player who stayed wins it and the one
    * who went gets no place, except:
-   * - A player who leaves the party (their page here when they go) while the one who stayed has
-   *   been gone (dropped, or their page hidden) 30 seconds or more: nobody wins, so leaving a
-   *   match whose other phone vanished does not hand the vanished player the win.
+   * - A player who leaves the party (their page here when they go) while the other player is
+   *   away or dropped, for any time at all: nobody wins, so leaving a match whose other phone
+   *   vanished never hands the vanished player the win.
    * - A player who forfeits (their phone dropped or hidden when the room gives up on it) while the
    *   one who stayed has been dropped 30 seconds or more too: nobody wins. A stayer whose page is
    *   merely hidden, its socket still open, wins the forfeit.
@@ -349,12 +357,19 @@ export const game = {
     // A seat whose page was not here when it went did not leave: the room gave up on it. (A page
     // can only tap "Leave" while it is shown; a ghost is still taken for away, never dropped.)
     const forfeit = !!went && absentSince(went) !== null;
-    const since = !other ? null : forfeit ? (other.connected ? null : other.disconnectedAt) : absentSince(other);
-    const otherGone = since !== null && now - since >= ABSENT_MS;
-    const rows = bestFirst(state);
+    // Leaving while the other is away or dropped places nobody, however long they have been gone;
+    // a forfeit places nobody only when the other has been dropped 30 seconds too.
+    const otherGone = !other
+      ? false
+      : forfeit
+        ? !other.connected && other.disconnectedAt !== null && now - other.disconnectedAt >= ABSENT_MS
+        : absentSince(other) !== null;
+    // Both seats with the scores as they stood, the one who went marked as gone; the one who
+    // stayed first when they win it. The room's card shows only the seats placed (the contract
+    // has no row for a seat without a place), so `left` is for whoever reads the result.
+    const rows: RoomResult = bestFirst(state).map((r) => (r.seat === seat ? { ...r, left: true } : r));
     return {
       standings: otherGone ? [] : [{ seat: stayed, place: 1 }],
-      // The scores as they stood; the one who stayed first when they win it.
       result: otherGone ? rows : [...rows.filter((r) => r.seat === stayed), ...rows.filter((r) => r.seat !== stayed)],
       events: [{ k: "abandoned", seat }],
     };

@@ -8,7 +8,7 @@ import { game } from "../../src/party/room-game";
 import { manifest } from "../../src/party/manifest";
 // The built module a party site imports (the package's "." export): it must be the source.
 import * as built from "../../party.js";
-import { CARRY_MAX_BYTES, RoomSettingsSchema, type AudienceView, type RoomGameState, type RoomSnapshot, type Sources } from "../../src/party/room-game";
+import { CARRY_MAX_BYTES, RoomSettingsSchema, type AudienceView, type RoomGameState, type RoomScreenView, type RoomSnapshot, type Sources } from "../../src/party/room-game";
 import { SETTING_FIELDS } from "../../src/party/manifest";
 import { HINTS_PER_TURN, HOST_OVERRIDE_AFTER_MS, type RoomView } from "../../src/shared/protocol";
 import { getIdentity } from "../../src/worker/content";
@@ -258,6 +258,12 @@ describe("snapshot", () => {
         { seat: 2, name: "Bo" },
       ],
       turn: { seat: turnSeat(state), phase: "asking", deadline: START + 60_000, pausedRemainingMs: null, questionCount: 0 },
+      scores: [
+        { seat: 0, score: 0 },
+        { seat: 2, score: 0 },
+      ],
+      // No reveal while the round is on.
+      reveal: null,
     });
     // A member who is watching, a seat that is not in the match, and anything unknown: the screen's view.
     for (const viewer of [{ role: "screen", seat: 1 }, { role: "player", seat: 1 }, { role: "player", seat: "0" }, { role: "judge" }, {}, null, undefined]) {
@@ -270,7 +276,9 @@ describe("snapshot", () => {
     // Nobody but the audience gets it: not a player, the screen, a member watching as a screen, or anyone unknown.
     for (const viewer of [{ role: "player", seat: 0 }, { role: "player", seat: 2 }, { role: "screen" }, { role: "screen", seat: 1 }, { role: "judge", seat: 1 }, {}, null, undefined]) {
       const text = JSON.stringify(game.snapshot(state, START, viewer));
-      expect(text, JSON.stringify(viewer)).not.toMatch(/"(role":"audience|identities|reveal|scores)"/);
+      expect(text, JSON.stringify(viewer)).not.toMatch(/"(role":"audience|identities)"/);
+      // In a round nobody but the audience is sent a reveal (the screen's is null until the summary).
+      expect(text, JSON.stringify(viewer)).not.toMatch(/"reveal":\{/);
       const seat = viewer?.role === "player" && "seat" in viewer ? viewer.seat : null;
       const own = seat !== null && seat !== undefined ? [assignment(state, seat)!] : [assignment(state, 0)!, assignment(state, 2)!];
       for (const id of own) expect(text, JSON.stringify(viewer)).not.toContain(id);
@@ -287,7 +295,7 @@ describe("snapshot", () => {
     expect(JSON.stringify(watching)).not.toMatch(/"(log|hints|youId)"/);
   });
 
-  it("shows the audience the round's reveal and the scores between rounds; the screen still sees neither", () => {
+  it("shows the audience and the screen the round's reveal and the scores between rounds, and never a player", () => {
     const { state, sources } = start({ turnFormat: "keep_going" });
     const drawn = { 0: assignment(state, 0)!, 2: assignment(state, 2)! };
     while (state.match.room.status !== "round_summary") playTurn(state, START, sources, turnSeat(state) !== 0);
@@ -305,17 +313,27 @@ describe("snapshot", () => {
       const identity = getIdentity(drawn[seat as 0 | 2]);
       return { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId };
     }));
-    const screen = JSON.stringify(game.snapshot(state, START, { role: "screen" }));
-    for (const id of Object.values(drawn)) expect(screen).not.toContain(id);
-    // Nobody else gets the reveal: not the screen, and not the players (they have their own summary).
-    for (const viewer of [{ role: "screen" }, { role: "screen", seat: 1 }, { role: "player", seat: 0 }, { role: "player", seat: 2 }]) {
-      expect(JSON.stringify(game.snapshot(state, START, viewer)), JSON.stringify(viewer)).not.toMatch(/"(reveal|identities)"/);
+    // The round is over and both players have seen both identities on their own summary: the big
+    // screen and a member watching as a screen get the same reveal and scores, and no identities.
+    for (const viewer of [{ role: "screen" }, { role: "screen", seat: 1 }]) {
+      const screen = game.snapshot(state, START, viewer) as RoomScreenView;
+      expect(screen.reveal, JSON.stringify(viewer)).toEqual(audience.reveal);
+      expect(screen.scores).toEqual(audience.scores);
+      expect(JSON.stringify(screen)).not.toMatch(/"identities"/);
     }
-    // Once the next round is on, the reveal is put away and the new identities shown.
+    // The players never get either: they have their own summary.
+    for (const viewer of [{ role: "player", seat: 0 }, { role: "player", seat: 2 }]) {
+      expect(JSON.stringify(game.snapshot(state, START, viewer)), JSON.stringify(viewer)).not.toMatch(/"(reveal|identities|scores)"/);
+    }
+    // Once the next round is on, the reveal is put away everywhere, and the screen names no identity at all.
     game.input(state, 0, command(state, "round.next"), START, sources);
     const next = game.snapshot(state, START, { role: "audience", seat: 1 }) as AudienceView;
     expect(next.reveal).toBeNull();
     expect(next.identities).toHaveLength(2);
+    const screenNext = game.snapshot(state, START, { role: "screen" }) as RoomScreenView;
+    expect(screenNext.reveal).toBeNull();
+    const screenText = JSON.stringify(screenNext);
+    for (const seat of [0, 2]) expect(screenText).not.toContain(assignment(state, seat)!);
   });
 
   it("never gives a seat that is playing the audience's view: it is that player's own, without their identity", () => {
@@ -500,10 +518,11 @@ describe("abandon", () => {
     expect(state.match.room.status).toBe("round_summary");
     const ended = game.abandon(state, 2, START);
     expect(ended.standings).toEqual([{ seat: 0, place: 1 }]);
-    // The one who stayed first, whatever the scores; the one who left after them.
+    // The one who stayed first, whatever the scores; the one who left after them, with their real
+    // score and marked as having left.
     expect(ended.result).toEqual([
       { seat: 0, score: first === 0 ? 1 : 0 },
-      { seat: 2, score: first === 2 ? 1 : 0 },
+      { seat: 2, score: first === 2 ? 1 : 0, left: true },
     ]);
     expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
     expect(JSON.stringify(ended)).not.toContain(assignment(state, 0)!);
@@ -550,23 +569,28 @@ describe("abandon", () => {
     expect(game.abandon(late.state, 2, START + game.reconnectGraceMs).standings).toEqual([{ seat: 0, place: 1 }]);
   });
 
-  it("gives nobody the win when a player leaves while the other has been gone for a while", () => {
+  it("gives nobody the win when a player leaves while the other is away or dropped, however briefly", () => {
     for (const report of [
       { connected: false, away: false },
       { connected: true, away: true },
     ]) {
-      const { state, sources } = start({ turnFormat: "keep_going" });
-      playTurn(state, START, sources);
-      // Seat 0's phone is gone; seat 2 waits a minute and gives up on the match.
-      expect(game.presence(state, 0, report, START, sources)).toBe(true);
-      const ended = game.abandon(state, 2, START + 60_000);
-      expect(ended.standings, JSON.stringify(report)).toEqual([]);
-      expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
-      expect(ended.result).not.toBeNull();
+      // Under 30 seconds (a moment, 10 seconds, just under) and over (45 seconds, the whole minute).
+      for (const gone of [0, 10_000, 29_999, 45_000, 60_000]) {
+        const { state, sources } = start({ turnFormat: "keep_going" });
+        playTurn(state, START, sources);
+        // Seat 0's phone is gone; seat 2 gives up on the match.
+        expect(game.presence(state, 0, report, START, sources)).toBe(true);
+        const ended = game.abandon(state, 2, START + gone);
+        const label = `${JSON.stringify(report)} after ${gone} ms`;
+        expect(ended.standings, label).toEqual([]);
+        expect(ended.events).toEqual([{ k: "abandoned", seat: 2 }]);
+        expect(ended.result?.map((r) => r.seat).sort(), label).toEqual([0, 2]);
+      }
     }
-    // A phone locked a moment ago is still the player's: the one who stayed wins as before.
+    // A phone that is back is the player's again: the one who stayed wins as before.
     const { state, sources } = start({ turnFormat: "keep_going" });
     game.presence(state, 0, { connected: true, away: true }, START, sources);
+    game.presence(state, 0, { connected: true, away: false }, START + 5_000, sources);
     expect(game.abandon(state, 2, START + 10_000).standings).toEqual([{ seat: 0, place: 1 }]);
   });
 });
@@ -739,22 +763,7 @@ function scanFrame(state: RoomGameState, who: Who, frame: string, scan: Scan) {
     const shown = current.flatMap((i) => [i.canonicalName, i.id, ...i.aliases]).map(escaped);
     if (frame.startsWith('{"t":"snap"')) {
       for (const identity of current) expect(frame, `${who} was not sent ${identity.id}`).toContain(escaped(identity.canonicalName));
-      // Between rounds, the reveal is exactly the round's summary: each seat, its identity and how it went.
-      const s = JSON.parse(frame).s as AudienceView;
-      const room = state.match.room;
-      const summary = room.lastRoundSummary;
-      if ((room.status === "round_summary" || room.status === "match_summary") && summary) {
-        expect(s.reveal, `${who}'s reveal`).toEqual({
-          roundIndex: summary.roundIndex,
-          matchOver: summary.matchOver,
-          entries: state.match.seats.map((seat) => {
-            const entry = summary.entries.find((e) => e.playerId === `seat-${seat}`)!;
-            const identity = getIdentity(entry.identityId);
-            return { seat, identity: { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId }, result: entry.result };
-          }),
-        });
-        scan.reveals = (scan.reveals ?? 0) + 1;
-      } else expect(s.reveal, `${who}'s reveal during a round`).toBeNull();
+      checkReveal(state, who, frame, scan);
     }
     for (const id of scan.owned.keys()) {
       for (const hint of secretsOf(id).hints) {
@@ -765,13 +774,48 @@ function scanFrame(state: RoomGameState, who: Who, frame: string, scan: Scan) {
     expect(frame).not.toMatch(/"(log|hints|opponentIdentity|roundSummary|assignments|usedIdentityIds|youId)"/);
     return;
   }
-  // The screen and a member watching as a screen: no identity at all, no hint, no question, no log.
+  // The screen and a member watching as a screen: no identity while its round is on, no hint, no
+  // question, no log. Between rounds, the round's reveal (both players have seen it by then) and
+  // nothing else of an identity.
+  if (frame.startsWith('{"t":"snap"')) checkReveal(state, who, frame, scan);
+  const room = state.match.room;
+  const between = room.status === "round_summary" || room.status === "match_summary";
+  const summary = between ? room.lastRoundSummary : null;
+  const shown = new Set(summary && frame.startsWith('{"t":"snap"') ? summary.entries.map((e) => e.identityId) : []);
   for (const id of scan.owned.keys()) {
     const { names, hints } = secretsOf(id);
-    for (const text of [...names, ...hints]) expect(frame, `${who} was sent ${text}`).not.toContain(text);
+    for (const text of hints) expect(frame, `${who} was sent a hint (${text})`).not.toContain(text);
+    if (shown.has(id)) continue;
+    for (const text of names) expect(frame, `${who} was sent ${text}`).not.toContain(text);
   }
   for (const question of scan.questions) expect(frame, `${who} was sent a question`).not.toContain(escaped(question));
-  expect(frame).not.toMatch(/"(log|opponentIdentity|roundSummary|identity|identities|reveal|assignments|usedIdentityIds|youId)"/);
+  expect(frame).not.toMatch(/"(log|hints|opponentIdentity|roundSummary|identities|assignments|usedIdentityIds|youId)"/);
+  // An identity only ever inside the reveal, and the reveal only between rounds.
+  if (!shown.size) expect(frame).not.toMatch(/"(identity|reveal":\{)/);
+}
+
+/**
+ * A watching viewer's snapshot (the audience, the screen, a member watching as a screen): between
+ * rounds its reveal is exactly the round's summary (each seat, its identity and how it went), and
+ * during a round there is none.
+ */
+function checkReveal(state: RoomGameState, who: Who, frame: string, scan: Scan) {
+  const s = JSON.parse(frame).s as RoomScreenView;
+  const room = state.match.room;
+  const summary = room.lastRoundSummary;
+  if ((room.status === "round_summary" || room.status === "match_summary") && summary) {
+    expect(s.reveal, `${who}'s reveal`).toEqual({
+      roundIndex: summary.roundIndex,
+      matchOver: summary.matchOver,
+      entries: state.match.seats.map((seat) => {
+        const entry = summary.entries.find((e) => e.playerId === `seat-${seat}`)!;
+        const identity = getIdentity(entry.identityId);
+        return { seat, identity: { id: identity.id, canonicalName: identity.canonicalName, categoryId: identity.categoryId }, result: entry.result };
+      }),
+    });
+    scan.reveals = (scan.reveals ?? 0) + 1;
+  } else expect(s.reveal, `${who}'s reveal during a round`).toBeNull();
+  expect(s.scores, `${who}'s scores`).toEqual(state.match.seats.map((seat) => ({ seat, score: state.match.room.players.find((p) => p.id === `seat-${seat}`)!.score })));
 }
 
 /** Every viewer's snapshot now, and the events, as the room would send them (no event of this game has `only`). */

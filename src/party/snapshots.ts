@@ -17,22 +17,37 @@ export interface ScreenView {
 /** What a player sees: their own view of the match, as on the game's own site, and the match length. */
 export type PlayerSnapshot = RoomView & { role: "player"; seat: number; match: MatchLength };
 
-/** What the screen and a watching member see: whose turn, the timer and the question count. */
-export type RoomScreenView = ScreenView & { match: MatchLength };
+/**
+ * A round's reveal, once it is over: each seat's identity and how it went. Both players have seen
+ * both identities on their own round summary by then, so nothing in it is secret any more.
+ */
+export interface RoundReveal {
+  roundIndex: number;
+  matchOver: boolean;
+  entries: { seat: number; identity: PublicIdentity; result: TurnResult }[];
+}
+
+/**
+ * What the screen and a watching member see: whose turn, the timer, the question count and the
+ * scores; between rounds (and after the last), the round's reveal. Never an identity while its
+ * round is on, a hint or a question.
+ */
+export type RoomScreenView = ScreenView & {
+  match: MatchLength;
+  scores: { seat: number; score: number }[];
+  /** Between rounds (and after the last) only; null while a round is on. */
+  reveal: RoundReveal | null;
+};
 
 /**
  * What a watching phone in the audience sees (the room's `{role: "audience", seat}`, for a member
- * of a larger party who is not playing): the screen's view, both identities while a round is on,
- * the reveal between rounds and the scores. Never sent to a player or a screen.
+ * of a larger party who is not playing): the screen's view, and both identities while a round is
+ * on. Never sent to a player or a screen.
  */
-export type AudienceView = Omit<ScreenView, "role"> & {
+export type AudienceView = Omit<RoomScreenView, "role"> & {
   role: "audience";
-  match: MatchLength;
-  scores: { seat: number; score: number }[];
   /** Both identities while a round is on; empty between rounds. */
   identities: { seat: number; identity: PublicIdentity }[];
-  /** Between rounds (and after the last): the round's reveal, each seat's identity and how it went. */
-  reveal: { roundIndex: number; matchOver: boolean; entries: { seat: number; identity: PublicIdentity; result: TurnResult }[] } | null;
 };
 
 export type RoomSnapshot = PlayerSnapshot | RoomScreenView | AudienceView;
