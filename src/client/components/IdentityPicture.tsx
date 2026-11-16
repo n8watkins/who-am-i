@@ -42,7 +42,9 @@ export function PictureImage({
       loading="eager"
       draggable={false}
       onError={() => onError(picture.imageUrl)}
-      className={`block bg-paper object-cover object-top ${className}`}
+      // Contain, never crop: character art is often wide (two designs side by side) and a crop
+      // could cut the subject out. The paper background fills the rest of the frame.
+      className={`block bg-paper object-contain ${className}`}
       data-testid="identity-picture"
     />
   );

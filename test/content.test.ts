@@ -5,6 +5,7 @@ import { PACK_META } from "../src/shared/packs";
 import { PACK_IDS, PICTURE_HOST } from "../src/shared/protocol";
 import { ALL_PACK_IDENTITIES, packIdentities, SOURCE_PACKS } from "../src/worker/content";
 import { PICTURES } from "../src/worker/content/pictures";
+import headersSource from "../public/_headers?raw";
 import { identitiesClash, normalizeName } from "../src/worker/engine";
 
 describe("content packs", () => {
@@ -107,6 +108,13 @@ describe("hints", () => {
     }
     expect(problems).toEqual([]);
     for (const identity of ALL_PACK_IDENTITIES) expect(identity.picture ?? null).toEqual(PICTURES[identity.id] ?? null);
+  });
+
+  it("lets the page load images from its own origin and the one picture host, nothing wider", () => {
+    const csp = /Content-Security-Policy: (.*)/.exec(headersSource)![1]!;
+    const imgSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("img-src"));
+    expect(imgSrc).toBe(`img-src 'self' data: https://${PICTURE_HOST}`);
+    expect(/Referrer-Policy: no-referrer/.test(headersSource)).toBe(true);
   });
 
   it("never names any other identity, so a hint cannot reveal the opponent's identity", () => {

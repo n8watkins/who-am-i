@@ -201,14 +201,14 @@ A unit test rejects duplicate ids, names that overlap across packs, and hints th
 
 ### Pictures
 
-Most identities have a picture, listed one per line in `src/worker/content/pictures.ts`: a thumbnail address on `upload.wikimedia.org`, the file's page, the author, the licence and whether it is free.
+Most identities have a picture, listed one per line in `src/worker/content/pictures.json` (read by `pictures.ts`): a thumbnail address on `upload.wikimedia.org`, the file's page, the author, the licence and whether it is free.
 No picture is copied into this repo or the site; the phone loads the thumbnail straight from Wikimedia with no referrer, and the page's `img-src` allows that one host.
 Real people have a free photo or portrait from Wikimedia Commons, chosen by hand.
 Film, TV, game and cartoon characters and brand mascots have the lead image of their own English Wikipedia article (`free: false` when it is a non-free image); those images belong to their owners and are used by the owner's decision, knowing a rights holder may ask for one to be taken down.
 Identities without an article of their own, or without a suitable image, stay text-only.
 The footer's **Pictures** note says where pictures come from and links to a new GitHub issue for reporting one.
 
-- **Pull one picture:** delete its line in `pictures.ts` and deploy; that identity goes back to the text card.
+- **Pull one picture:** delete its line in `pictures.json` and deploy; that identity goes back to the text card.
 - **Turn all pictures off:** in the Cloudflare dashboard, open the `who-am-i-game` Worker, Settings, Variables and secrets, and add the text variable `PICTURES` with the value `off`.
   It takes effect on save, with no code change, and `keep_vars` in `wrangler.jsonc` keeps it across later deploys.
   Delete the variable to turn pictures back on.
