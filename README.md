@@ -201,7 +201,8 @@ The room view is committed built for the same reason: a party site runs no build
 - Every tap is an answered input with an id: the room applies it once however often it arrives, and a tap made against an old view is refused.
 - A locked or dropped phone pauses the timer.
   A phone whose connection is gone keeps its seat for a minute; one that is not back by then forfeits, and the player who stayed wins.
-  A locked phone that keeps its connection is away, not gone; if it stops answering the room's keep-alive, the room drops it at its next wake-up after a minute of silence, and it forfeits then.
+  A locked phone or a page switched away from that keeps its connection is away, and runs the same minute: not back within it, it forfeits too (the room wakes itself for it), and the other phone and the big screen show the time left.
+  Coming back winds the minute back up at the speed it ran, so hiding and showing the page over and over cannot stall a match.
   Either guesser may confirm their own guess once the other phone has been gone 30 seconds.
 - A player who leaves the party ends the match, and the one who stayed wins it, unless they have been gone a while themselves; then nobody places.
   A forfeit always goes to the one who stayed, even if their own page was hidden meanwhile; only if their phone has been dropped 30 seconds too does nobody place.

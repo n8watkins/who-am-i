@@ -12,11 +12,13 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /**
- * n8-party-games #32 (feat/party-room-audience): the party room with the settings step, spots and
- * an audience for a larger party, and the upright phone. `PARTY_ROOM_COMMIT=<sha>` in the
- * environment tests against another commit without editing this file.
+ * n8-party-games feat/away-forfeits: the party room as merged in `main` (the settings step, spots
+ * and an audience, the upright phone, late joiners who see no secrets), plus a hidden page that
+ * runs the same one-minute clock as a dropped phone and forfeits at it. Move it to `main` once that
+ * branch is merged. `PARTY_ROOM_COMMIT=<sha>` in the environment tests against another commit
+ * without editing this file.
  */
-export const PARTY_ROOM_COMMIT = process.env.PARTY_ROOM_COMMIT || "9911f1cf31bf7c8bd03f975cd954ebdb21f49007";
+export const PARTY_ROOM_COMMIT = process.env.PARTY_ROOM_COMMIT || "6ef88d6248849505b3e6bb3543c33ab2920442c4";
 const REPOSITORY = "https://github.com/n8watkins/n8-party-games.git";
 const FOLDERS = ["lobby/server", "lobby/shared", "lobby/test", "party-kit/src", "party-kit/client"];
 
