@@ -107,6 +107,28 @@ describe("hints", () => {
       if (JSON.stringify(picture).includes(EM_DASH)) problems.push(`${id}: em dash`);
     }
     expect(problems).toEqual([]);
+  });
+
+  it("credits an author for every picture whose licence requires attribution (CC BY, CC BY-SA)", () => {
+    const missing = Object.entries(PICTURES)
+      .filter(([, picture]) => picture.free && picture.license.startsWith("CC BY") && picture.author === null)
+      .map(([id, picture]) => `${id}: ${picture.license} with no author (${picture.filePage})`);
+    expect(missing).toEqual([]);
+  });
+
+  it("writes authors as the card prints them: no field labels, life dates or footnote marks", () => {
+    // The card reads "Picture: <author> · <licence>", so "Author: X Cropped by: Y" would print the labels.
+    const problems: string[] = [];
+    for (const [id, picture] of Object.entries(PICTURES)) {
+      const author = picture.author;
+      if (author === null) continue;
+      if (/\b[A-Za-z ]+:\s/.test(author)) problems.push(`${id}: label in "${author}"`);
+      if (/^(illustrated|photo(graph)?(ed)?|painted|drawn) by\b/i.test(author)) problems.push(`${id}: "${author}" starts with a role`);
+      if (/\([^)]*\d{3,4}[^)]*\)/.test(author)) problems.push(`${id}: dates in "${author}"`);
+      if (/\[\d+\]/.test(author)) problems.push(`${id}: footnote mark in "${author}"`);
+      if (author !== author.trim() || /\s{2,}/.test(author)) problems.push(`${id}: stray spaces in "${author}"`);
+    }
+    expect(problems).toEqual([]);
     for (const identity of ALL_PACK_IDENTITIES) expect(identity.picture ?? null).toEqual(PICTURES[identity.id] ?? null);
   });
 
