@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommandType, RoomView } from "../shared/protocol";
 import type { RoomHandle } from "../client/lib/useRoom";
 import type { PartyAnswerError, PartyHost, Snapshot } from "./host";
+import { confirmedWithoutYouNotice, timedOutNotice, type Notice } from "./notices";
 
 /** How many times a command is sent again after a version conflict that did not change the game's position. */
 const MAX_CONFLICT_RETRIES = 3;
@@ -38,20 +39,40 @@ export function useParty(host: PartyHost) {
   /** Milliseconds to add to Date.now() for the room's clock, taken again with every snapshot. */
   const [serverOffset, setServerOffset] = useState(() => host.now() - Date.now());
 
+  /** A line above the game for what its own screens do not say (notices.ts). */
+  const [notice, setNotice] = useState<Notice | null>(null);
+  /** This page sent the confirmation of the guess now waiting, so its being right is no news. */
+  const confirmedHere = useRef(false);
+
   useEffect(() => {
-    const off = host.on("snapshot", (s) => {
+    // Both listen before ready(), so what the room said meanwhile reaches them too.
+    const offSnap = host.on("snapshot", (s) => {
       setServerOffset(host.now() - Date.now());
       // Never step back to an older view (two snapshots can cross on a reconnect).
-      if (s.version < latest.current.version) return;
+      const prev = latest.current;
+      if (s.version < prev.version) return;
       latest.current = s;
       setSnap(s);
+      if (prev.role === "player" && s.role === "player") {
+        const away = confirmedWithoutYouNotice(prev, s, confirmedHere.current);
+        if (away) setNotice(away);
+        if (s.turn?.phase !== "pending_confirm" || s.turn.playerId !== prev.turn?.playerId) confirmedHere.current = false;
+      }
+    });
+    const offEvents = host.on("events", (list) => {
+      const timedOut = Array.isArray(list) ? timedOutNotice(list, host.you, latest.current) : null;
+      if (timedOut) setNotice(timedOut);
     });
     host.ready();
-    return off;
+    return () => {
+      offSnap();
+      offEvents();
+    };
   }, [host]);
 
   const send = useCallback(
     async (type: CommandType, extra: object = {}): Promise<boolean> => {
+      if (type === "turn.correct.confirm") confirmedHere.current = true;
       setPending(true);
       setError(null);
       try {
@@ -99,5 +120,6 @@ export function useParty(host: PartyHost) {
     renewPin: async () => {},
     shareResult: () => Promise.reject(new Error("Result cards are shared from the game's own site.")),
   };
-  return { snap, handle };
+  const clearNotice = useCallback(() => setNotice(null), []);
+  return { snap, handle, notice, clearNotice };
 }

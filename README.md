@@ -190,8 +190,9 @@ The room view is committed built for the same reason: a party site runs no build
 | Who | Sees |
 | --- | --- |
 | A player's phone | The match as on this site: the other player's identity, the questions and answers, the guesser's controls, hints, the log and the timer. Never their own identity before their round is over. |
-| A phone in the party that is not playing (the audience) | Whose turn it is, the timer, the question count, both identities while a round is on, the round's reveal and the scores. No hint, question or log. |
-| The big screen | Whose turn it is, the timer, the question count and "Checking a guess", across its width in larger type. No identity, hint, question or log. |
+| A phone in the party that is not playing (the audience) | Both identities while a round is on, large and named by whose they are, with whose turn it is, the timer, the question count and the scores; the round's reveal between rounds, and who won the match. No hint, question or log. |
+| A phone that joined after the match began | The big screen's view, laid out as a phone. |
+| The big screen | Both players' names and scores, whose turn it is, the timer and the question count, filling the screen in large type; between rounds the round's reveal (both identities and how each went), and who won the match. No identity while its round is on, and no hint, question or log. |
 
 **How a match runs there.**
 

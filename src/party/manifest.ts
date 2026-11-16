@@ -74,7 +74,8 @@ export const SETTING_FIELDS = [
 export const manifest = {
   id: "who-am-i",
   name: "Who Am I?",
-  blurb: "Guess the secret identity only your friend can see",
+  /** Two short lines at most on the room's plaque under the poster. */
+  blurb: "Ask yes or no, guess who you are",
   /** The same on every site, so a link works on any host. */
   path: "/who-am-i/",
   players: { min: 2, max: 2, solo: false },
@@ -85,7 +86,8 @@ export const manifest = {
   audience: true,
   // A phone each: your phone holds the other player's identity, so it is not a game for one
   // shared laptop (the room's badge says "A phone each"; a laptop's browser still plays). A big
-  // screen may join: it only ever shows whose turn it is, the timer and the question count. Laid
+  // screen may join: it shows whose turn it is, the timer, the question count and the scores, and
+  // a round's identities only once that round is over. Laid
   // out for a phone held upright: the room stops asking for sideways while it is played (KR-14).
   devices: { phone: true, desktop: false, sharedScreen: true, sideways: false, upright: true },
   /**

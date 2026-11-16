@@ -41,6 +41,13 @@ interface FrameHost extends PartyHost {
 }
 
 /**
+ * The big screen is the room's own screen (`{role: "screen", seat: -1}`). A member who joined
+ * after the match began is `{role: "screen", seat}` with a seat of their own: a phone, laid out
+ * as one.
+ */
+export const isBigScreen = (you: { role: string; seat: number }): boolean => you.role === "screen" && !(you.seat >= 0);
+
+/**
  * The host, when this page is shown by a party room; null when it was opened on its own. Call it
  * once per page: it attaches this page, so a page that reloads in the frame starts from the
  * latest snapshot and the page before it hears nothing more.

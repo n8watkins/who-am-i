@@ -44,7 +44,7 @@ There are two moves, and they are now separate:
 | `id`, `minSeats: 2`, `maxSeats: 2`, `tickHz: 0` | A turn-based game for exactly two humans; no `bot`. |
 | `create({seed, seats, now, round, settings, carry})` | Starts the match with the two seats the room hands over after its settings step (cleaned to the game's nickname rule). `seed` is never read: the identities come from `crypto.getRandomValues` inside the game. `settings` are the host's picks (first to 3 by default); `carry` from the same two seats makes it a rematch. |
 | `input(state, seat, data, now)` | The engine's own commands (with `commandId` and `expectedVersion`). `{ok: true, duplicate}` or `{ok: false, error, message}`. A turn whose deadline has passed ends first. Lobby, settings and rematch commands are refused. Either guesser may confirm their own guess once the other phone has been gone 30 seconds. |
-| `snapshot(state, now, viewer)` | A seat in the match gets its own view, as on this site, plus `role`, `seat` and `match`, whatever role it is named by. The audience gets whose turn, the timer, the question count, both identities while a round is on, the round's reveal between rounds and the scores. The screen, a member watching as a screen and anything unknown get whose turn, the timer and the question count. |
+| `snapshot(state, now, viewer)` | A seat in the match gets its own view, as on this site, plus `role`, `seat` and `match`, whatever role it is named by. The screen, a member watching as a screen and anything unknown get whose turn, the timer, the question count and the scores, and between rounds the round's reveal (null while a round is on). The audience gets the same and both identities while a round is on. |
 | `nextDeadline`, `tick` | The turn timer on the room's alarm; `tick` ends the turn as timed out and the next one sets its own deadline. Events: `{k: "timed_out", seat}`. |
 | `presence(state, seat, {connected, away}, now)` | Pauses and resumes the timer, and counts towards the override. Returns whether anything changed. |
 | `abandon(state, seat, now)` | A decided match (its last round's summary is up) ends as decided, whoever leaves. Otherwise the player who stayed wins (`standings` with only them), unless the other left (tapped "Leave") while they were away or dropped, for any time, or the other forfeited while they had been dropped 30 seconds or more: then nobody places. `result` is both seats' score rows, the one that went marked `left: true`; event `{k: "abandoned", seat}`. |
@@ -65,8 +65,9 @@ First to 3 is the adapter's, not the engine's: at the end of the round that reac
 | Who | Viewer the room passes | Sees |
 | --- | --- | --- |
 | A player's phone | `{role: "player", seat}` | The other player's identity, the questions and answers, the guesser's controls, hints, the log, the timer. Their own identity only in a finished round's summary. |
-| The big screen | `{role: "screen"}` | Whose turn, the timer, the question count, "Checking a guess", across its whole width in larger type. |
-| A member who is not playing | `{role: "audience", seat}` | The screen's view, both identities while a round is on, the reveal between rounds and the scores. Never a hint, a question or the log. |
+| The big screen | `{role: "screen"}` | Both names and scores, whose turn, the timer, the question count, filling the screen in large type; between rounds the round's reveal and, at the end, who won. Never an identity while its round is on. |
+| A member who is not playing | `{role: "audience", seat}` | The screen's view, and both identities while a round is on. Never a hint, a question or the log. |
+| A member who joined after the match began | `{role: "screen", seat}` | The screen's view, laid out as a phone (a screen with a seat is a phone; the big screen has seat -1). |
 
 ### The language decision
 
@@ -144,7 +145,8 @@ With the built `party.js`, the scratch party site built its public files, bundle
 The module the room mounts, `party-view/view.js`, is plain JavaScript (`src/party-view/public/view.js`, copied as it is).
 It puts one frame in the container with the room view's page (`party-view/index.html`, built from `src/party-view/`), and hands the frame the room's context on its element, as Cork & Bell does.
 The page draws the game's own screens, `Game` and `RoundSummary` from `src/client/screens`, over a small stand-in for this site's `RoomHandle` (`src/party-view/useParty.ts`): every command goes to the room as an answered input whose id is also the engine's `commandId`, a version conflict that did not change the game's position is sent again, as on this site, and buttons wait while a command is out.
-The screen and the audience get a plain card with whose turn, the timer and the question count; the audience's card adds both identities, the reveal between rounds and the scores.
+The big screen and a watching phone get their own views (`src/party-view/Watch.tsx`): the big screen fills a TV with both names and scores, whose turn, the timer and the question count, and between rounds the round's reveal; a watching phone shows the same as a column, and an audience phone puts both identities first, large, under whose they are.
+A player's phone is told, above the game, when their turn timed out (the room's `timed_out` event) and when the other confirmed their own guess while this page was hidden; on the last round's summary every device says who won the match, by name.
 Everything the view makes lives in the frame's document, so unmounting removes it all.
 The page holds a screen wake lock while it is up.
 On a phone or a laptop the frame is a column at most 480 CSS pixels wide, centred; on an upright phone that is the whole width, and on a phone held sideways the room letterboxes the stage to an upright shape in the middle.

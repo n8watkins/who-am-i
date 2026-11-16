@@ -2,7 +2,7 @@
 import "@fontsource-variable/nunito";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { partyHost } from "./host";
+import { isBigScreen, partyHost } from "./host";
 import { PartyApp } from "./PartyApp";
 import "./styles.css";
 
@@ -13,7 +13,8 @@ const host = partyHost();
 const root = document.getElementById("root")!;
 if (host) {
   // The big screen is read from across the room: every size in rem grows with the screen (styles.css).
-  if (host.you.role === "screen") document.documentElement.dataset.screen = "big";
+  // A member watching as a screen from their own phone (a seat of their own) is laid out as a phone.
+  if (isBigScreen(host.you)) document.documentElement.dataset.screen = "big";
   createRoot(root).render(
     <StrictMode>
       <PartyApp host={host} />

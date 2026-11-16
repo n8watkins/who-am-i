@@ -16,6 +16,7 @@ import { Game } from "../../src/client/screens/Game";
 import type { RoomHandle } from "../../src/client/lib/useRoom";
 import { game, type RoomGameState, type Sources } from "../../src/party/room-game";
 import type { PartyHost, Snapshot } from "../../src/party-view/host";
+import { confirmedWithoutYouNotice, timedOutNotice } from "../../src/party-view/notices";
 import { PartyApp } from "../../src/party-view/PartyApp";
 import type { RoomView } from "../../src/shared/protocol";
 import { getIdentity } from "../../src/worker/content";
@@ -55,10 +56,10 @@ function matchFor(seat: number, now: number) {
   }
 }
 
-function hostFor(snapshot: Snapshot, now: number): PartyHost {
+function hostFor(snapshot: Snapshot, now: number, you?: { role: string; seat: number }): PartyHost {
   return {
     room: {},
-    you: snapshot.role === "player" ? { role: "player", seat: snapshot.seat } : { role: snapshot.role, seat: -1 },
+    you: you ?? (snapshot.role === "player" ? { role: "player", seat: snapshot.seat } : { role: snapshot.role, seat: -1 }),
     snapshot,
     inset: { top: 56, right: 56 },
     now: () => now,
@@ -69,7 +70,24 @@ function hostFor(snapshot: Snapshot, now: number): PartyHost {
   };
 }
 
-const render = (snapshot: Snapshot, now: number) => renderToStaticMarkup(createElement(PartyApp, { host: hostFor(snapshot, now) }));
+const render = (snapshot: Snapshot, now: number, you?: { role: string; seat: number }) => renderToStaticMarkup(createElement(PartyApp, { host: hostFor(snapshot, now, you) }));
+
+/** Plays turns until the round's summary is up: `winner` is always right, the other gives up. */
+function toSummary(state: RoomGameState, sources: Sources, now: number, winner: number) {
+  while (state.match.room.status !== "round_summary") {
+    const seat = turnSeat(state);
+    if (seat === winner) {
+      game.input(state, seat, command(state, "turn.correct.request"), now, sources);
+      game.input(state, SEATS.find((s) => s.seat !== seat)!.seat, command(state, "turn.correct.confirm"), now, sources);
+    } else game.input(state, seat, command(state, "turn.skip"), now, sources);
+  }
+}
+
+/** An identity's texts (its id, name and long aliases), escaped as markup holds them. */
+const identityTexts = (id: string) => {
+  const identity = getIdentity(id);
+  return [identity.id, identity.canonicalName, ...identity.aliases.filter((a) => a.length >= 4)].map(escapeHtml);
+};
 
 describe("the room view's page", () => {
   it("keeps every screen awake while the match is shown: a phone set down mid-round, and the big screen", () => {
@@ -110,9 +128,11 @@ describe("the room view's page", () => {
     expect(after).toContain("Guessed it");
     expect(after).toContain("Gave up");
     expect(after).toMatch(/Ann[^]*1[^]*Bo[^]*0/);
-    // The big screen, at the same moment: no identity.
-    const screen = render(game.snapshot(state, now, { role: "screen" }), now);
-    for (const name of names) expect(screen).not.toContain(escapeHtml(name));
+    // The big screen, in the round: no identity.
+    const { state: live } = matchFor(0, now);
+    const liveNames = live.match.seats.map((seat) => escapeHtml(getIdentity(live.match.room.round!.assignments[`seat-${seat}`]!).canonicalName));
+    const screen = render(game.snapshot(live, now, { role: "screen" }), now);
+    for (const name of liveNames) expect(screen).not.toContain(name);
   });
 
   it("offers either guesser the button to confirm their own guess once the other phone has been gone 30 seconds", () => {
@@ -131,6 +151,78 @@ describe("the room view's page", () => {
     }
   });
 
+  it("fills the big screen with both names and scores, whose turn, the questions and the timer, and no identity in a round", () => {
+    const now = Date.now();
+    const { state } = matchFor(2, now);
+    state.match.room.turn!.deadline = now + 42_000;
+    state.match.room.turn!.questionCount = 3;
+    const screen = render(game.snapshot(state, now, { role: "screen" }), now);
+    expect(screen).toContain('data-screen="big"');
+    expect(screen).toMatch(/data-testid="watch-turn"[^>]*>Bo’s turn to guess/);
+    expect(screen).toMatch(/data-testid="watch-questions"[^]*>3<[^]*questions asked/);
+    expect(screen).toContain("0:42");
+    expect(screen).toMatch(/data-testid="watch-scores"[^]*Ann[^]*Answering[^]*0[^]*Bo[^]*Guessing[^]*0/);
+    expect(screen).toContain("Round 1 · First to 3");
+    for (const seat of [0, 2]) for (const text of identityTexts(state.match.room.round!.assignments[`seat-${seat}`]!)) expect(screen).not.toContain(text);
+  });
+
+  it("shows the big screen the round's reveal and the scores between rounds, and who won once the match is decided", () => {
+    const now = Date.now();
+    const { state, sources } = matchFor(0, now);
+    const drawn = [0, 2].map((seat) => getIdentity(state.match.room.round!.assignments[`seat-${seat}`]!).canonicalName);
+    toSummary(state, sources, now, 0);
+    const between = render(game.snapshot(state, now, { role: "screen" }), now);
+    expect(between).toContain("Round 1 complete");
+    for (const name of drawn) expect(between).toContain(escapeHtml(name));
+    expect(between).toContain("Guessed it");
+    expect(between).toContain("Gave up");
+    expect(between).not.toContain("wins the match");
+    // On to the round that reaches 3.
+    while (!state.match.room.lastRoundSummary?.matchOver) {
+      game.input(state, 0, command(state, "round.next"), now, sources);
+      toSummary(state, sources, now, 0);
+    }
+    for (const viewer of [{ role: "screen" }, { role: "audience", seat: 1 }]) {
+      const html = render(game.snapshot(state, now, viewer), now);
+      expect(html, JSON.stringify(viewer)).toMatch(/data-testid="watch-headline"[^>]*>Ann wins the match!/);
+      expect(html).toContain("3 to 0");
+    }
+  });
+
+  it("tells both players who won on the last round's summary, by name", () => {
+    const now = Date.now();
+    const { state, sources } = matchFor(0, now);
+    toSummary(state, sources, now, 0);
+    expect(render(game.snapshot(state, now, { role: "player", seat: 0 }), now)).not.toContain("match-decided");
+    while (!state.match.room.lastRoundSummary?.matchOver) {
+      game.input(state, 0, command(state, "round.next"), now, sources);
+      toSummary(state, sources, now, 0);
+    }
+    expect(render(game.snapshot(state, now, { role: "player", seat: 0 }), now)).toMatch(/data-testid="match-decided"[^>]*>You win the match!/);
+    const bo = render(game.snapshot(state, now, { role: "player", seat: 2 }), now);
+    expect(bo).toMatch(/data-testid="match-decided"[^>]*>Ann wins the match!/);
+    expect(bo).toContain("3 to 0");
+  });
+
+  it("makes both identities the main thing on an audience phone, each under whose it is", () => {
+    const now = Date.now();
+    const { state } = matchFor(2, now);
+    const html = render(game.snapshot(state, now, { role: "audience", seat: 1 }), now);
+    const [ann, bo] = [0, 2].map((seat) => escapeHtml(getIdentity(state.match.room.round!.assignments[`seat-${seat}`]!).canonicalName));
+    expect(html).toMatch(new RegExp(`data-testid="watch-identities"[^]*Ann <span[^>]*>is</span>[^]*${ann}[^]*Bo <span[^>]*>is</span>[^]*Guessing now[^]*${bo}`));
+    expect(html).toContain("text-3xl");
+  });
+
+  it("lays out a member who joined mid-match (a screen with a seat) as a phone, with no identity", () => {
+    const now = Date.now();
+    const { state } = matchFor(2, now);
+    const html = render(game.snapshot(state, now, { role: "screen", seat: 3 }), now, { role: "screen", seat: 3 });
+    expect(html).toContain("max-w-lg");
+    expect(html).not.toContain("data-screen");
+    expect(html).toContain("Bo’s turn to guess");
+    for (const seat of [0, 2]) for (const text of identityTexts(state.match.room.round!.assignments[`seat-${seat}`]!)) expect(html).not.toContain(text);
+  });
+
   it("leaves the game's own site as it was: only its host gets the button there", () => {
     const now = Date.now();
     const { state, sources } = matchFor(2, now - 60_000);
@@ -139,5 +231,47 @@ describe("the room view's page", () => {
     const view = game.snapshot(state, now, { role: "player", seat: 2 }) as RoomView;
     const room = { view, serverOffset: 0, pending: false, send: () => Promise.resolve(true) } as unknown as RoomHandle;
     expect(renderToStaticMarkup(createElement(Game, { room, view }))).not.toContain("Confirm without");
+  });
+});
+
+describe("what the room view tells a person above the game", () => {
+  it("tells the guesser their time ran out, and everyone else whose did", () => {
+    const now = Date.now();
+    for (const turnFormat of ["trade", "keep_going"] as const) {
+      const sources = seeded(7);
+      const state = game.create({ seats: SEATS, now, settings: { turnFormat, timerSeconds: 60 }, sources });
+      const guesser = turnSeat(state);
+      const other = SEATS.find((s) => s.seat !== guesser)!;
+      const before = game.snapshot(state, now, { role: "player", seat: guesser }) as Snapshot;
+      const events = game.tick(state, game.nextDeadline(state)!, sources);
+      expect(events).toEqual([{ k: "timed_out", seat: guesser }]);
+      const mine = timedOutNotice(events, { role: "player", seat: guesser }, before);
+      expect(mine?.text).toBe(turnFormat === "trade" ? `Your time ran out, so it is ${other.name}'s move.` : "Your time ran out on this one.");
+      expect(mine?.sticky).toBe(false);
+      const guesserName = SEATS.find((s) => s.seat === guesser)!.name;
+      for (const viewer of [{ role: "player", seat: other.seat }, { role: "screen", seat: -1 }, { role: "audience", seat: 1 }]) {
+        const snap = game.snapshot(state, now, viewer) as Snapshot;
+        expect(timedOutNotice(events, viewer, snap)?.text, JSON.stringify(viewer)).toBe(`${guesserName}'s time ran out.`);
+      }
+    }
+    expect(timedOutNotice([{ k: "abandoned", seat: 0 }], { role: "player", seat: 0 }, game.snapshot(matchFor(0, now).state, now, { role: "player", seat: 0 }) as Snapshot)).toBeNull();
+  });
+
+  it("tells a player back from a hidden page that the other confirmed their own guess without them", () => {
+    const now = Date.now();
+    const { state, sources } = matchFor(2, now - 60_000);
+    game.input(state, 2, command(state, "turn.correct.request"), now - 60_000, sources);
+    game.presence(state, 0, { connected: true, away: true }, now - 40_000, sources);
+    const prev = game.snapshot(state, now, { role: "player", seat: 0 }) as RoomView;
+    expect(game.input(state, 2, command(state, "turn.correct.override"), now, sources)).toMatchObject({ ok: true });
+    const next = game.snapshot(state, now, { role: "player", seat: 0 }) as RoomView;
+    const notice = confirmedWithoutYouNotice(prev, next, false);
+    expect(notice).toEqual({ text: "While you were away, Bo confirmed their own guess.", sticky: true, roundIndex: 1 });
+    // Not when this page confirmed it, and not for the guesser.
+    expect(confirmedWithoutYouNotice(prev, next, true)).toBeNull();
+    const bo = game.snapshot(state, now, { role: "player", seat: 2 }) as RoomView;
+    expect(confirmedWithoutYouNotice(bo, bo, false)).toBeNull();
+    // It names no identity.
+    for (const seat of [0, 2]) for (const text of identityTexts(state.match.room.round!.assignments[`seat-${seat}`]!)) expect(notice!.text).not.toContain(text);
   });
 });

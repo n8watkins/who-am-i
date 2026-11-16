@@ -19,7 +19,7 @@
 // held upright the stage is the whole width; on one held sideways the room letterboxes it to an
 // upright shape in the middle. On a phone or a laptop the page is a column at most 480 CSS pixels
 // wide, centred, starting below the room's door button only where it reaches that corner. The big
-// screen (`you.role === "screen"`) gets the whole width.
+// screen (`you.role === "screen"` with no seat) gets the whole width.
 //
 // Plain JavaScript with no build: it is served as it is.
 
@@ -43,7 +43,9 @@ const BACKLOG_EVENTS = 64;
 export function mount(container, { room, you, upright = false, snapshot, send, inputId, now, inset = {} }) {
   const doc = container.ownerDocument;
   const handlers = { events: new Set(), snapshot: new Set() };
-  const screen = you?.role === "screen";
+  // The room's own big screen has no seat (-1). A member who joined after the match began is a
+  // screen with a seat of their own: a phone, which gets a phone's column.
+  const screen = you?.role === "screen" && !(you.seat >= 0);
   const column = screen ? Infinity : COLUMN_MAX;
   const door = { top: inset.top ?? 0, right: inset.right ?? 0 };
   /** The latest snapshot the room gave, for a page that starts (or starts again) in the frame. */

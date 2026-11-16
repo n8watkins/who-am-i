@@ -146,6 +146,16 @@ describe("the room view's module", () => {
     view.unmount();
   });
 
+  it("gives a member who joined mid-match (a screen with a seat of its own) a phone's column, scaled into a narrow stage", () => {
+    // A phone held sideways: the room letterboxes the upright stage, 270 pixels, in the middle.
+    const { container } = fakeDocument({ viewport: 640, left: 185, width: 270 });
+    const view = mount(container, context([], { you: { role: "screen", seat: 3 }, upright: true }));
+    const { frame } = parts(container);
+    expect(frame.style.maxWidth).toBe("480px");
+    expect(frame.style).toMatchObject({ width: "360px", transform: "scale(0.75)" });
+    view.unmount();
+  });
+
   it("hands the page the room's context, and holds what the room says until the page is listening", () => {
     const { container } = fakeDocument();
     const sent: unknown[] = [];

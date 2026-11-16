@@ -4098,7 +4098,8 @@ var DIFFICULTY_LABELS = {
 var manifest = {
 	id: "who-am-i",
 	name: "Who Am I?",
-	blurb: "Guess the secret identity only your friend can see",
+	/** Two short lines at most on the room's plaque under the poster. */
+	blurb: "Ask yes or no, guess who you are",
 	/** The same on every site, so a link works on any host. */
 	path: "/who-am-i/",
 	players: {
