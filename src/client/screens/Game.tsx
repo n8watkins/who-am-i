@@ -124,7 +124,7 @@ export function Game({ room, view }: { room: RoomHandle; view: RoomView }) {
               picture={picture}
               name={identityName}
               onError={onPictureError}
-              className="aspect-[4/5] h-[min(40dvh,20rem)] w-auto max-w-full rounded-2xl short:h-[52dvh]"
+              className="aspect-[4/5] h-[min(34dvh,20rem)] md:h-56 w-auto max-w-full rounded-2xl short:h-[52dvh]"
             />
             <div className="min-w-0 max-w-full">
               <p className="text-xs font-extrabold uppercase tracking-wide text-muted">Answer as</p>
