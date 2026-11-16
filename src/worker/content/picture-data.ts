@@ -1,4 +1,7 @@
-{
+// One picture per identity, chosen and checked by hand (see pictures.ts and README, "Pictures").
+// [thumbnail on upload.wikimedia.org, file page, author or null, licence, free]
+// To pull a picture, delete its line.
+export const PICTURE_DATA: Readonly<Record<string, readonly [string, string, string | null, string, boolean]>> = {
   "actors.tom-hanks": ["https://upload.wikimedia.org/wikipedia/commons/thumb/3/39/TomHanksPrincEdw031223_%2811_of_41%29_%28cropped%29.jpg/500px-TomHanksPrincEdw031223_%2811_of_41%29_%28cropped%29.jpg", "https://commons.wikimedia.org/wiki/File:TomHanksPrincEdw031223_(11_of_41)_(cropped).jpg", "Raph_PH", "CC BY 2.0", true],
   "actors.meryl-streep": ["https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Meryl_Streep-_Press_conference_for_the_film_%22The_Devil_Wears_Prada_2%22_-_55194765350_%28cropped1%29.jpg/500px-Meryl_Streep-_Press_conference_for_the_film_%22The_Devil_Wears_Prada_2%22_-_55194765350_%28cropped1%29.jpg", "https://commons.wikimedia.org/wiki/File:Meryl_Streep-_Press_conference_for_the_film_%22The_Devil_Wears_Prada_2%22_-_55194765350_(cropped1).jpg", "Ministry of culture, sports and Tourism- Lee Jeong-woo", "CC BY-SA 4.0", true],
   "actors.leonardo-dicaprio": ["https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Leonardo_DiCaprio_-_BFI_Southbank_3_%28crop%29.jpg/500px-Leonardo_DiCaprio_-_BFI_Southbank_3_%28crop%29.jpg", "https://commons.wikimedia.org/wiki/File:Leonardo_DiCaprio_-_BFI_Southbank_3_(crop).jpg", "Raph_PH", "CC BY 4.0", true],
@@ -202,5 +205,5 @@
   "anime-cartoons.tanjiro": ["https://upload.wikimedia.org/wikipedia/en/e/ea/Tanjirou_manga.png", "https://en.wikipedia.org/wiki/File:Tanjirou_manga.png", null, "Fair use", false],
   "anime-cartoons.astro-boy": ["https://upload.wikimedia.org/wikipedia/en/f/f2/Astro_Boy_anime_version.png", "https://en.wikipedia.org/wiki/File:Astro_Boy_anime_version.png", null, "Fair use", false],
   "anime-cartoons.he-man": ["https://upload.wikimedia.org/wikipedia/en/c/ca/He-Man_%28Adam%29.png", "https://en.wikipedia.org/wiki/File:He-Man_(Adam).png", null, "Fair use", false],
-  "anime-cartoons.powerpuff-blossom": ["https://upload.wikimedia.org/wikipedia/en/7/7b/Blossom_PPG_98_Art.png", "https://en.wikipedia.org/wiki/File:Blossom_PPG_98_Art.png", null, "Fair use", false]
-}
+  "anime-cartoons.powerpuff-blossom": ["https://upload.wikimedia.org/wikipedia/en/7/7b/Blossom_PPG_98_Art.png", "https://en.wikipedia.org/wiki/File:Blossom_PPG_98_Art.png", null, "Fair use", false],
+};

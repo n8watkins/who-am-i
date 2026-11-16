@@ -28,8 +28,12 @@ function files(dir) {
 }
 
 // Picture addresses travel only in per-player views too, never in the bundle.
-const pictureData = JSON.parse(readFileSync(new URL("pictures.json", contentDir), "utf8"));
-const pictureUrls = Object.values(pictureData).flatMap(([imageUrl, filePage]) => [imageUrl, filePage]);
+const pictureSource = readFileSync(new URL("picture-data.ts", contentDir), "utf8");
+const pictureUrls = [...pictureSource.matchAll(/"(https:\/\/[^"]+)"/g)].map((m) => m[1]);
+if (pictureUrls.length < 100) {
+  console.error(`check-bundle: expected 100+ picture addresses, parsed ${pictureUrls.length}. Did the picture data format change?`);
+  process.exit(1);
+}
 
 const leaks = [];
 for (const path of files(distDir.pathname)) {

@@ -13,7 +13,7 @@ export interface Identity {
   tags: string[];
   difficulty: Difficulty;
   active: boolean;
-  /** A Wikimedia-hosted picture and its credit, from pictures.json. Absent: the card stays text-only. */
+  /** A Wikimedia-hosted picture and its credit, from picture-data.ts. Absent: the card stays text-only. */
   picture?: IdentityPicture;
   /** Exactly three hints, from vague to strong. Never contain the name or an alias. */
   hints: Hints;
