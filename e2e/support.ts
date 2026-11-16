@@ -1,5 +1,5 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { PICTURE_HOST } from "../src/shared/protocol";
+import { PICTURE_HOST, type IdentityPicture } from "../src/shared/protocol";
 import { getIdentity } from "../src/worker/content";
 
 /**
@@ -63,7 +63,7 @@ export class Capture {
 interface RevealedIdentity {
   id: string;
   canonicalName: string;
-  picture: { imageUrl: string; filePage: string } | null;
+  picture: IdentityPicture | null;
 }
 
 interface ViewLike {
@@ -104,9 +104,17 @@ export async function assertNoLeakBeforeReveal(capture: Capture, roundIndex: num
     const escaped = JSON.stringify(own.canonicalName).slice(1, -1);
     expect(item.text.includes(escaped), `own identity (escaped) leaked in ${context}`).toBe(false);
     if (own.picture) {
-      // Neither the picture's address nor its file page, and the browser never asked for it.
-      expect(item.text.includes(own.picture.imageUrl), `own picture address leaked in ${context}`).toBe(false);
-      expect(item.text.includes(own.picture.filePage), `own picture file page leaked in ${context}`).toBe(false);
+      // Not the picture object (every credit field together), nor its address or file page, as
+      // sent or as JSON escapes them; and the browser never asked for it.
+      const inJson = (text: string) => JSON.stringify(text).slice(1, -1);
+      const needles = {
+        "picture object": JSON.stringify(own.picture),
+        "picture address": own.picture.imageUrl,
+        "picture address (escaped)": inJson(own.picture.imageUrl),
+        "picture file page": own.picture.filePage,
+        "picture file page (escaped)": inJson(own.picture.filePage),
+      };
+      for (const [what, needle] of Object.entries(needles)) expect(item.text.includes(needle), `own ${what} leaked in ${context}`).toBe(false);
       expect(item.source, `own picture was loaded before the reveal (seq ${item.seq})`).not.toBe(own.picture.imageUrl);
     }
   }
