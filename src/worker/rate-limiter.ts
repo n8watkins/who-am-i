@@ -61,20 +61,20 @@ function ipPrefix(ip: string, groups: number): string {
 }
 
 /**
- * The key a client is limited by for joins, lookups, creates, PINs and shares. One IPv6 customer
- * usually holds a whole /64, so all of it counts as one client. Not the /48: mobile carriers give
- * each phone its own /64 out of a shared /48, so keying these on the /48 would make thousands of
- * unrelated phones share one small allowance.
+ * The key a client is limited by, for every bucket. One IPv6 customer usually holds a whole /64,
+ * so all of it counts as one client. Not the /48: mobile carriers give each phone its own /64
+ * out of a shared /48, and a bucket is one allowance across all rooms that refuses outright, so
+ * keying it on the /48 would let one busy phone shut out thousands of unrelated ones.
  */
 export function clientKey(ip: string): string {
   return ipPrefix(ip, 4);
 }
 
 /**
- * The key for room sockets (the `socket` bucket and a room's cap on silent sockets). One customer
- * can be handed a whole /48 (65,536 /64s), so counting per /64 would let one person hold
- * thousands of silent sockets. The cost: phones that share a carrier /48 also share this
- * allowance (see RATE_LIMITS.socket and MAX_SILENT_PER_CLIENT).
+ * The key a room caps its silent sockets by (MAX_SILENT_PER_CLIENT), and nothing else. One
+ * customer can be handed a whole /48 (65,536 /64s), so capping per /64 would let one person hold
+ * a room's silent slots. That cap is per room and pushes out the client's own oldest socket
+ * rather than refusing, so sharing it with other phones in a carrier /48 costs little.
  */
 export function socketClientKey(ip: string): string {
   return ipPrefix(ip, 3);
@@ -83,13 +83,13 @@ export function socketClientKey(ip: string): string {
 /** The address Cloudflare saw ("local" in tests without one). */
 const clientAddress = (request: Request) => request.headers.get("CF-Connecting-IP") ?? "local";
 
-/** The socket client key of a request: what a room caps silent sockets by. */
+/** The key a room caps this request's silent socket by. */
 export function requestSocketClientKey(request: Request): string {
   return socketClientKey(clientAddress(request));
 }
 
 export async function allowRequest(env: Env, request: Request, bucket: RateLimitBucket): Promise<boolean> {
-  const ip = bucket === "socket" ? requestSocketClientKey(request) : clientKey(clientAddress(request));
+  const ip = clientKey(clientAddress(request));
   const stub = env.RATE_LIMITER.getByName(`${bucket}:${ip}`);
   return stub.hit(RATE_LIMITS[bucket]);
 }

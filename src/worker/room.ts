@@ -197,8 +197,11 @@ export class RoomDurableObject extends DurableObject<Env> {
    * the newcomer must be refused. A socket whose hello is being checked is never pushed out.
    * 1. Silent sockets past the hello timeout go.
    * 2. The client's own oldest goes if it already holds its share.
-   * 3. At the room-wide cap, the oldest of the client holding the most goes, if it holds more
-   *    than one; when every client holds one, the newcomer is refused instead.
+   * 3. At the room-wide cap, the oldest socket of the client holding the most goes; when every
+   *    client holds one, that is simply the oldest silent socket. Refusing the newcomer instead
+   *    would let enough addresses, each holding one socket, keep every real phone out, while a
+   *    real phone is the newest socket during its round trip and so the last to go.
+   * The newcomer is refused only when nothing may be closed: every silent socket is mid-check.
    */
   private makeRoomForSilentSocket(client: string, now: number): boolean {
     const evict = (ws: WebSocket) => closeQuietly(ws, WS_CLOSE.helloTimeout, "hello_timeout");
@@ -223,14 +226,15 @@ export class RoomDurableObject extends DurableObject<Env> {
     byClient.set(client, mine);
 
     if (live.length + checking < MAX_SILENT_SOCKETS) return true;
-    // The greediest client, ties going to the one whose oldest socket is oldest.
+    // The greediest client, ties going to the one whose oldest socket is oldest; so with every
+    // client at one socket, this is the client holding the oldest silent socket.
     let greediest: WebSocket[] = [];
     for (const sockets of byClient.values()) {
       if (sockets.length > greediest.length || (sockets.length === greediest.length && sockets.length > 0 && openedAt(sockets[0]!) < openedAt(greediest[0]!))) {
         greediest = sockets;
       }
     }
-    if (greediest.length < 2) return false;
+    if (greediest.length === 0) return false; // Every silent socket is mid-check.
     evict(greediest[0]!);
     return true;
   }

@@ -610,7 +610,7 @@ describe("WebSocket handshake (the token is the first message, never the address
     for (const s of [...others, player]) s.ws.close();
   });
 
-  it(`at ${MAX_SILENT_SOCKETS} silent sockets in all, pushes out the greediest client's oldest, never a lone socket`, async () => {
+  it(`at ${MAX_SILENT_SOCKETS} silent sockets in all, pushes out the greediest client's oldest first, then the oldest lone one`, async () => {
     const host = await createRoom();
     const code = host.view.code;
     const greedyIp = freshIp();
@@ -618,16 +618,55 @@ describe("WebSocket handshake (the token is the first message, never the address
     const lone: Awaited<ReturnType<typeof rawSocket>>[] = [];
     for (let i = 0; i < MAX_SILENT_SOCKETS - greedy.length; i++) lone.push(await rawSocket(code));
     const newcomer = await rawSocket(code);
+    // The greedy client's oldest goes, though older lone sockets exist (lone[0] is newer than greedy[0]).
     expect(await closeWithin(greedy[0]!.closed)).toBe(WS_CLOSE.helloTimeout);
-    const stillOpen = () => Promise.all([greedy[1]!, ...lone, newcomer].map((s) => closeWithin(s.closed, 100)));
-    expect((await stillOpen()).every((c) => c === null)).toBe(true);
+    const stillOpen = (sockets: typeof lone) => Promise.all(sockets.map((s) => closeWithin(s.closed, 100)));
+    expect((await stillOpen([greedy[1]!, ...lone, newcomer])).every((c) => c === null)).toBe(true);
 
-    // Now every client holds a single silent socket: nobody is pushed out, the newcomer is refused.
-    const refused = await upgrade(code);
-    expect(refused.status).toBe(429);
-    expect((await stillOpen()).every((c) => c === null)).toBe(true);
+    // Now every client holds a single silent socket: the oldest of them makes room.
+    const next = await rawSocket(code);
+    expect(await closeWithin(greedy[1]!.closed)).toBe(WS_CLOSE.helloTimeout);
+    expect((await stillOpen([...lone, newcomer, next])).every((c) => c === null)).toBe(true);
     expect(await attachments(code)).toHaveLength(MAX_SILENT_SOCKETS);
-    for (const s of [greedy[1]!, ...lone, newcomer]) s.ws.close();
+    for (const s of [...lone, newcomer, next]) s.ws.close();
+  }, 30_000);
+
+  it(`seats a phone from a ${MAX_SILENT_SOCKETS + 1}th address while ${MAX_SILENT_SOCKETS} others each hold a silent socket`, async () => {
+    const { code, host } = await startedRoom();
+    const others: Awaited<ReturnType<typeof rawSocket>>[] = [];
+    for (let i = 0; i < MAX_SILENT_SOCKETS; i++) others.push(await rawSocket(code));
+    const phone = await rawSocket(code);
+    phone.ws.send(helloFrame(host.token));
+    await expect.poll(() => phone.frames.length).toBeGreaterThan(0);
+    expect(JSON.parse(phone.frames[0]!)).toMatchObject({ type: "state", view: { youId: host.playerId } });
+    expect(await closeWithin(others[0]!.closed)).toBe(WS_CLOSE.helloTimeout);
+    for (const s of [...others, phone]) s.ws.close();
+  }, 30_000);
+
+  it(`refuses a newcomer only when all ${MAX_SILENT_SOCKETS} silent sockets are having their hello checked, and closes none of them`, async () => {
+    const { code, host } = await startedRoom();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await runInDurableObject(roomStub(code), async (instance) => {
+      const self = instance as unknown as { verifyToken: (token: string) => Promise<unknown> };
+      const verify = self.verifyToken.bind(instance);
+      self.verifyToken = async (token) => {
+        await held;
+        return verify(token);
+      };
+    });
+    const checking: Awaited<ReturnType<typeof rawSocket>>[] = [];
+    for (let i = 0; i < MAX_SILENT_SOCKETS; i++) {
+      const s = await rawSocket(code);
+      s.ws.send(helloFrame(host.token));
+      checking.push(s);
+    }
+    await pause(200); // every hello has reached its gate
+    expect((await upgrade(code)).status).toBe(429);
+    release();
+    for (const s of checking) await expect.poll(() => s.frames.length).toBeGreaterThan(0);
+    expect((await Promise.all(checking.map((s) => closeWithin(s.closed, 50)))).every((c) => c === null)).toBe(true);
+    for (const s of checking) s.ws.close();
   }, 30_000);
 
   it("limits socket requests per client before the room is touched", async () => {
@@ -664,25 +703,26 @@ describe("WebSocket handshake (the token is the first message, never the address
     expect(codes).toEqual(new Array(RATE_LIMITS.socket.limit + 1).fill(WS_CLOSE.roomClosed));
   });
 
-  it("counts a whole IPv6 /48 as one client for sockets: the limit and the room's silent cap", async () => {
-    const host = await createRoom();
-    const code = host.view.code;
+  it("keys the socket limit on the IPv6 /64: a busy phone does not block another phone in its carrier /48", async () => {
+    const roomA = (await createRoom()).view.code;
+    const roomB = (await createRoom()).view.code;
     const prefix = `2001:db8:${++ipCounter}`;
     const { limit } = RATE_LIMITS.socket;
-    // Every request from a different /64 of the same /48: one allowance between them.
-    const statuses: number[] = [];
-    for (let i = 0; i <= limit; i++) {
-      const res = await upgrade(code, WS_PROTOCOL, `${prefix}:${i}::1`);
-      statuses.push(res.status);
-      if (res.webSocket) {
-        res.webSocket.accept();
-        res.webSocket.close();
-      }
+    for (let i = 0; i < limit; i++) {
+      const res = await upgrade(roomA, WS_PROTOCOL, `${prefix}:1::1`);
+      expect(res.status).toBe(101);
+      res.webSocket!.accept();
+      res.webSocket!.close();
     }
-    expect(statuses.filter((s) => s === 101)).toHaveLength(limit);
-    expect(statuses.at(-1)).toBe(429);
+    expect((await upgrade(roomA, WS_PROTOCOL, `${prefix}:1::2`)).status).toBe(429);
+    // Another phone: another /64 in the same /48, joining a different room.
+    const other = await rawSocket(roomB, WS_PROTOCOL, `${prefix}:2::1`);
+    other.ws.close();
+  });
 
-    // In the room, too, the /48 holds one client's share of silent sockets.
+  it("counts a whole IPv6 /48 as one client for a room's silent sockets", async () => {
+    const host = await createRoom();
+    const code = host.view.code;
     const other = `2001:db8:${++ipCounter}`;
     const mine: Awaited<ReturnType<typeof rawSocket>>[] = [];
     for (let i = 0; i < MAX_SILENT_PER_CLIENT; i++) mine.push(await rawSocket(code, WS_PROTOCOL, `${other}:${i}::1`));
