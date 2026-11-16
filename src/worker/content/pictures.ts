@@ -13,7 +13,7 @@
 // it is the last one): that identity goes back to the text card. To turn every picture off without
 // a code change, set the Worker variable PICTURES to "off" (see README, "Pictures").
 import type { IdentityPicture } from "../../shared/protocol";
-import data from "./pictures.json";
+import data from "./pictures.json" with { type: "json" };
 
 /** Worker variables this module reads. */
 export interface PicturesEnv {
