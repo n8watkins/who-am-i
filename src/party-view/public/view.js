@@ -27,6 +27,12 @@
 const PAGE = new URL("./index.html", import.meta.url);
 /** The widest a phone's column gets. */
 const COLUMN_MAX = 480;
+/**
+ * The narrowest column the game's screens are laid out for. A narrower stage (the upright box the
+ * room letterboxes in the middle of a phone held sideways, 270 to 300 pixels) shows the column at
+ * this width, drawn smaller to fit, so nothing is cut off or run together.
+ */
+const COLUMN_MIN = 360;
 /** The most event lists held for a page that is not listening yet. */
 const BACKLOG_EVENTS = 64;
 
@@ -71,7 +77,7 @@ export function mount(container, { room, you, upright = false, snapshot, send, i
   // Every style is set through the style object, never a style attribute: the host's
   // Content-Security-Policy forbids those.
   const box = doc.createElement("div");
-  Object.assign(box.style, { position: "absolute", inset: "0", display: "flex", justifyContent: "center", alignItems: "stretch", background: "#16141f", boxSizing: "border-box" });
+  Object.assign(box.style, { position: "absolute", inset: "0", display: "flex", justifyContent: "center", alignItems: "stretch", background: "#16141f", boxSizing: "border-box", overflow: "hidden" });
   const frame = doc.createElement("iframe");
   frame.title = "Who Am I?";
   frame.setAttribute("allow", "screen-wake-lock");
@@ -90,6 +96,16 @@ export function mount(container, { room, you, upright = false, snapshot, send, i
     const columnRight = rect.left + (width + Math.min(width, column)) / 2;
     const underDoor = rect.top < door.top && columnRight > page - door.right;
     box.style.paddingTop = underDoor ? `${door.top}px` : "0";
+    // A stage narrower than the column's least width: the column keeps that width and is scaled
+    // down to the stage, from its top left corner (the box then lines it up on the left).
+    const scale = !screen && width > 0 && width < COLUMN_MIN ? width / COLUMN_MIN : 1;
+    box.style.justifyContent = scale < 1 ? "flex-start" : "center";
+    Object.assign(
+      frame.style,
+      scale < 1
+        ? { flex: "none", width: `${COLUMN_MIN}px`, height: `${100 / scale}%`, transform: `scale(${scale})`, transformOrigin: "0 0" }
+        : { flex: "", width: "100%", height: "100%", transform: "", transformOrigin: "" },
+    );
   };
   // The stage's own size, and the page's (the letterbox moves with it).
   const resize = typeof ResizeObserver === "function" ? new ResizeObserver(fit) : null;

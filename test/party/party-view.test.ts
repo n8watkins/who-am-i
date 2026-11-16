@@ -116,6 +116,26 @@ describe("the room view's module", () => {
     view.unmount();
   });
 
+  it("draws the column at its least width, scaled down, on a stage narrower than that (a phone held sideways)", () => {
+    // 640 by 360, held sideways: the room's upright box is 270 pixels wide.
+    const { container } = fakeDocument({ viewport: 640, left: 185, width: 270 });
+    const view = mount(container, context());
+    const { box, frame } = parts(container);
+    expect(frame.style.width).toBe("360px");
+    expect(frame.style.transform).toBe("scale(0.75)");
+    expect(frame.style.transformOrigin).toBe("0 0");
+    expect(frame.style.height).toBe(`${100 / 0.75}%`);
+    expect(box.style.justifyContent).toBe("flex-start");
+    expect(box.style.overflow).toBe("hidden");
+    view.unmount();
+    // An upright phone is wide enough: the column fills the stage as it is.
+    const upright = fakeDocument({ viewport: 390 });
+    const v2 = mount(upright.container, context());
+    expect(parts(upright.container).frame.style).toMatchObject({ width: "100%", height: "100%", transform: "" });
+    expect(parts(upright.container).box.style.justifyContent).toBe("center");
+    v2.unmount();
+  });
+
   it("gives the big screen the whole width, not a phone's column, and tells the page who it is", () => {
     const { container } = fakeDocument({ viewport: 1920 });
     const view = mount(container, context([], { you: { role: "screen", seat: -1 }, upright: false }));
