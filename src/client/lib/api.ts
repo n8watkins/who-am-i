@@ -12,7 +12,11 @@ import type {
   SessionResponse,
   ViewResponse,
 } from "../../shared/protocol";
+import { CLIENT_VERSION, CLIENT_VERSION_HEADER } from "../../shared/protocol";
 import type { CreatedCard, PublicCard } from "../../kit/shared/share-cards";
+
+/** Create and join say which client this is, so the Worker can turn away pages that are too old. */
+const CURRENT_CLIENT = { [CLIENT_VERSION_HEADER]: CLIENT_VERSION };
 
 export interface StoredSession {
   token: string;
@@ -96,12 +100,13 @@ async function request<T>(path: string, init: RequestInit & { token?: string } =
 export const api = {
   packs: () => request<{ packs: PackInfo[] }>("/api/packs").then((r) => r.packs),
   createRoom: (body: CreateRoomRequest) =>
-    request<SessionResponse>("/api/rooms", { method: "POST", body: JSON.stringify(body) }),
+    request<SessionResponse>("/api/rooms", { method: "POST", body: JSON.stringify(body), headers: CURRENT_CLIENT }),
   preview: (code: string) => request<{ preview: RoomPreview }>(`/api/rooms/${encodeURIComponent(code)}`).then((r) => r.preview),
   join: (code: string, nickname: string) =>
     request<SessionResponse>(`/api/rooms/${encodeURIComponent(code)}/join`, {
       method: "POST",
       body: JSON.stringify({ nickname }),
+      headers: CURRENT_CLIENT,
     }),
   lookUpJoin: (pinOrCode: string) =>
     request<JoinLookupResponse>(`/api/join/${encodeURIComponent(pinOrCode)}`).then((r) => r.preview),

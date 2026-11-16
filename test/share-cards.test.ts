@@ -5,7 +5,7 @@ import { checkCardPng, handleShareApi, shareCardPage } from "../src/kit/worker/s
 import { getIdentity, packIdentities } from "../src/worker/content";
 import type { RoomState } from "../src/worker/engine";
 import type { RoomDurableObject } from "../src/worker/room";
-import { DEFAULT_SETTINGS, type SessionResponse } from "../src/shared/protocol";
+import { CLIENT_VERSION, CLIENT_VERSION_HEADER, DEFAULT_SETTINGS, type SessionResponse } from "../src/shared/protocol";
 
 const BASE = "http://who-am-i.test";
 let ip = 0;
@@ -23,6 +23,7 @@ function fakePng(width = 1200, height = 630, extra = 64): Uint8Array {
 async function call(path: string, init: RequestInit & { token?: string } = {}) {
   const headers = new Headers(init.headers);
   headers.set("CF-Connecting-IP", `10.9.0.${++ip}`);
+  headers.set(CLIENT_VERSION_HEADER, CLIENT_VERSION);
   if (init.token) headers.set("Authorization", `Bearer ${init.token}`);
   return SELF.fetch(`${BASE}${path}`, { ...init, headers });
 }

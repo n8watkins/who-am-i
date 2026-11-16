@@ -3,6 +3,8 @@
 // before it becomes visible, and pushes a per-player filtered view to each WebSocket.
 import { DurableObject } from "cloudflare:workers";
 import {
+  ClientHelloSchema,
+  WS_CLOSE,
   WS_PROTOCOL,
   type Command,
   type ErrorCode,
@@ -15,24 +17,49 @@ import { allAway, isPresenceSignal, PRESENCE_AWAY } from "../kit/shared/presence
 import { ROOM_IDLE_MS, rules, type RoomState } from "../party/game";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { resultCardText } from "./result-card";
+import { requestSocketClientKey } from "./rate-limiter";
+import { MissingSecretError, verifySession } from "./session";
 
 /** Rooms are deleted after this long without any player activity. */
 export const ROOM_IDLE_TTL_MS = ROOM_IDLE_MS;
 const STORAGE_KEY = "room";
-const CLOSE_ROOM_EXPIRED = 4000;
-const CLOSE_LEFT_ROOM = 4001;
-const CLOSE_REMOVED = 4002;
+const CLOSE_ROOM_EXPIRED: number = WS_CLOSE.roomClosed;
+const CLOSE_LEFT_ROOM: number = WS_CLOSE.leftRoom;
+const CLOSE_REMOVED: number = WS_CLOSE.removed;
 /** The host's open lobby refreshes the PIN this long before it would expire. */
 const PIN_REFRESH_MARGIN_MS = 60_000;
 
-export const PLAYER_ID_HEADER = "X-WhoAmI-Player";
-export const ROOM_ID_HEADER = "X-WhoAmI-Room";
+/**
+ * Silent sockets (not yet said who they are) one client may hold in a room. A client is an IPv4
+ * address or an IPv6 /48 (socketClientKey), and a mobile carrier can put both players of a room in
+ * one /48, so this covers both players with two tabs each reconnecting at the same moment (after a
+ * deploy or a network change): each socket is silent for one round trip, then says hello. A
+ * client's newcomer pushes out only that client's own oldest silent socket, so nobody can crowd
+ * out anyone else's.
+ */
+export const MAX_SILENT_PER_CLIENT = 4;
+/**
+ * Silent sockets in a room from all clients together. They sleep with the room and cost nothing
+ * while they wait; at this many the greediest client's oldest goes, never a client's only one,
+ * so refusing a newcomer takes this many separate clients holding one socket each.
+ */
+export const MAX_SILENT_SOCKETS = 64;
+/** A silent socket older than this is closed the next time the room handles a new socket. */
+export const HELLO_TIMEOUT_MS = 10_000;
 
+/** Stored on each socket, so it survives the room sleeping (hibernation). */
 interface SocketAttachment {
-  playerId: string;
-  /** The page behind this socket is hidden. Missing on sockets accepted before away existed. */
+  /** Null until the socket's first message (a hello with a valid token) says whose seat it is. */
+  playerId: string | null;
+  /** When the socket opened. Set on sockets that have not said who they are. */
+  openedAt?: number;
+  /** The client key (address, or IPv6 /48) that opened it. Set on silent sockets. */
+  client?: string;
+  /** The page behind this socket is hidden. */
   away?: boolean;
 }
+
+const attachmentOf = (ws: WebSocket) => ws.deserializeAttachment() as SocketAttachment;
 
 export type RpcFailure = { ok: false; error: ErrorCode; message: string; view?: RoomView };
 export type CreateResult = { ok: true; roomId: string; playerId: string; view: RoomView } | RpcFailure;
@@ -45,6 +72,12 @@ export class RoomDurableObject extends DurableObject<Env> {
   private room: RoomState | null = null;
   /** Calling the directory yields to other events, so PIN work runs strictly one job at a time. */
   private pinWork: Promise<void> = Promise.resolve();
+  /**
+   * Sockets whose hello is being checked. Their later events wait here (see identify), while
+   * every other socket's events go straight through. In memory only: the room cannot sleep while
+   * a check is running.
+   */
+  private helloGates = new Map<WebSocket, Promise<void>>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -139,36 +172,78 @@ export class RoomDurableObject extends DurableObject<Env> {
   // -------------------------------------------------------------------------
   // WebSockets (Hibernation API)
 
+  /**
+   * Opens a socket that belongs to nobody yet. The request carries no token (its address and
+   * headers are logged); the socket's first message must be a hello that names the seat, and
+   * until then it is sent nothing and can do nothing.
+   */
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
     }
-    const playerId = request.headers.get(PLAYER_ID_HEADER) ?? "";
-    const roomId = request.headers.get(ROOM_ID_HEADER) ?? "";
-    if (!this.authorized(roomId, playerId)) return new Response("Unauthorized", { status: 403 });
+    if (!this.room) return new Response("Not found", { status: 404 });
+    const client = requestSocketClientKey(request);
+    if (!this.makeRoomForSilentSocket(client, Date.now())) return new Response("Too many sockets", { status: 429 });
 
     const pair = new WebSocketPair();
-    const [client, server] = [pair[0], pair[1]];
-    this.ctx.acceptWebSocket(server, [playerId]);
-    server.serializeAttachment({ playerId } satisfies SocketAttachment);
+    const [page, server] = [pair[0], pair[1]];
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ playerId: null, openedAt: Date.now(), client } satisfies SocketAttachment);
+    return new Response(null, { status: 101, webSocket: page, headers: { "Sec-WebSocket-Protocol": WS_PROTOCOL } });
+  }
 
-    await this.expireIfDue();
-    // Connecting never changes away by itself: a new page starts visible and reports otherwise.
-    const away = rules.player(this.room!, playerId)?.away ?? false;
-    const updated = rules.presence(this.room!, playerId, { connected: true, away }, Date.now());
-    if (updated) await this.commit(updated);
-    else {
-      // Another tab was already connected: this visible one may end their away state.
-      this.sendView(server, playerId);
-      await this.syncAway(playerId);
+  /**
+   * Closes silent sockets (4005) to make room for a new one from `client`, or returns false when
+   * the newcomer must be refused. A socket whose hello is being checked is never pushed out.
+   * 1. Silent sockets past the hello timeout go.
+   * 2. The client's own oldest goes if it already holds its share.
+   * 3. At the room-wide cap, the oldest socket of the client holding the most goes; when every
+   *    client holds one, that is simply the oldest silent socket. Refusing the newcomer instead
+   *    would let enough addresses, each holding one socket, keep every real phone out, while a
+   *    real phone is the newest socket during its round trip and so the last to go.
+   * The newcomer is refused only when nothing may be closed: every silent socket is mid-check.
+   */
+  private makeRoomForSilentSocket(client: string, now: number): boolean {
+    const evict = (ws: WebSocket) => closeQuietly(ws, WS_CLOSE.helloTimeout, "hello_timeout");
+    const openedAt = (ws: WebSocket) => attachmentOf(ws).openedAt ?? 0;
+    const all = this.unidentifiedSockets();
+    const checking = all.filter((ws) => this.helloGates.has(ws)).length;
+    let live = all.filter((ws) => !this.helloGates.has(ws)).sort((a, b) => openedAt(a) - openedAt(b));
+    for (const ws of live.filter((s) => now - openedAt(s) > HELLO_TIMEOUT_MS)) evict(ws);
+    live = live.filter((s) => now - openedAt(s) <= HELLO_TIMEOUT_MS);
+
+    const byClient = new Map<string, WebSocket[]>();
+    for (const ws of live) {
+      const key = attachmentOf(ws).client ?? "unknown";
+      byClient.set(key, [...(byClient.get(key) ?? []), ws]);
     }
+    const mine = byClient.get(client) ?? [];
+    while (mine.length >= MAX_SILENT_PER_CLIENT) {
+      const oldest = mine.shift()!;
+      evict(oldest);
+      live = live.filter((s) => s !== oldest);
+    }
+    byClient.set(client, mine);
 
-    return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": WS_PROTOCOL } });
+    if (live.length + checking < MAX_SILENT_SOCKETS) return true;
+    // The greediest client, ties going to the one whose oldest socket is oldest; so with every
+    // client at one socket, this is the client holding the oldest silent socket.
+    let greediest: WebSocket[] = [];
+    for (const sockets of byClient.values()) {
+      if (sockets.length > greediest.length || (sockets.length === greediest.length && sockets.length > 0 && openedAt(sockets[0]!) < openedAt(greediest[0]!))) {
+        greediest = sockets;
+      }
+    }
+    if (greediest.length === 0) return false; // Every silent socket is mid-check.
+    evict(greediest[0]!);
+    return true;
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const attachment = ws.deserializeAttachment() as SocketAttachment;
+    await this.helloSettled(ws);
+    const attachment = attachmentOf(ws);
     const { playerId } = attachment;
+    if (playerId === null) return this.identify(ws, message);
     if (!this.room || !rules.player(this.room, playerId)) return;
     if (message === "sync") {
       this.sendView(ws, playerId);
@@ -180,13 +255,94 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.syncAway(playerId);
   }
 
+  /**
+   * The socket's first message. A valid hello makes it the seat's socket and it then behaves
+   * as sockets always have; anything else closes it, and either way it learns nothing first.
+   */
+  private async identify(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const hello = typeof message === "string" ? parseHello(message) : null;
+    if (!hello) return closeQuietly(ws, WS_CLOSE.reload, "expected_hello");
+    // Checking the token yields, so the socket's next events wait at this gate until the socket
+    // is the player's and their presence is stored, and are then handled in arrival order.
+    let open!: () => void;
+    this.helloGates.set(ws, new Promise<void>((resolve) => (open = resolve)));
+    try {
+      await this.acceptHello(ws, hello.token, open);
+    } finally {
+      this.helloGates.delete(ws);
+      open();
+    }
+  }
+
+  /** Waits until the socket's hello, if one is being checked, has been dealt with. */
+  private helloSettled(ws: WebSocket): Promise<void> | undefined {
+    return this.helloGates.get(ws);
+  }
+
+  /** Checks a session token. A method of its own so tests can make it slow. */
+  private verifyToken(token: string) {
+    return verifySession(this.env.SESSION_SECRET, token);
+  }
+
+  private async acceptHello(ws: WebSocket, token: string, open: () => void): Promise<void> {
+    let claims;
+    try {
+      claims = await this.verifyToken(token);
+    } catch (err) {
+      if (err instanceof MissingSecretError) console.error("SESSION_SECRET is missing or too short; see .dev.vars.example");
+      return closeQuietly(ws, 1011, "server_error");
+    }
+    const room = this.room;
+    if (!room) return closeQuietly(ws, CLOSE_ROOM_EXPIRED, "room_closed");
+    if (ws.readyState !== WebSocket.OPEN) return; // It went away while the token was checked.
+    if (!claims || claims.code !== room.code || claims.roomId !== room.roomId) return closeQuietly(ws, WS_CLOSE.unauthorized, "unauthorized");
+    const { playerId } = claims;
+    if (!rules.player(room, playerId)) {
+      const removed = room.removedPlayerIds?.includes(playerId) ?? false;
+      return closeQuietly(ws, removed ? CLOSE_REMOVED : WS_CLOSE.unauthorized, removed ? "removed" : "unauthorized");
+    }
+    ws.serializeAttachment({ playerId } satisfies SocketAttachment);
+    await this.welcome(ws, playerId, open);
+  }
+
+  /**
+   * What opening a socket did before the hello existed: presence, then this player's view.
+   * `open` lets the socket's next events through once that is stored, before the PIN directory
+   * is called, so a slow directory never holds up the socket.
+   */
+  private async welcome(ws: WebSocket, playerId: string, open: () => void): Promise<void> {
+    // A turn that ran out is applied first (as expireIfDue does), but stored without the PIN
+    // step, which can wait on the directory; that runs once the gate is open.
+    const ticked = this.room ? rules.tick(this.room, Date.now()) : null;
+    if (ticked) await this.store(ticked);
+    if (!this.room || !rules.player(this.room, playerId)) return;
+    // Connecting never changes away by itself: a new page starts visible and reports otherwise.
+    const away = rules.player(this.room, playerId)?.away ?? false;
+    const updated = rules.presence(this.room, playerId, { connected: true, away }, Date.now());
+    if (updated) await this.store(updated);
+    else this.sendView(ws, playerId);
+    open();
+    // Another tab was already connected: this visible one may end their away state.
+    if (!updated) await this.syncAway(playerId);
+    await this.updatePin();
+  }
+
+  /** Sockets that have said whose seat they are, for one player. */
+  private playerSockets(playerId: string): WebSocket[] {
+    return this.ctx.getWebSockets().filter((ws) => attachmentOf(ws).playerId === playerId);
+  }
+
+  /** Open sockets that have not said who they are yet. */
+  private unidentifiedSockets(): WebSocket[] {
+    return this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.OPEN && attachmentOf(ws).playerId === null);
+  }
+
   /** A player is away when every one of their open sockets reports a hidden page. */
   private async syncAway(playerId: string, except?: WebSocket): Promise<void> {
     if (!this.room) return;
-    const sockets = this.ctx
-      .getWebSockets(playerId)
+    const sockets = this.playerSockets(playerId)
       .filter((s) => s !== except && s.readyState === WebSocket.OPEN)
-      .map((s) => ({ away: (s.deserializeAttachment() as SocketAttachment).away ?? false }));
+      .map((s) => ({ away: attachmentOf(s).away ?? false }));
     if (sockets.length === 0 || !rules.player(this.room, playerId)?.connected) return;
     const updated = rules.presence(this.room, playerId, { connected: true, away: allAway(sockets) }, Date.now());
     if (updated) await this.commit(updated);
@@ -202,11 +358,10 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private async socketGone(ws: WebSocket): Promise<void> {
-    const { playerId } = ws.deserializeAttachment() as SocketAttachment;
-    if (!this.room || !rules.player(this.room, playerId)) return;
-    const stillOpen = this.ctx
-      .getWebSockets(playerId)
-      .some((s) => s !== ws && s.readyState === WebSocket.OPEN);
+    await this.helloSettled(ws);
+    const { playerId } = attachmentOf(ws);
+    if (playerId === null || !this.room || !rules.player(this.room, playerId)) return;
+    const stillOpen = this.playerSockets(playerId).some((s) => s !== ws && s.readyState === WebSocket.OPEN);
     if (stillOpen) return this.syncAway(playerId, ws);
     const updated = rules.presence(this.room, playerId, { connected: false, away: false }, Date.now());
     if (updated) await this.commit(updated);
@@ -337,9 +492,11 @@ export class RoomDurableObject extends DurableObject<Env> {
   private broadcast(departedCloseCode: number): void {
     if (!this.room) return;
     for (const ws of this.ctx.getWebSockets()) {
-      const { playerId } = ws.deserializeAttachment() as SocketAttachment;
+      const { playerId } = attachmentOf(ws);
+      // A socket that has not said who it is hears nothing about the room.
+      if (playerId === null) continue;
       if (rules.player(this.room, playerId)) this.sendView(ws, playerId);
-      else ws.close(departedCloseCode, "left_room");
+      else closeQuietly(ws, departedCloseCode, "left_room");
     }
   }
 
@@ -355,24 +512,12 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private closeSockets(playerId: string, code: number, reason: string): void {
-    for (const ws of this.ctx.getWebSockets(playerId)) {
-      try {
-        ws.close(code, reason);
-      } catch {
-        // Already closed.
-      }
-    }
+    for (const ws of this.playerSockets(playerId)) closeQuietly(ws, code, reason);
   }
 
   private async destroy(): Promise<void> {
     const code = this.room?.code;
-    for (const ws of this.ctx.getWebSockets()) {
-      try {
-        ws.close(CLOSE_ROOM_EXPIRED, "room_closed");
-      } catch {
-        // Already closed.
-      }
-    }
+    for (const ws of this.ctx.getWebSockets()) closeQuietly(ws, CLOSE_ROOM_EXPIRED, "room_closed");
     this.room = null;
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
@@ -392,6 +537,24 @@ export class RoomDurableObject extends DurableObject<Env> {
     const room = this.room;
     if (!room || room.roomId !== roomId || !rules.player(room, playerId)) return null;
     return room;
+  }
+}
+
+function closeQuietly(ws: WebSocket, code: number, reason: string): void {
+  try {
+    ws.close(code, reason);
+  } catch {
+    // Already closed.
+  }
+}
+
+function parseHello(message: string) {
+  if (message.length > 2048) return null;
+  try {
+    const parsed = ClientHelloSchema.safeParse(JSON.parse(message));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
   }
 }
 

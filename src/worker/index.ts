@@ -2,16 +2,20 @@
 // Static assets (the React SPA) are served by Workers static assets for every non-/api path.
 import { z } from "zod";
 import {
+  CLIENT_VERSION,
+  CLIENT_VERSION_HEADER,
   CommandSchema,
   CreateRoomRequestSchema,
   JoinRoomRequestSchema,
+  LEGACY_WS_PROTOCOL,
+  LEGACY_WS_TOKEN_PREFIX,
   PACK_IDS,
   PinSchema,
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
   RoomCodeSchema,
+  WS_CLOSE,
   WS_PROTOCOL,
-  WS_TOKEN_PREFIX,
   type ApiError,
   type ErrorCode,
   type RoomPreview,
@@ -24,7 +28,7 @@ import { healthCheck } from "./health";
 import { packInfo } from "./content";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
 import { allowRequest } from "./rate-limiter";
-import { PLAYER_ID_HEADER, ROOM_ID_HEADER, type RpcFailure } from "./room";
+import type { RpcFailure } from "./room";
 import { MissingSecretError, signSession, verifySession, type SessionClaims } from "./session";
 
 export { RoomDurableObject } from "./room";
@@ -39,6 +43,7 @@ const STATUS_BY_ERROR: Record<ErrorCode, number> = {
   unauthorized: 401,
   forbidden: 403,
   removed: 403,
+  outdated: 426,
   not_found: 404,
   room_full: 409,
   version_conflict: 409,
@@ -116,11 +121,37 @@ function bearerToken(request: Request): string | null {
   return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
 
-function wsToken(request: Request): string | null {
-  const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((p) => p.trim());
-  if (!protocols.includes(WS_PROTOCOL)) return null;
-  const tokenProtocol = protocols.find((p) => p.startsWith(WS_TOKEN_PREFIX));
-  return tokenProtocol ? tokenProtocol.slice(WS_TOKEN_PREFIX.length) : null;
+/**
+ * Pages from before the v2 socket handshake keep their old code across client-side navigation,
+ * so one that creates or joins a game would take a real seat and then put its fresh token in a
+ * logged socket header. Create and join therefore require the current client's marker. Old pages
+ * show the message where create and join errors already appear.
+ */
+function currentClient(request: Request): boolean {
+  return request.headers.get(CLIENT_VERSION_HEADER) === CLIENT_VERSION;
+}
+
+function outdatedClient(): Response {
+  return error("outdated", "This page is out of date. Reload it and try again.");
+}
+
+function offeredProtocols(request: Request): string[] {
+  return (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((p) => p.trim());
+}
+
+/**
+ * A page built before the v2 handshake put its token in the subprotocol header. It is never
+ * honoured (that would keep tokens flowing into the logs) and never reaches the room. The old
+ * page only stops reconnecting on one of its fatal codes, and "room closed" is the one that keeps
+ * its stored seat: it shows the room-closed screen, and a reload brings the seat back on the new
+ * handshake. Any other answer makes it retry every few seconds, sending its token every time.
+ */
+function closeOldHandshake(): Response {
+  const pair = new WebSocketPair();
+  const [client, server] = [pair[0], pair[1]];
+  server.accept();
+  server.close(WS_CLOSE.roomClosed, "update_required");
+  return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": LEGACY_WS_PROTOCOL } });
 }
 
 /** Verifies the signed session and that it belongs to this room's current incarnation. */
@@ -171,6 +202,7 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
   // POST /api/rooms
   if (parts.length === 2 && method === "POST") {
+    if (!currentClient(request)) return outdatedClient();
     if (!(await allowRequest(env, request, "create"))) return error("rate_limited", "Too many rooms. Try again in a minute.");
     const body = await readJson(request, CreateRoomRequestSchema);
     if (body instanceof Response) return body;
@@ -199,6 +231,7 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
   // POST /api/rooms/:code/join
   if (action === "join" && parts.length === 4 && method === "POST") {
+    if (!currentClient(request)) return outdatedClient();
     if (!(await allowRequest(env, request, "join"))) return error("rate_limited", "Too many join attempts. Try again in a minute.");
     const body = await readJson(request, JoinRoomRequestSchema);
     if (body instanceof Response) return body;
@@ -210,15 +243,19 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     return json({ ok: true, token, playerId: result.playerId, view: result.view });
   }
 
-  // GET /api/rooms/:code/ws (WebSocket; the token travels as a subprotocol)
+  // GET /api/rooms/:code/ws (WebSocket). The request names only the room: the token is the
+  // socket's first message, checked by the room, because request addresses and headers are logged.
   if (action === "ws" && parts.length === 4 && method === "GET") {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return error("bad_request", "Expected a WebSocket upgrade.");
-    const claims = await authenticate(env, code, wsToken(request));
-    if (!claims) return error("unauthorized", "Your session for this room is no longer valid.");
-    const headers = new Headers(request.headers);
-    headers.set(PLAYER_ID_HEADER, claims.playerId);
-    headers.set(ROOM_ID_HEADER, claims.roomId);
-    return stub.fetch(new Request(request, { headers }));
+    const protocols = offeredProtocols(request);
+    // First, and outside the limit: it never touches the room, so it answers no code guess, and
+    // a 429 would make an old page retry every few seconds with its token in the header.
+    if (protocols.some((p) => p.startsWith(LEGACY_WS_TOKEN_PREFIX))) return closeOldHandshake();
+    // Before anything touches the room: whether a room answers is itself an answer to a code
+    // guess, and a flood of silent sockets must not crowd real players out.
+    if (!(await allowRequest(env, request, "socket"))) return error("rate_limited", "Too many connections. Try again in a minute.");
+    if (!protocols.includes(WS_PROTOCOL)) return error("bad_request", "Unsupported WebSocket protocol.");
+    return stub.fetch(request);
   }
 
   const claims = await authenticate(env, code, bearerToken(request));

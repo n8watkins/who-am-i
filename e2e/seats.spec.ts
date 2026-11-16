@@ -1,5 +1,6 @@
 // FR-03 and FR-09: the two-player cap, and refresh/reconnect restoring the right seat.
 import { expect, test } from "@playwright/test";
+import { CLIENT_VERSION, CLIENT_VERSION_HEADER } from "../src/shared/protocol";
 import { createGame, joinGame, newPlayer, startMatch } from "./support";
 
 test("refresh restores each player's own seat and a third browser cannot join", async ({ browser }) => {
@@ -18,7 +19,10 @@ test("refresh restores each player's own seat and a third browser cannot join", 
   const eve = await newPlayer(browser);
   await eve.page.goto(link);
   await expect(eve.page.getByRole("heading", { name: "This room is full" })).toBeVisible();
-  const direct = await eve.page.request.post(`/api/rooms/${code}/join`, { data: { nickname: "Eve" } });
+  const direct = await eve.page.request.post(`/api/rooms/${code}/join`, {
+    data: { nickname: "Eve" },
+    headers: { [CLIENT_VERSION_HEADER]: CLIENT_VERSION },
+  });
   expect(direct.status()).toBe(409);
   expect(await direct.json()).toMatchObject({ error: "room_full" });
 

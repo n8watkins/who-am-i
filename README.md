@@ -74,7 +74,7 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 - **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, start, ask an in-app question, request hints, guess, confirm, skip, reveal, five rounds with alternating first guessers to a winner, then a one-tap rematch started by the loser.
   While doing so they record every HTTP response body and WebSocket frame each browser receives, plus the page HTML and localStorage, and assert that a player's own identity (name and id) never appears before the round summary, and that each hint arrives only after it was requested.
   Phone tests run at 390x844 with a fake Screen Wake Lock API and a controllable page visibility (`e2e/phone.ts`), so they can lock and unlock a "phone" the way a real one hides and shows the page.
-  Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, every main desktop screen fitting 1280x800 with no accessibility violations, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, and a timed turn running out.
+  Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, every main desktop screen fitting 1280x800 with no accessibility violations, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, a timed turn running out, and the socket handshake (no token in any address or header the browser sends, old header-form pages closed, out-of-date pages reloading only once).
 
 ## Secrecy model
 
@@ -86,7 +86,7 @@ Keeping your own identity secret is the core of the game, so it is enforced on t
 - Every payload sent to a browser is built by `viewFor(room, playerId)` in `src/worker/view.ts`.
   It contains the public room state plus only the identity your opponent is guessing.
   Your own identity is included only in the summary of a round that has already ended.
-- Each WebSocket is tagged with its player, and every broadcast is rendered separately per socket.
+- Each WebSocket records its player in its attachment once its hello is accepted, and every broadcast is rendered separately per socket; a socket that has not said who it is gets nothing.
 - Command responses and errors carry the same filtered view.
 - Clients send commands, never identities or scores; the server ignores anything else.
 - Hints are stored with each identity on the server.
@@ -99,12 +99,47 @@ Keeping your own identity secret is the core of the game, so it is enforced on t
 Players are anonymous.
 On create or join the Worker issues a token signed with HMAC-SHA256 (`SESSION_SECRET`), scoped to the room id, room code and player id.
 The browser stores it in localStorage per room, so a refresh restores the same seat; it never contains identity data.
-The WebSocket carries the token as a subprotocol, because browsers cannot set headers on WebSockets.
+HTTP calls send it as `Authorization: Bearer`, a header Workers Logs redacts.
+
+The token never goes in an address or in a WebSocket header, because Workers Logs keeps request addresses and headers.
+The room socket handshake (`whoami.v2`) works like this:
+
+1. The page opens `GET /api/rooms/:code/ws` with the subprotocol `whoami.v2`, which carries no secret.
+2. The room accepts the socket as nobody's: its attachment says `playerId: null`, so it survives the room sleeping.
+   The room sends it nothing and acts on nothing from it.
+3. The page's first message is `{"type":"hello","token":"..."}`.
+   With a valid token for a seat in this room the socket becomes that player's, and from then on behaves as before: presence, the player's own view, away and back, `sync`.
+4. Anything else as the first message closes the socket with 4004 (the page is out of date; it reloads once, and shows a Reload screen if that did not help).
+   A wrong token closes it with 4003, or 4002 for a removed player; the page then checks its session over HTTP as after any drop.
+5. Sockets that have not said who they are ("silent") are capped per room and per client, where a client is an IPv4 address or an IPv6 /48 (`socketClientKey`, because one customer can be handed a whole /48; used for this cap only).
+   A client holds at most 4 silent sockets in a room, and its fifth pushes out its own oldest (4005), never anyone else's.
+   4, not fewer, because a mobile carrier can put both players of a room in one /48, and both phones with two tabs each may reconnect at the same moment.
+   A room holds at most 64 silent sockets in all; at that point the oldest socket of the client holding the most goes, which, when every client holds one, is simply the oldest silent socket.
+   A socket whose hello is being checked is never pushed out, and a newcomer is refused (429) only when all 64 are mid-check.
+   Silent sockets older than 10 seconds are closed (4005) when the next socket arrives, and they never count as activity, so they cannot keep a room alive.
+   What is left: a real phone's socket is the newest silent one during the round trip before its hello, so pushing it out takes 63 newer opens from 63 other clients inside that round trip.
+   For a 200 ms round trip that is about 315 opens a second, sustained for as long as the attacker wants the phone kept out; at 30 opens a minute per address (item 6) it needs about 630 IPv4 addresses or IPv6 /64s, spread over at least 63 IPv4 addresses or IPv6 /48s.
+   Even then the phone only retries with backoff, and a seated player is never affected.
+   Someone inside the same carrier /48 as a player shares that player's 4 slots, so 4 opens in that round trip can push out the player's socket; the page then reconnects.
+6. Socket requests are limited to 30 a minute per client before the room is touched, which also keeps the route from answering room-code guesses faster than the lookup limit.
+   This limit counts an IPv6 /64, like every other limit, not the /48: it is one allowance across all rooms that refuses outright, so a /48 key would let one busy phone shut out every other phone in its carrier /48.
+7. After a fatal close (room closed, left, removed, out of date), or a fatal answer over HTTP (which also closes an open socket), the page opens no more sockets, even when the tab comes back into view.
+   Reconnects back off from 0.5 s to 8 s and start over only once the room has sent the socket a view (`SocketLife` in `src/client/lib/roomSocket.ts`).
+
+Create and join require the header `X-WhoAmI-Client: 2`, which current pages send.
+Without it they answer 426 with "This page is out of date. Reload it and try again.", which pages from before v2 show where create and join errors appear.
+That keeps an old page (which keeps its old code across in-app navigation) from taking a seat and then putting the new token in a socket header.
+
+Pages built before v2 still open sockets offering `whoami.v1` plus `token.<token>`.
+The Worker never honours that token: it opens the socket and closes it at once with 4000 (room closed).
+On those pages, 4000, 4001 and 4002 are the only codes that stop the reconnect loop, and 4000 is the least false of them: 4001 deletes the stored seat at once, and 4002 says the host removed you.
+The old page shows "This room has closed"; a reload loads the new page, which finds the stored seat and carries on.
+This cannot be made fully quiet for pages already open: their code reopens a socket every time the tab comes back into view, even on that screen, and each time sends its token in the header again (each is closed with 4000 again, outside the socket limit, so it never turns into a fast retry loop), until the page is reloaded or closed.
 
 ### Abuse resistance
 
 - Room codes are 6 characters from a 31-character unambiguous alphabet (about 887 million codes), generated with rejection sampling from `crypto.getRandomValues`.
-- Join attempts, room lookups and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client) by a small Durable Object.
+- Join attempts, room lookups, room sockets and room creation are rate limited per client IP (a whole IPv6 /64 counts as one client, since carriers give each phone its own /64 from a shared /48) by a small Durable Object.
 - PINs are short-lived aliases for an open lobby, held in one `PinDirectoryDurableObject`.
   They are chosen at random, last 15 minutes unless the host's lobby stays open, end when the room fills or the game starts, wait out a 10-minute cooldown before reuse, and lookups are limited to 10 per 10 minutes and 30 per hour.
   Unknown and expired PINs get the same response, and a lookup returns only the room preview, never a player id or token.

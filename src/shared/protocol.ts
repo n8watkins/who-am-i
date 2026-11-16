@@ -300,7 +300,16 @@ export type ErrorCode =
   | "invalid_transition"
   | "forbidden"
   | "removed"
+  /** The page predates the current client (see CLIENT_VERSION_HEADER) and must reload. */
+  | "outdated"
   | "internal";
+
+/**
+ * Sent by the page on create and join. Pages from before the v2 socket handshake do not send it,
+ * and would put a fresh token in a logged socket header, so the Worker turns them away.
+ */
+export const CLIENT_VERSION_HEADER = "X-WhoAmI-Client";
+export const CLIENT_VERSION = "2";
 
 export interface ApiError {
   ok: false;
@@ -329,6 +338,31 @@ export interface ViewResponse {
 
 export type ServerMessage = { type: "state"; view: RoomView } | { type: "closed"; reason: string };
 
-/** WebSocket subprotocol used to carry the session token (browsers cannot set headers). */
-export const WS_PROTOCOL = "whoami.v1";
-export const WS_TOKEN_PREFIX = "token.";
+/**
+ * WebSocket subprotocol. It names the handshake and carries no secret: the address and headers
+ * of a socket request end up in the Worker's logs, so the session token travels instead as the
+ * socket's first message (a ClientHello).
+ */
+export const WS_PROTOCOL = "whoami.v2";
+
+/** Pages built before v2 offered "whoami.v1" plus "token.<session token>" as subprotocols. */
+export const LEGACY_WS_PROTOCOL = "whoami.v1";
+export const LEGACY_WS_TOKEN_PREFIX = "token.";
+
+/** The first message a page sends on a new socket: it says whose seat the socket belongs to. */
+export const ClientHelloSchema = z.strictObject({ type: z.literal("hello"), token: z.string().min(1).max(1024) });
+export type ClientHello = z.infer<typeof ClientHelloSchema>;
+
+/** WebSocket close codes the room uses. */
+export const WS_CLOSE = {
+  /** The room was deleted. Also sent to pages that still use the v1 handshake (see README). */
+  roomClosed: 4000,
+  leftRoom: 4001,
+  removed: 4002,
+  /** The hello's token is not a seat in this room: the page checks its session over HTTP. */
+  unauthorized: 4003,
+  /** The first message was not a hello, so the page is out of date: it reloads once. */
+  reload: 4004,
+  /** No hello arrived in time: the page reconnects as after any dropped socket. */
+  helloTimeout: 4005,
+} as const;

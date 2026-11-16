@@ -1,21 +1,23 @@
 // Keeps the client's copy of the room in sync with the Durable Object: an initial HTTP fetch,
 // then a WebSocket that pushes this player's filtered view on every change, with reconnects.
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  WS_PROTOCOL,
-  WS_TOKEN_PREFIX,
-  type Command,
-  type CommandType,
-  type RoomView,
-  type ServerMessage,
-} from "../../shared/protocol";
+import type { Command, CommandType, RoomView, ServerMessage } from "../../shared/protocol";
 import { visibilitySignal, watchVisibility } from "../../kit/client/visibility";
 import { PRESENCE_AWAY } from "../../kit/shared/presence";
 import type { CreatedCard } from "../../kit/shared/share-cards";
 import { api, ApiRequestError, newCommandId, type StoredSession } from "./api";
+import { helloFrame, reloadOnce, ROOM_SOCKET_PROTOCOLS, roomSocketUrl, SocketLife, type FatalReason } from "./roomSocket";
 
 export type Connection = "connecting" | "open" | "reconnecting";
-export type FatalReason = "expired" | "unauthorized" | "left" | "removed";
+export type { FatalReason };
+
+function sessionStore(): Storage | null {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 type CommandExtra<T extends CommandType> = Omit<Extract<Command, { type: T }>, "type" | "commandId" | "expectedVersion">;
 
@@ -64,6 +66,15 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
   const [pending, setPending] = useState(false);
   const [serverOffset, setServerOffset] = useState(0);
   const viewRef = useRef<RoomView | null>(null);
+  /** Whether this page may still connect, and its backoff (see SocketLife). */
+  const life = useRef(new SocketLife());
+  const socketRef = useRef<WebSocket | null>(null);
+  /** The room is over for this page: no more sockets, and an open one is closed. */
+  const end = useCallback((reason: FatalReason) => {
+    life.current.end();
+    setFatal(reason);
+    socketRef.current?.close(1000, "ended");
+  }, []);
 
   const accept = useCallback((next: RoomView) => {
     const current = viewRef.current;
@@ -80,18 +91,20 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         return;
       }
       if (err.body.view) accept(err.body.view);
-      if (err.body.error === "removed") setFatal("removed");
-      else if (err.status === 401 || err.status === 404) setFatal(err.status === 404 ? "expired" : "unauthorized");
+      if (err.body.error === "removed") end("removed");
+      else if (err.status === 401 || err.status === 404) end(err.status === 404 ? "expired" : "unauthorized");
       else if (err.body.error === "version_conflict") setError("The game moved on. You are seeing the latest state.");
       else setError(err.body.message);
     },
-    [accept],
+    [accept, end],
   );
 
   useEffect(() => {
+    // A new session (or room) starts over.
+    const lifecycle = new SocketLife();
+    life.current = lifecycle;
     let stopped = false;
     let socket: WebSocket | null = null;
-    let retry = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let pingTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -101,11 +114,11 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         return true;
       } catch (err) {
         if (err instanceof ApiRequestError && err.body.error === "removed") {
-          setFatal("removed");
+          end("removed");
           return false;
         }
         if (err instanceof ApiRequestError && (err.status === 401 || err.status === 404)) {
-          setFatal(err.status === 404 ? "expired" : "unauthorized");
+          end(err.status === 404 ? "expired" : "unauthorized");
           return false;
         }
         return true; // Network trouble: keep retrying.
@@ -113,15 +126,13 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
     };
 
     const connect = () => {
-      if (stopped) return;
-      const scheme = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${scheme}://${location.host}/api/rooms/${encodeURIComponent(code)}/ws`, [
-        WS_PROTOCOL,
-        `${WS_TOKEN_PREFIX}${session.token}`,
-      ]);
+      if (stopped || !lifecycle.mayConnect()) return;
+      // The address and the subprotocol header are logged, so the token goes in the first message.
+      const ws = new WebSocket(roomSocketUrl(location, code), [...ROOM_SOCKET_PROTOCOLS]);
       socket = ws;
+      socketRef.current = ws;
       ws.onopen = () => {
-        retry = 0;
+        ws.send(helloFrame(session.token));
         setConnection("open");
         // Every new socket starts as "here"; a hidden page says so at once.
         if (visibilitySignal() === PRESENCE_AWAY) ws.send(PRESENCE_AWAY);
@@ -132,7 +143,11 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
         if (typeof event.data !== "string" || event.data === "pong") return;
         try {
           const message = JSON.parse(event.data) as ServerMessage;
-          if (message.type === "state") accept(message.view);
+          if (message.type === "state") {
+            // The room accepted the hello: only now does the backoff start over.
+            lifecycle.welcomed();
+            accept(message.view);
+          }
         } catch {
           // Ignore malformed frames.
         }
@@ -140,24 +155,27 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
       ws.onclose = (event) => {
         clearInterval(pingTimer);
         if (stopped || socket !== ws) return;
-        if (event.code === 4000) return setFatal("expired");
-        if (event.code === 4001) return setFatal("left");
-        if (event.code === 4002) return setFatal("removed");
+        const action = lifecycle.onClose(event.code);
+        if (action.type === "ignore") return;
+        if (action.type === "end") return end(action.reason);
+        if (action.type === "reload") {
+          if (!reloadOnce(sessionStore(), () => location.reload())) end("outdated");
+          return;
+        }
         setConnection("reconnecting");
-        const delay = Math.min(500 * 2 ** retry, 8_000);
-        retry += 1;
         retryTimer = setTimeout(async () => {
           if (await verifySession()) connect();
-        }, delay);
+        }, lifecycle.nextDelay());
       };
     };
 
     void verifySession().then((ok) => ok && connect());
 
     const onVisible = () => {
-      if (document.visibilityState === "visible" && socket?.readyState === WebSocket.CLOSED) {
+      // After a fatal close the page stays on its screen: coming back to the tab must not reopen
+      // a socket (or, for an out-of-date page, reload again). SocketLife decides.
+      if (lifecycle.onVisible(document.visibilityState === "visible", socket?.readyState === WebSocket.CLOSED)) {
         clearTimeout(retryTimer);
-        retry = 0;
         connect();
       }
     };
@@ -175,7 +193,7 @@ export function useRoom(code: string, session: StoredSession): RoomHandle {
       document.removeEventListener("visibilitychange", onVisible);
       socket?.close(1000, "unmount");
     };
-  }, [code, session.token, accept]);
+  }, [code, session.token, accept, end]);
 
   const send = useCallback(
     async (type: CommandType, extra: object = {}): Promise<boolean> => {

@@ -9,7 +9,7 @@ import {
   randomIndex,
   type PinDirectoryDurableObject,
 } from "../src/worker/pin-directory";
-import { clientKey } from "../src/worker/rate-limiter";
+import { clientKey, socketClientKey } from "../src/worker/rate-limiter";
 
 let counter = 0;
 /** Each test gets its own directory; production uses a single named instance. */
@@ -156,9 +156,19 @@ describe("clientKey", () => {
     expect(clientKey("::1")).toBe("0:0:0:0::/64");
   });
 
+  it("groups an IPv6 /48 for room sockets, since one customer can hold a whole /48", () => {
+    const key = socketClientKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd");
+    expect(key).toBe("2001:db8:1::/48");
+    expect(socketClientKey("2001:0DB8:0001:ffff::1")).toBe(key);
+    expect(socketClientKey("2001:db8:2:2::1")).not.toBe(key);
+    expect(socketClientKey("::1")).toBe("0:0:0::/48");
+  });
+
   it("keeps IPv4 addresses apart, including mapped ones", () => {
-    expect(clientKey("203.0.113.7")).toBe("203.0.113.7");
-    expect(clientKey("::ffff:203.0.113.7")).toBe("203.0.113.7");
-    expect(clientKey("local")).toBe("local");
+    for (const key of [clientKey, socketClientKey]) {
+      expect(key("203.0.113.7")).toBe("203.0.113.7");
+      expect(key("::ffff:203.0.113.7")).toBe("203.0.113.7");
+      expect(key("local")).toBe("local");
+    }
   });
 });
