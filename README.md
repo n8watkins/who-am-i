@@ -69,11 +69,12 @@ For hot reload of the UI, keep `wrangler dev` running and start Vite in a second
 
 ## Tests
 
-- **Unit tests** (`test/engine.test.ts`, `test/view.test.ts`, `test/content.test.ts`) cover the state machine transitions, turn order (alternation, the lobby setting, loser-first rematches and the tie rule), one-tap rematch, idempotency (duplicate confirm and skip clicks score once), version checks, the two-player cap, distinct and non-repeating draws, reshuffling, timer timeouts and pauses, the host override, hints, in-app questions and their rate limit, the per-player view filter, and the hint content rules.
+- **Unit tests** (`test/engine.test.ts`, `test/view.test.ts`, `test/content.test.ts`, `test/pairing.test.ts`) cover the state machine transitions, turn order (alternation, the lobby setting, loser-first rematches and the tie rule), one-tap rematch, idempotency (duplicate confirm and skip clicks score once), version checks, the two-player cap, distinct and non-repeating draws, reshuffling, timer timeouts and pauses, the host override, hints, in-app questions and their rate limit, the per-player view filter, the hint content rules, and which names may be dealt together.
 - **Worker and Durable Object tests** (`test/worker.test.ts`) exercise the real HTTP API, signed sessions, WebSockets, rate limiting and alarms in `workerd`.
 - **End-to-end tests** (`e2e/`) drive two separate browser contexts through the full acceptance scenario: create an Actors game, join by invite link, start, ask an in-app question, request hints, guess, confirm, skip, reveal, five rounds with alternating first guessers to a winner, then a one-tap rematch started by the loser.
   While doing so they record every HTTP response body and WebSocket frame each browser receives, plus the page HTML and localStorage, and assert that a player's own identity (name and id) never appears before the round summary, and that each hint arrives only after it was requested.
   Phone tests run at 390x844 with a fake Screen Wake Lock API and a controllable page visibility (`e2e/phone.ts`), so they can lock and unlock a "phone" the way a real one hides and shows the page.
+  `e2e/forced/` runs against a test-only Worker entry (`e2e/forced/worker.ts`: a cut-down deck and the rules' randomness pinned) on the next port, so it can deal a chosen pair, such as Link and Princess Zelda, and check neither phone can read its own name in its page text, picture and link addresses or server messages.
   Other E2E tests cover joining by PIN in under 10 seconds with the same secrecy capture, the QR code, copy confirmations, New PIN, removing a player, in-app questions on both phones (including typed HTML shown as plain text), the Questions setting, the lobby turn-order picker, every main desktop screen fitting 1280x800 with no accessibility violations, refresh and reconnect restoring the right seat, a third browser being turned away, unknown room codes, a timed turn running out, and the socket handshake (no token in any address or header the browser sends, old header-form pages closed, out-of-date pages reloading only once).
 
 ## Secrecy model
@@ -90,6 +91,11 @@ Keeping your own identity secret is the core of the game, so it is enforced on t
 - Each WebSocket records its player in its attachment once its hello is accepted, and every broadcast is rendered separately per socket; a socket that has not said who it is gets nothing.
 - Command responses and errors carry the same filtered view.
 - Clients send commands, never identities or scores; the server ignores anything else.
+- Two identities are dealt together only when neither one's card gives the other away (`pairable` in `src/worker/content/pairing.ts`).
+  Your phone shows your opponent's name, picture and, once asked for, hints; if any word of your own name or aliases appears there, you could read who you are.
+  So "Link from The Legend of Zelda" is never dealt against Princess Zelda, Donkey Kong never against King Kong, and Mickey Mouse never against Minnie Mouse.
+  A short list (`REVEALING_PAIRS`) covers pairs that point at each other without sharing a word: an actor and a character they played (Daniel Radcliffe and Harry Potter), or a hint that describes the other (The Joker's "arch-enemy of Gotham's caped crusader").
+  `test/pairing.test.ts` scans every pair in the deck and plays many seeded matches to check no such pair is ever dealt, and that every name still has most of its partners.
 - Hints are stored with each identity on the server.
   The server adds a hint to the turn log only when the guesser asks for it, one at a time, so unrequested hints never leave the Durable Object.
   A content test guarantees no hint contains any identity's name or alias, so neither your own hints nor your opponent's can spell out who you are.
@@ -208,6 +214,7 @@ Film, TV, game and cartoon characters and brand mascots have the lead image of t
 Identities without an article of their own, or without a suitable image, stay text-only.
 The footer's **Pictures** note says where pictures come from and links to a new GitHub issue for reporting one.
 
+- A picture's address and file page must not name any other identity, since the opponent's phone loads it: a test fails on one that does (Katniss Everdeen's was a figure "(Jennifer Lawrence)", Princess Zelda's was "Link_to_the_Past_Zelda.png"), and such a picture is pulled.
 - **Pull one picture:** delete its line in `picture-data.ts` and deploy; that identity goes back to the text card.
 - **Turn all pictures off:** in the Cloudflare dashboard, open the `who-am-i-game` Worker, Settings, Variables and secrets, and add the text variable `PICTURES` with the value `off`.
   It takes effect on save, with no code change, and `keep_vars` in `wrangler.jsonc` keeps it across later deploys.

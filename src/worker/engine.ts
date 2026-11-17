@@ -27,6 +27,7 @@ import {
 } from "../shared/protocol";
 import { absentSince, presenceOf } from "../kit/shared/presence";
 import { getIdentity, MIXED_WEIGHTS, packIdentities, type Identity, type SourcePackId } from "./content";
+import { hasPartner, identitiesClash, pairable } from "./content/pairing";
 
 export const MAX_PLAYERS = 2;
 const RECENT_COMMANDS_KEPT = 100;
@@ -208,36 +209,8 @@ function touch(room: RoomState, ctx: EngineContext, activity = true): RoomState 
   return room;
 }
 
-/** Normalizes a display name for duplicate detection: case, accents, punctuation, leading "the". */
-export function normalizeName(name: string): string {
-  return name
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/^the /, "");
-}
-
-function nameKeys(identity: Identity): string[] {
-  return [identity.canonicalName, ...identity.aliases].map(normalizeName).filter(Boolean);
-}
-
-/**
- * Two identities clash if either canonical name contains the other as whole words (after normalization),
- * or they share a normalized name or alias. Clashing identities are never drawn together
- * or repeated as "different" identities within a match.
- */
-export function identitiesClash(a: Identity, b: Identity): boolean {
-  if (a.id === b.id) return true;
-  // Whole-word containment: "Mario" clashes with "Super Mario", "E.T." does not clash with "Tony the Tiger".
-  const an = ` ${normalizeName(a.canonicalName)} `;
-  const bn = ` ${normalizeName(b.canonicalName)} `;
-  if (an.includes(bn) || bn.includes(an)) return true;
-  const bKeys = new Set(nameKeys(b));
-  return nameKeys(a).some((k) => bKeys.has(k));
-}
+// Which names may be dealt together lives with the content (./content/pairing.ts).
+export { identitiesClash, normalizeName, pairable } from "./content/pairing";
 
 // ---------------------------------------------------------------------------
 // Timer
@@ -303,17 +276,24 @@ function poolFor(room: RoomState, level: Difficulty): Identity[] {
   return packIdentities(room.settings.packId).filter((c) => allowed.includes(c.difficulty));
 }
 
+/**
+ * Draws the first guesser's identity from those unused names that have at least one partner they
+ * may be dealt beside (`pairable`: no clash, and neither gives the other away), then that partner.
+ */
 function drawFrom(pools: [Identity[], Identity[]], used: Identity[], settings: Settings, random: () => number): [Identity, Identity] | null {
   const unused = (pool: Identity[]) => pool.filter((c) => !used.some((u) => identitiesClash(c, u)));
-  const firstPool = unused(pools[0]);
+  const secondPool = unused(pools[1]);
+  const firstPool = unused(pools[0]).filter((c) => hasPartner(c, secondPool));
   if (firstPool.length === 0) return null;
   const first = pickOne(firstPool, settings, random);
-  const rest = unused(pools[1]).filter((c) => !identitiesClash(c, first));
-  if (rest.length === 0) return null;
+  const rest = secondPool.filter((c) => pairable(c, first));
   return [first, pickOne(rest, settings, random)];
 }
 
-/** Draws two distinct identities not used earlier in the match, reshuffling when the pack runs out. */
+/**
+ * Draws two identities not used earlier in the match that may be dealt together (no clash, and
+ * neither one's name, picture or hints gives the other away), reshuffling when the pack runs out.
+ */
 export function drawPair(
   room: RoomState,
   random: () => number,
