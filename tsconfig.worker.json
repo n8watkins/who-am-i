@@ -6,5 +6,5 @@
   },
   "include": ["src/worker/**/*.ts", "src/party/**/*.ts", "src/shared/**/*.ts", "src/kit/worker/**/*.ts", "src/kit/shared/**/*.ts", "test/**/*.ts", "e2e/forced/worker.ts"],
   // Browser-only client code under test: checked by tsconfig.node.json, which has the DOM types.
-  "exclude": ["test/client/**"]
+  "exclude": ["test/client/**", "test/static/**"]
 }

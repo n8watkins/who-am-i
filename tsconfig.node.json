@@ -4,7 +4,7 @@
     "lib": ["ES2023", "DOM"],
     "types": ["node"]
   },
-  "include": ["src/party/**/*.ts", "test/party/**/*.ts", "test/client/**/*.ts","vite.config.ts", "vitest.config.ts", "playwright.config.ts", "eslint.config.js", "e2e/**/*.ts", "scripts/**/*.mjs"],
+  "include": ["src/party/**/*.ts", "test/party/**/*.ts", "test/client/**/*.ts", "test/static/**/*.ts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "eslint.config.js", "e2e/**/*.ts", "scripts/**/*.mjs"],
   // A Worker entry: checked by tsconfig.worker.json, which has the Workers types.
   "exclude": ["e2e/forced/worker.ts"]
 }

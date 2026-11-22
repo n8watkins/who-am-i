@@ -62,11 +62,14 @@ test("the socket's address and headers carry no token; its first message does", 
     expectNoTokenOutside(wire, token);
     const sockets = [...wire.sockets.values()].filter((s) => s.url.endsWith(`/api/rooms/${code}/ws`));
     expect(sockets.length).toBeGreaterThanOrEqual(minSockets);
+    // A socket torn down by the reload before its first frame left has nothing to check.
+    const sent = sockets.filter((s) => s.sent.length > 0);
+    expect(sent.length).toBeGreaterThanOrEqual(1);
     for (const s of sockets) {
       const protocolHeader = Object.entries(s.headers).find(([k]) => k.toLowerCase() === "sec-websocket-protocol")?.[1];
       expect(protocolHeader).toBe("whoami.v2");
-      expect(JSON.parse(s.sent[0]!)).toEqual({ type: "hello", token });
     }
+    for (const s of sent) expect(JSON.parse(s.sent[0]!)).toEqual({ type: "hello", token });
   }
 
   await alice.context.close();
