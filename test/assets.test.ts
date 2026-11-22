@@ -27,9 +27,34 @@ describe("hashedAsset", () => {
     const response = await hashedAsset(request, asset(new Response("nope", { status: 404 })));
     expect(response.status).toBe(404);
   });
+
+  it("never lets a redirect or a 405 from the asset layer through", async () => {
+    for (const status of [307, 405, 500]) {
+      const response = await hashedAsset(request, asset(new Response(null, { status, headers: { Location: "/" } })));
+      expect(response.status).toBe(404);
+      expect(response.headers.get("Location")).toBeNull();
+    }
+  });
+
+  it("lets a 304 revalidation through", async () => {
+    const response = await hashedAsset(request, asset(new Response(null, { status: 304 })));
+    expect(response.status).toBe(304);
+  });
 });
 
 describe("the Worker", () => {
+  it("answers a POST to a real-looking asset path with a 404, not a 405", async () => {
+    const response = await SELF.fetch("https://whoami.n8builds.dev/assets/index-OLDHASH0.js", { method: "POST" });
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("answers a crafted path that escapes /assets with a 404, never a redirect", async () => {
+    const response = await SELF.fetch("https://whoami.n8builds.dev/assets/..%2Findex.html", { redirect: "manual" });
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
   it("answers a missing file under /assets/ with a 404, never HTML", async () => {
     const response = await SELF.fetch("https://whoami.n8builds.dev/assets/index-OLDHASH0.js");
     expect(response.status).toBe(404);

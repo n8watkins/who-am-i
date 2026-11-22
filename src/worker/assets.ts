@@ -7,8 +7,11 @@ export const ASSETS_PATH_PREFIX = "/assets/";
 
 export async function hashedAsset(request: Request, env: { ASSETS: Fetcher }): Promise<Response> {
   const response = await env.ASSETS.fetch(request);
-  // Nothing under /assets/ is HTML, so an HTML answer is always the fallback for a missing file.
-  if (response.status === 404 || response.headers.get("Content-Type")?.startsWith("text/html")) {
+  // Only a real file (200, or 304 for a revalidation) may pass: anything else (a 404, a 405 for a
+  // POST, a redirect from a crafted path such as /assets/..%2Findex.html) would otherwise pick up the
+  // immutable header. Nothing under /assets/ is HTML, so an HTML answer is the SPA fallback.
+  const real = response.status === 200 || response.status === 304;
+  if (!real || response.headers.get("Content-Type")?.startsWith("text/html")) {
     await response.body?.cancel();
     return new Response("Not found", {
       status: 404,
