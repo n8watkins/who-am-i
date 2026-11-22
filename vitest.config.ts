@@ -19,14 +19,14 @@ export default defineConfig({
         test: {
           name: "workers",
           include: ["test/**/*.test.ts"],
-          exclude: ["test/party/**", "test/client/**"],
+          exclude: ["test/party/**", "test/client/**", "test/static/**"],
           setupFiles: ["./test/apply-migrations.ts"],
         },
       },
       {
         // The party adapter runs in plain Node, with no Workers runtime: that is the point of it.
         // Browser-only client code (test/client) runs here too, against stand-ins for the browser.
-        test: { name: "node", include: ["test/party/**/*.test.ts", "test/client/**/*.test.ts"], environment: "node" },
+        test: { name: "node", include: ["test/party/**/*.test.ts", "test/client/**/*.test.ts", "test/static/**/*.test.ts"], environment: "node" },
       },
     ],
   },

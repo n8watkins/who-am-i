@@ -4,3 +4,10 @@
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://upload.wikimedia.org; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+
+# Vite names everything under /assets with a hash of its content (scripts, styles and the Nunito
+# fonts), so a changed file always gets a new name and an old name never changes. Safe to keep
+# for a year. HTML and every unhashed file keep the default short cache. test/headers.test.ts
+# pins this.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

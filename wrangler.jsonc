@@ -20,7 +20,9 @@
     "directory": "./dist/client",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/healthz", "/api/*", "/s/*"]
+    // /assets/* goes through the Worker so a missing hashed file is a 404, not the SPA fallback
+    // (src/worker/assets.ts). Present files still come back from the asset layer unchanged.
+    "run_worker_first": ["/healthz", "/api/*", "/s/*", "/assets/*"]
   },
   "durable_objects": {
     "bindings": [

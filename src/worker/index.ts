@@ -24,6 +24,7 @@ import pkg from "../../package.json";
 import { CARD_MAX_BYTES, SHARE_PATH_PREFIX } from "../kit/shared/share-cards";
 import { checkCardPng, createCard, handleShareApi, shareCardPage } from "../kit/worker/share-cards";
 import { versionResponse, type VersionEnv } from "../kit/worker/version";
+import { ASSETS_PATH_PREFIX, hashedAsset } from "./assets";
 import { healthCheck } from "./health";
 import { packInfo } from "./content";
 import { PIN_DIRECTORY_NAME } from "./pin-directory";
@@ -312,6 +313,7 @@ export default {
         return env.ASSETS.fetch(request);
       }
     }
+    if (url.pathname.startsWith(ASSETS_PATH_PREFIX)) return hashedAsset(request, env);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
     try {
       return await handleApi(request, env, url);
