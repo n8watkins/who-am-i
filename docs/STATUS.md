@@ -3,7 +3,7 @@
 Last updated 2026-11-12.
 Paused by the owner on 2026-11-04.
 Read this first when work resumes, then `docs/V2_PLAN.md` sections 2a and 2b, which override older plan text.
-The owner's master list mirrors a short summary of this file: `~/projects/ops/MAINTENANCE.md`, section 4.
+The owner's master list mirrors a short summary of this file: `~/ops/MAINTENANCE.md`, section 4.
 When this file changes in a way that matters there, update that summary too.
 
 ## Current state
@@ -33,7 +33,7 @@ Blocking nothing yet:
 - A Gemini API key, needed only for AI-written content or AI answers.
 - Payments and a legal review, before anything costs money.
 - Branch protection on `main`, which is optional but stops a failing PR from being merged.
-- Rerun `set-cloudflare-deploy-token`, which adds the `CLOUDFLARE_API_TOKEN` repo secret here (`~/projects/ops/MAINTENANCE.md`, section 7).
+- Rerun `set-cloudflare-deploy-token`, which adds the `CLOUDFLARE_API_TOKEN` repo secret here (`~/ops/MAINTENANCE.md`, section 7).
 
 ## Open work, in order
 
@@ -55,7 +55,7 @@ Blocking nothing yet:
 - Repo: https://github.com/n8watkins/who-am-i
 - Plan of record: `docs/V2_PLAN.md`
 - Reasoning and game ideas: https://claude.ai/artifact/FD3rWDr5kRWZMKPDLrx7jb
-- Master maintenance list: `~/projects/ops/MAINTENANCE.md`
+- Master maintenance list: `~/ops/MAINTENANCE.md`
 - Owner's list across repos: `~/OWNER-TODO.md`
 
 ## Good to know
@@ -69,7 +69,7 @@ Blocking nothing yet:
 - GitHub sign-in and the difficulty tracking were removed on 2026-11-12, before either was switched on.
   The D1 database still holds their `users` and `identity_plays` tables (migration `0001`), which nothing reads or writes now.
   Dropping them would be a destructive migration, so it waits for the owner; `share_cards` stays, because every shared `/s/<id>` link depends on it.
-- A Sentry DSN is reserved for this app in `~/projects/ops/MAINTENANCE.md`, section 4, for when its code lands.
+- A Sentry DSN is reserved for this app in `~/ops/MAINTENANCE.md`, section 4, for when its code lands.
 - Other agent sessions have also worked on this repo, so check for open PRs and for worktrees before resuming.
 - `npm audit` reports moderate issues in dev tooling, blocked upstream by `eslint`, and the `minimatch` alert was dismissed for that reason.
 
